@@ -154,4 +154,6 @@ world-graph/
 
 ## License
 
-MIT
+GPL-3.0-or-later. 详见 [LICENSE](./LICENSE)。
+
+基于 Pi 智能体（@earendil-works/pi-agent-core, @earendil-works/pi-ai）开发。Pi 本身有其独立 license，请遵守相应规定。
