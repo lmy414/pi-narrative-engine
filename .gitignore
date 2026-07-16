@@ -1,0 +1,17 @@
+# 运行时生成（含可能的角色卡私有内容）
+world-graph/
+
+# 临时脱敏脚本
+sanitize-cards.ts
+
+# 依赖
+node_modules/
+
+# 日志
+*.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*~
