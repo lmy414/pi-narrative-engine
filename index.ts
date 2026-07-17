@@ -159,6 +159,14 @@ const narrativeStepTool = defineTool({
 				scheduler.reset();
 				rolePool.clear();
 				renderer.reset();
+				// 章节文件截断：删除被回退事件的渲染段
+				// modify/delete: 保留目标事件之前（不含目标）
+				// insert: 保留到目标事件之后（含目标）
+				if (params.intent === "insert") {
+					await renderer.truncateChapter(params.eventId, "after");
+				} else {
+					await renderer.truncateChapter(params.eventId, "before");
+				}
 			} catch (err) {
 				return {
 					content: [

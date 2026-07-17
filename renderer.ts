@@ -79,6 +79,8 @@ export class Renderer {
 	private currentChapterPath: string | null = null;
 	/** 当前章节号（用于自动编号） */
 	private currentChapterNum = 0;
+	/** 章节状态是否已从磁盘恢复（懒初始化，避免构造函数 async） */
+	private chapterStateInitialized = false;
 	private rules: RuleSet | null = null;
 
 	constructor(promptsDir: string, worldGraphDir: string, projectRoot: string | null) {
@@ -90,6 +92,131 @@ export class Renderer {
 		this.chapterOutputDir = projectRoot
 			? path.join(projectRoot, "正文")
 			: null;
+	}
+
+	/**
+	 * 扫描 chapterOutputDir 恢复章节状态（currentChapterNum / currentChapterPath）。
+	 * 进程重载后内存状态归零，不恢复会在下次 render 时覆盖已有章节文件。
+	 * 懒初始化：首次 writeToChapter / truncateChapter 时触发。
+	 */
+	private async initChapterState(): Promise<void> {
+		if (this.chapterStateInitialized || !this.chapterOutputDir) return;
+		this.chapterStateInitialized = true;
+		try {
+			await fs.mkdir(this.chapterOutputDir, { recursive: true });
+			const files = await fs.readdir(this.chapterOutputDir);
+			const chapters = files
+				.map((f) => {
+					const m = f.match(/^第(\d+)章-.*\.md$/);
+					return m ? { name: f, num: parseInt(m[1], 10) } : null;
+				})
+				.filter((x): x is { name: string; num: number } => x !== null)
+				.sort((a, b) => a.num - b.num);
+			if (chapters.length > 0) {
+				const latest = chapters[chapters.length - 1];
+				this.currentChapterNum = latest.num;
+				this.currentChapterPath = path.join(this.chapterOutputDir, latest.name);
+			}
+		} catch (err) {
+			console.error("[renderer] initChapterState failed:", err);
+		}
+	}
+
+	/**
+	 * 截断章节文件到目标事件之前或之后。
+	 * - mode="before"：保留目标事件之前的段（不含目标事件），用于 modify/delete
+	 * - mode="after"：保留到目标事件段结束（含目标事件），用于 insert
+	 * 跨章节时：截断目标文件，删除编号更大的章节文件，更新 currentChapter 指向被截断的文件。
+	 */
+	async truncateChapter(targetEventId: string, mode: "before" | "after"): Promise<void> {
+		if (!this.chapterOutputDir) return;
+		try {
+			await this.initChapterState();
+			const files = await fs.readdir(this.chapterOutputDir);
+			const chapters = files
+				.map((f) => {
+					const m = f.match(/^第(\d+)章-.*\.md$/);
+					return m
+						? { name: f, path: path.join(this.chapterOutputDir!, f), num: parseInt(m[1], 10) }
+						: null;
+				})
+				.filter((x): x is { name: string; path: string; num: number } => x !== null)
+				.sort((a, b) => a.num - b.num);
+
+			// 找到包含 targetEventId 的章节文件
+			let targetFile: { name: string; path: string; num: number } | null = null;
+			let targetContent = "";
+			for (const cf of chapters) {
+				const content = await fs.readFile(cf.path, "utf-8").catch(() => "");
+				if (content.includes(`<!-- event: ${targetEventId}`)) {
+					targetFile = cf;
+					targetContent = content;
+					break;
+				}
+			}
+			if (!targetFile) {
+				console.warn(`[renderer] truncateChapter: event ${targetEventId} not found in any chapter file`);
+				return;
+			}
+
+			// 按 event 注释分段
+			const lines = targetContent.split("\n");
+			const eventMarker = /^<!-- event: ([\w_]+) \|/;
+			const segments: { eventId: string; startLine: number; endLine: number }[] = [];
+			let currentEventId: string | null = null;
+			let currentStart = 0;
+			for (let i = 0; i < lines.length; i++) {
+				const match = lines[i].match(eventMarker);
+				if (match) {
+					if (currentEventId !== null) {
+						segments.push({ eventId: currentEventId, startLine: currentStart, endLine: i - 1 });
+					}
+					currentEventId = match[1];
+					currentStart = i;
+				}
+			}
+			if (currentEventId !== null) {
+				segments.push({ eventId: currentEventId, startLine: currentStart, endLine: lines.length - 1 });
+			}
+
+			const targetIdx = segments.findIndex((s) => s.eventId === targetEventId);
+			if (targetIdx === -1) {
+				console.warn(`[renderer] truncateChapter: event ${targetEventId} segment not found`);
+				return;
+			}
+
+			// 标题行
+			const titleLineIdx = lines.findIndex((l) => l.startsWith("# "));
+			const titleLine =
+				titleLineIdx >= 0 ? lines[titleLineIdx] : `# 第${String(targetFile.num).padStart(2, "0")}章`;
+
+			let keepLines: string[];
+			if (mode === "before") {
+				if (targetIdx === 0) {
+					keepLines = [titleLine, ""];
+				} else {
+					keepLines = lines.slice(0, segments[targetIdx - 1].endLine + 1);
+				}
+			} else {
+				keepLines = lines.slice(0, segments[targetIdx].endLine + 1);
+			}
+
+			const kept = keepLines.join("\n").replace(/\n+$/, "\n") + "\n";
+			await fs.writeFile(targetFile.path, kept, "utf-8");
+
+			// 删除编号更大的章节文件
+			for (const cf of chapters) {
+				if (cf.num > targetFile.num) {
+					await fs.unlink(cf.path).catch(() => {});
+				}
+			}
+
+			// 更新当前章节状态指向被截断的文件
+			this.currentChapterPath = targetFile.path;
+			this.currentChapterNum = targetFile.num;
+		} catch (err) {
+			console.error("[renderer] truncateChapter failed:", err);
+		}
 	}
 
 	/** 从文件加载提示词（构造时和 setRules 时调用） */
@@ -223,6 +350,7 @@ export class Renderer {
 		chapter?: ChapterInstruction,
 	): Promise<string | null> {
 		if (!this.chapterOutputDir) return null;
+		await this.initChapterState();
 		try {
 			await fs.mkdir(this.chapterOutputDir, { recursive: true });
 
