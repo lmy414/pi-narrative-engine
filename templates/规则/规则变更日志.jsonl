@@ -1,0 +1,5 @@
+# 规则变更日志（JSONL 格式，每行一条）
+# 引擎内部记录，不注入 prompt。与 git log 互补——git 管文件版本，日志管意图追溯。
+#
+# 格式：
+# {"id":"rule_001","op":"add|modify|delete","file":"文风规则.md","section":"禁止词库","content":"...","context":"何时为何所加","addedAt":"2026-07-17T12:00:00Z","relatedEventId":"evt_xxx"}

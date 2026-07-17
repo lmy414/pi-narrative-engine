@@ -12,7 +12,7 @@
 //   TAVERN_CHARACTERS_DIR  如果未提供命令行参数，则使用此环境变量
 //
 // 示例：
-//   npx tsx .pi/extensions/narrative-engine/import-cards.ts "D:/Chat8/SillyTavern/data/default-user/characters"
+//   npx tsx .pi/extensions/narrative-engine/import-cards.ts "/path/to/your/characters"
 //   TAVERN_CHARACTERS_DIR=/path/to/chars npx tsx .pi/extensions/narrative-engine/import-cards.ts
 
 import { promises as fs } from "node:fs";
@@ -37,46 +37,11 @@ function resolveTavernDir(): string {
 
 // 要导入的角色卡文件名（不带路径，相对于 tavern dir）
 // 如果留空，则扫描目录下所有 .json 文件
-const CARD_FILES: string[] | null = null; // ["诺艾尔.json", "露西亚.json"] 或 null = 全部 .json
+const CARD_FILES: string[] | null = null; // ["角色1.json", "角色2.json"] 或 null = 全部 .json
 
-// 规则关键词映射（中文 key → 规则 id）
-const RULE_KEYS: Record<string, string> = {
-	"魔法": "魔法体系",
-	"魔力": "魔法体系",
-	"魔法测试": "魔法体系",
-	"觉醒测试": "魔法体系",
-	"魔法频率": "魔法体系",
-	"魔法评级": "魔法体系",
-	"猎人": "猎人工会",
-	"猎人工会": "猎人工会",
-	"工会": "猎人工会",
-	"评级": "猎人工会",
-	"等级": "猎人工会",
-	"六阶": "猎人工会",
-	"法洛斯": "法洛斯",
-	"首都": "法洛斯",
-	"王都": "法洛斯",
-	"中央城": "法洛斯",
-	"莉法": "莉法与泽塔",
-	"泽塔": "莉法与泽塔",
-	"艾尔莎": "艾尔莎",
-	"露西亚": "露西亚",
-	"芙洛德莉斯": "露西亚",
-	"领主女儿": "露西亚",
-	"怪物": "怪物",
-	"魔物": "怪物",
-	"魔兽": "怪物",
-	"狼": "怪物",
-	"怪物潮": "怪物",
-	"贵族": "贵族与联姻",
-	"领主": "贵族与联姻",
-	"边境领主": "贵族与联姻",
-	"订婚": "贵族与联姻",
-	"联姻": "贵族与联姻",
-	"别邸": "别邸与小屋",
-	"森林小屋": "别邸与小屋",
-	"小屋": "别邸与小屋",
-};
+// 规则关键词映射：通用版本
+// 从 entry.name 或 entry.comment 推断规则 id，无硬编码小说内容
+const RULE_KEYS: Record<string, string> = {};
 
 interface CharacterBookEntry {
 	keys: string[];
@@ -284,28 +249,13 @@ async function main() {
 	console.log(`\n世界图目录: ${WORLD_DIR}`);
 }
 
-// 根据角色名推断初始位置
-function inferInitialLocation(name: string): string {
-	if (name === "诺艾尔") return "法洛斯";
-	if (name === "露西亚·芙洛德莉斯" || name === "露西亚") return "别邸";
+// 根据角色名推断初始位置（通用：返回空字符串，让用户在角色卡中设置）
+function inferInitialLocation(_name: string): string {
 	return "";
 }
 
-// 根据角色名推断初始关系
-function inferInitialRelationships(name: string): Record<string, number> {
-	if (name === "诺艾尔") {
-		return {
-			"莉法": 0.8,
-			"泽塔": 0.5,
-			"艾尔莎": 0.4,
-			"露西亚·芙洛德莉斯": 0.0, // 还没遇见
-		};
-	}
-	if (name === "露西亚·芙洛德莉斯" || name === "露西亚") {
-		return {
-			"诺艾尔": 0.0, // 还没遇见
-		};
-	}
+// 根据角色名推断初始关系（通用：返回空对象，让角色在叙事中自然建立关系）
+function inferInitialRelationships(_name: string): Record<string, number> {
 	return {};
 }
 

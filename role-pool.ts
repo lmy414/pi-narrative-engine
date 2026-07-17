@@ -14,6 +14,7 @@ import type {
 	StructuredOutput,
 	WorldEntry,
 } from "./types";
+import type { RuleSet } from "./rule-loader";
 
 // character_action 工具 schema（注入到角色子代理）
 const characterActionSchema = Type.Object({
@@ -51,9 +52,22 @@ function buildRoleSystemPrompt(
 	card: CharacterNode["card"],
 	roleBasePrompt: string,
 	currentState: CharacterNode["ne"]["state"],
+	rules: RuleSet | null,
 ): string {
 	const d = card.data;
 	const parts: string[] = [];
+
+	// 0. 工程规则（总规则 + 内容规则，角色演出约束）
+	if (rules) {
+		if (rules.common) {
+			parts.push("--- 总规则（始终遵守）---");
+			parts.push(rules.common);
+		}
+		if (rules.roles) {
+			parts.push("--- 内容规则（角色演出约束）---");
+			parts.push(rules.roles);
+		}
+	}
 
 	// 1. 通用角色扮演指令
 	parts.push(roleBasePrompt);
@@ -166,20 +180,30 @@ interface RoleAgentContext {
 export class RolePool {
 	private pool = new Map<string, RoleAgentContext>();
 	private roleBasePrompt: string;
+	private rules: RuleSet | null = null;
 
 	constructor(
 		private readonly graph: WorldGraph,
 		private readonly promptsDir: string,
 	) {
-		// 同步读取 role-base.md
+		this.roleBasePrompt = this.loadPrompt();
+	}
+
+	/** 从文件加载提示词（构造时和 setRules 时调用） */
+	private loadPrompt(): string {
 		try {
-			this.roleBasePrompt = readFileSync(
-				path.join(this.promptsDir, "role-base.md"),
-				"utf-8",
-			);
+			return readFileSync(path.join(this.promptsDir, "role-base.md"), "utf-8");
 		} catch {
-			this.roleBasePrompt = "你是角色扮演子代理。";
+			return "你是角色扮演子代理。";
 		}
+	}
+
+	/** 注入工程规则（RuleLoader 加载后调用）。同时重读 prompt 文件，实现热重载 */
+	setRules(rules: RuleSet): void {
+		this.rules = rules;
+		this.roleBasePrompt = this.loadPrompt();
+		// 规则或 prompt 变更后清空池，让所有角色重建 agent（新 systemPrompt 生效）
+		this.clear();
 	}
 
 	// 获取或创建角色子代理
@@ -196,6 +220,7 @@ export class RolePool {
 			node.card,
 			this.roleBasePrompt,
 			node.ne.state,
+			this.rules,
 		);
 
 		const actionTool = createCharacterActionTool(roleName);

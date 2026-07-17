@@ -24,6 +24,9 @@ import { WorldGraph } from "./world-graph";
 import { RolePool } from "./role-pool";
 import { Scheduler } from "./scheduler";
 import { Renderer } from "./renderer";
+import { RuleLoader, findProjectRoot } from "./rule-loader";
+import { initNovelTool } from "./init-tool";
+import { addRuleTool } from "./add-rule-tool";
 import type { EventNode } from "./types";
 
 interface NarrativeStepDetails {
@@ -38,6 +41,7 @@ interface NarrativeStepDetails {
 	commitSha: string;
 	diffusionCount: number;
 	renderOutputPath: string;
+	chapterPath: string | null;
 	status: "done";
 }
 
@@ -63,6 +67,12 @@ const narrativeStepTool = defineTool({
 		eventId: Type.Optional(
 			Type.String({ description: "modify/insert/delete 时目标事件ID" }),
 		),
+		start_new_chapter: Type.Optional(
+			Type.Boolean({ description: '是否开始新章节。用户说"开始新章节"/"第二章"等时设为 true' }),
+		),
+		chapter_title: Type.Optional(
+			Type.String({ description: "新章节标题（start_new_chapter=true 时使用，如 '初入王都'）" }),
+		),
 	}),
 
 	async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -84,6 +94,7 @@ const narrativeStepTool = defineTool({
 			commitSha: "",
 			diffusionCount: 0,
 			renderOutputPath: "",
+			chapterPath: null,
 			status: "done",
 		});
 
@@ -118,13 +129,36 @@ const narrativeStepTool = defineTool({
 			diffusions: [],
 		};
 
-		// 步骤 0.5：modify/insert/delete 先回退（如果有 eventId）
-		if (
-			(params.intent === "modify" || params.intent === "insert" || params.intent === "delete") &&
-			params.eventId
-		) {
+		// 步骤 0.5：modify/insert/delete 回退 + 子代理重置
+		// rollback 的 git reset 已把 narrative.txt 回退到目标点，后续渲染用 append 在回退文本上追加
+		const needsRollback =
+			params.intent === "modify" ||
+			params.intent === "insert" ||
+			params.intent === "delete";
+		if (needsRollback) {
+			if (!params.eventId) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `${params.intent} 意图需要 eventId 参数。`,
+						},
+					],
+					details: errDetails(),
+					terminate: true,
+				};
+			}
 			try {
-				await graph.rollback(params.eventId);
+				// insert 在目标事件之后插入（保留目标事件）；modify/delete 回退到目标事件之前
+				if (params.intent === "insert") {
+					await graph.rollbackToAfter(params.eventId);
+				} else {
+					await graph.rollback(params.eventId);
+				}
+				// rollback 后子代理累积上下文已失效（世界状态已回退），清空重建
+				scheduler.reset();
+				rolePool.clear();
+				renderer.reset();
 			} catch (err) {
 				return {
 					content: [
@@ -154,6 +188,28 @@ const narrativeStepTool = defineTool({
 			return {
 				content: [{ type: "text" as const, text: resultText }],
 				details: errDetails(event.id),
+				terminate: true,
+			};
+		}
+
+		// delete 意图：回退后不走流水线，返回状态摘要
+		// rollback 已删除目标事件及之后的所有事件 + 回退世界状态
+		if (params.intent === "delete") {
+			const events = await graph.loadEvents();
+			const chars = await graph.listCharacters();
+			const summary = [
+				`已删除事件 ${params.eventId} 及其后续。`,
+				`当前事件数：${events.length}`,
+				`角色：${chars.join(", ") || "(无)"}`,
+				"",
+				"剩余事件：",
+				...events.slice(-10).map(
+					(e) => `  - [${e.time}] ${e.what} @${e.place} (${e.characters.join(",")})`,
+				),
+			].join("\n");
+			return {
+				content: [{ type: "text" as const, text: summary }],
+				details: errDetails(params.eventId ?? ""),
 				terminate: true,
 			};
 		}
@@ -200,7 +256,10 @@ const narrativeStepTool = defineTool({
 		// 步骤 5：写回世界图（关系值增量、knowledge 追加、emotion/location 覆盖）
 		await graph.writeBack(diffusions);
 
-		// 步骤 6：提交 git
+		// 步骤 6：追加事件到事件序列（必须在 commit 之前，让 git commit 包含完整 events.json）
+		await graph.appendEvent(event);
+
+		// 步骤 7：提交 git（包含 events.json + 角色状态 + 当前 narrative.txt）
 		const commitSha = await graph.commit(event);
 		event.commitSha = commitSha;
 		event.diffusions = diffusions.map((d) => ({
@@ -210,10 +269,7 @@ const narrativeStepTool = defineTool({
 			newValue: d.newValue,
 		}));
 
-		// 追加事件到事件序列
-		await graph.appendEvent(event);
-
-		// 步骤 7：渲染（独立 Agent，按调度器指定的风格和重点渲染）
+		// 步骤 8：渲染（写入运行时 narrative.txt + 工程正文/章节文件）
 		const renderResult = await renderer.render(
 			event,
 			structuredOutputs,
@@ -222,6 +278,11 @@ const narrativeStepTool = defineTool({
 			"append",
 			model,
 			apiKey,
+			undefined,
+			{
+				startNewChapter: params.start_new_chapter ?? false,
+				chapterTitle: params.chapter_title,
+			},
 		);
 
 		const roleActions = structuredOutputs.map((o) => `${o.actor}: ${o.action}`);
@@ -240,6 +301,7 @@ const narrativeStepTool = defineTool({
 				commitSha,
 				diffusionCount: diffusions.length,
 				renderOutputPath: renderer.getOutputPath(),
+				chapterPath: renderResult.chapterPath,
 				status: "done" as const,
 			} satisfies NarrativeStepDetails,
 			terminate: true,
@@ -258,7 +320,7 @@ const narrativeStepTool = defineTool({
 		);
 		const meta = theme.fg(
 			"muted",
-			`characters: ${details.characters.join(", ")} | style: ${details.renderStyle} | diffusions: ${details.diffusionCount} | commit: ${details.commitSha.slice(0, 7)}`,
+			`characters: ${details.characters.join(", ")} | style: ${details.renderStyle} | diffusions: ${details.diffusionCount} | commit: ${details.commitSha.slice(0, 7)}${details.chapterPath ? ` | chapter: ${path.basename(details.chapterPath)}` : ""}`,
 		);
 		const body = result.content[0]?.type === "text" ? result.content[0].text : "";
 		return new Text(`${header}\n${meta}\n\n${body}`, 0, 0);
@@ -376,24 +438,42 @@ export default function (pi: ExtensionAPI) {
 	// 初始化世界图 + 子代理
 	const worldGraphDir = path.join(process.cwd(), ".pi", "world-graph");
 	const promptsDir = path.join(process.cwd(), ".pi", "extensions", "narrative-engine", "prompts");
+	const templatesDir = path.join(process.cwd(), ".pi", "extensions", "narrative-engine", "templates");
+
+	// RuleLoader：从 novel.yaml 所在目录加载工程规则
+	const projectRoot = findProjectRoot(process.cwd());
+	const ruleLoader = new RuleLoader(projectRoot ?? process.cwd());
+
 	const graph = new WorldGraph(pi, worldGraphDir);
 	const scheduler = new Scheduler(promptsDir);
 	const rolePool = new RolePool(graph, promptsDir);
-	const renderer = new Renderer(promptsDir, worldGraphDir);
+	const renderer = new Renderer(promptsDir, worldGraphDir, projectRoot);
 
 	(globalThis as { __narrativeGraph?: WorldGraph }).__narrativeGraph = graph;
 	(globalThis as { __narrativeScheduler?: Scheduler }).__narrativeScheduler = scheduler;
 	(globalThis as { __narrativeRolePool?: RolePool }).__narrativeRolePool = rolePool;
 	(globalThis as { __narrativeRenderer?: Renderer }).__narrativeRenderer = renderer;
+	(globalThis as { __narrativeRuleLoader?: RuleLoader }).__narrativeRuleLoader = ruleLoader;
+	(globalThis as { __narrativeTemplatesDir?: string }).__narrativeTemplatesDir = templatesDir;
 
 	// 注册工具
 	pi.registerTool(narrativeStepTool);
 	pi.registerTool(queryWorldGraphTool);
+	pi.registerTool(initNovelTool);
+	pi.registerTool(addRuleTool);
 
-	// session 启动时初始化世界图
+	// session 启动时初始化世界图 + 加载工程规则
 	pi.on("session_start", async (event, ctx) => {
 		try {
 			await graph.init();
+			// 清空 WorldGraph 内存缓存，下次读取从磁盘加载
+			// 确保 /new 或重启 session 后能读到角色卡文件的最新修改
+			graph.clearCache();
+			// 加载工程规则并注入三个子代理（同时重读 prompt 文件）
+			const rules = ruleLoader.load();
+			scheduler.setRules(rules);
+			rolePool.setRules(rules);
+			renderer.setRules(rules);
 			// 重置子代理状态（新 session 清空上下文）
 			scheduler.reset();
 			rolePool.clear();
@@ -401,8 +481,10 @@ export default function (pi: ExtensionAPI) {
 			if (event.reason === "new") {
 				const charCount = (await graph.listCharacters()).length;
 				const eventCount = (await graph.loadEvents()).length;
+				const novel = ruleLoader.loadNovelMeta();
+				const novelInfo = novel ? ` | ${novel.title} (${novel.genre})` : "";
 				ctx.ui.notify(
-					`Narrative engine loaded. ${charCount} characters, ${eventCount} events.`,
+					`Narrative engine loaded. ${charCount} characters, ${eventCount} events${novelInfo}.`,
 					"info",
 				);
 			}

@@ -19,6 +19,7 @@ import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent
 import { streamSimple, type Model } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { Diffusion, EventNode, StructuredOutput, WorldEntry } from "./types";
+import type { RuleSet } from "./rule-loader";
 
 // ============================================================
 // plan 工具：第一阶段，制定分配方案
@@ -114,18 +115,50 @@ export type Schedule = {
 
 export class Scheduler {
 	private agent: Agent | null = null;
-	private systemPrompt: string;
+	private baseSystemPrompt: string;
+	private readonly promptsDir: string;
 	private planTool: AgentTool<typeof planSchema, PlanDetails>;
 	private diffuseTool: AgentTool<typeof diffuseSchema, DiffuseDetails>;
+	private rules: RuleSet | null = null;
 
 	constructor(promptsDir: string) {
-		try {
-			this.systemPrompt = readFileSync(path.join(promptsDir, "scheduler.md"), "utf-8");
-		} catch {
-			this.systemPrompt = "你是叙事调度器。";
-		}
+		this.promptsDir = promptsDir;
+		this.baseSystemPrompt = this.loadPrompt();
 		this.planTool = createPlanTool();
 		this.diffuseTool = createDiffuseTool();
+	}
+
+	/** 从文件加载提示词（构造时和 setRules 时调用） */
+	private loadPrompt(): string {
+		try {
+			return readFileSync(path.join(this.promptsDir, "scheduler.md"), "utf-8");
+		} catch {
+			return "你是叙事调度器。";
+		}
+	}
+
+	/** 注入工程规则（RuleLoader 加载后调用）。同时重读 prompt 文件，实现热重载 */
+	setRules(rules: RuleSet): void {
+		this.rules = rules;
+		this.baseSystemPrompt = this.loadPrompt();
+		// 规则或 prompt 变更后需要重建 agent，让新 systemPrompt 生效
+		this.agent = null;
+	}
+
+	private buildSystemPrompt(): string {
+		if (!this.rules) return this.baseSystemPrompt;
+		const parts: string[] = [];
+		if (this.rules.common) {
+			parts.push("--- 总规则（始终遵守）---");
+			parts.push(this.rules.common);
+		}
+		if (this.rules.scheduler) {
+			parts.push("--- 内容规则（分配可见性与角色演出约束）---");
+			parts.push(this.rules.scheduler);
+		}
+		parts.push("--- 调度器职责 ---");
+		parts.push(this.baseSystemPrompt);
+		return parts.join("\n\n");
 	}
 
 	private getOrCreateAgent(model: Model<any>, apiKey: string | undefined): Agent {
@@ -133,7 +166,7 @@ export class Scheduler {
 
 		this.agent = new Agent({
 			initialState: {
-				systemPrompt: this.systemPrompt,
+				systemPrompt: this.buildSystemPrompt(),
 				model,
 				thinkingLevel: "low",
 				tools: [this.planTool, this.diffuseTool],

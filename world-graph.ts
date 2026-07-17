@@ -201,6 +201,17 @@ export class WorldGraph {
 		return removed;
 	}
 
+	// 截断事件序列：移除指定事件之后的所有事件（保留目标事件本身）
+	// 用于 insert 意图：在目标事件之后插入新事件，丢弃后续
+	async truncateEventsAfter(eventId: string): Promise<EventNode[]> {
+		const events = await this.loadEvents();
+		const idx = events.findIndex((e) => e.id === eventId);
+		if (idx === -1) return [];
+		const removed = events.splice(idx + 1);
+		await this.saveEvents(events);
+		return removed;
+	}
+
 	// ============================================================
 	// 关系边
 	// ============================================================
@@ -421,10 +432,10 @@ export class WorldGraph {
 	// ============================================================
 
 	async commit(event: EventNode): Promise<string> {
-		await this.git("add", "-A");
+		await this.gitOrThrow("add", "-A");
 		const msg = `event: ${event.what} @${event.place} ${event.time}`;
-		await this.git("commit", "-m", msg);
-		const result = await this.git("rev-parse", "HEAD");
+		await this.gitOrThrow("commit", "-m", msg);
+		const result = await this.gitOrThrow("rev-parse", "HEAD");
 		return result.stdout.trim();
 	}
 
@@ -433,13 +444,63 @@ export class WorldGraph {
 		if (!event) throw new Error(`Event not found: ${eventId}`);
 		if (!event.commitSha) throw new Error(`Event has no commit SHA: ${eventId}`);
 
-		// reset 到该事件之前
-		await this.git("reset", "--hard", `${event.commitSha}^`);
+		// 记录原 HEAD，失败时恢复
+		const origHead = (await this.git("rev-parse", "HEAD")).stdout.trim();
 
-		// 从 events.json 移除该事件及之后的事件
-		await this.truncateEventsFrom(eventId);
+		// 前置验证：目标 commit 和其父 commit 都必须存在
+		await this.gitOrThrow("cat-file", "-e", `${event.commitSha}^{commit}`);
+		await this.gitOrThrow("cat-file", "-e", `${event.commitSha}^^{commit}`);
 
-		// 清除缓存，下次读取会从磁盘重新加载
+		// reset 到该事件之前（父 commit）
+		await this.gitOrThrow("reset", "--hard", `${event.commitSha}^`);
+
+		// git reset 已把 events.json 回退到目标事件之前的状态（不含目标事件）。
+		// truncate 作为安全网：若 commit/append 顺序曾导致不一致，显式截断目标及之后。
+		try {
+			await this.truncateEventsFrom(eventId);
+		} catch (err) {
+			// 截断失败，尝试恢复原 HEAD
+			await this.git("reset", "--hard", origHead).catch(() => {});
+			throw new Error(
+				`rollback truncate failed, restored to original HEAD ${origHead.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+
+		this.clearCache();
+	}
+
+	// 回退到目标事件之后（保留目标事件，丢弃后续）
+	// 用于 insert 意图：在目标事件之后插入新事件
+	async rollbackToAfter(eventId: string): Promise<void> {
+		const event = await this.getEvent(eventId);
+		if (!event) throw new Error(`Event not found: ${eventId}`);
+		if (!event.commitSha) throw new Error(`Event has no commit SHA: ${eventId}`);
+
+		// 记录原 HEAD，失败时恢复
+		const origHead = (await this.git("rev-parse", "HEAD")).stdout.trim();
+
+		// 前置验证：目标 commit 必须存在
+		await this.gitOrThrow("cat-file", "-e", `${event.commitSha}^{commit}`);
+
+		// reset 到该事件本身的 commit（保留目标事件），丢弃后续 commit
+		await this.gitOrThrow("reset", "--hard", event.commitSha);
+
+		// 从 events.json 移除目标事件之后的事件（保留目标事件）
+		try {
+			await this.truncateEventsAfter(eventId);
+		} catch (err) {
+			await this.git("reset", "--hard", origHead).catch(() => {});
+			throw new Error(
+				`rollbackToAfter truncate failed, restored to original HEAD ${origHead.slice(0, 7)}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+
+		this.clearCache();
+	}
+
+	// 清除所有内存缓存，下次读取从磁盘加载
+	// public：让 index.ts 在 session_start / 规则变更 / 角色卡修改后调用
+	clearCache(): void {
 		this.characterCache.clear();
 		this.eventsCache = null;
 		this.relationsCache = null;
@@ -463,6 +524,17 @@ export class WorldGraph {
 	private async git(...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
 		const result = await this.pi.exec("git", args, { cwd: this.rootDir });
 		return { stdout: result.stdout, stderr: result.stderr, code: result.code };
+	}
+
+	// 严格模式：非 0 退出码抛错，避免静默失败导致状态不一致
+	private async gitOrThrow(...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+		const result = await this.git(...args);
+		if (result.code !== 0) {
+			throw new Error(
+				`git ${args.join(" ")} failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
+			);
+		}
+		return result;
 	}
 }
 

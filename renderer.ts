@@ -16,6 +16,8 @@ import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent
 import { streamSimple, type Model } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { EventNode, RenderMode, StructuredOutput } from "./types";
+import type { RuleSet } from "./rule-loader";
+import { tagRenderOutput } from "./version";
 
 // ============================================================
 // render 工具
@@ -53,22 +55,73 @@ function createRenderTool(): AgentTool<typeof renderSchema, RenderDetails> {
 export type RenderResult = {
 	text: string;
 	mode: RenderMode;
+	chapterPath: string | null;
+};
+
+/** 章节指令（主会话判断后通过 narrative_step 传入） */
+export type ChapterInstruction = {
+	/** 是否开始新章节 */
+	startNewChapter: boolean;
+	/** 新章节标题（startNewChapter=true 时使用） */
+	chapterTitle?: string;
 };
 
 export class Renderer {
 	private agent: Agent | null = null;
-	private systemPrompt: string;
+	private baseSystemPrompt: string;
+	private readonly promptsDir: string;
 	private renderTool: AgentTool<typeof renderSchema, RenderDetails>;
-	private readonly outputPath: string;
+	/** 运行时输出路径（world-graph/narrative.txt，用于 git 版本管理） */
+	private readonly runtimeOutputPath: string;
+	/** 工程正文目录路径（正文/，给用户的最终产物）。无工程时为 null */
+	private readonly chapterOutputDir: string | null;
+	/** 当前章节文件路径（append 时写入此文件）。null 表示尚无章节 */
+	private currentChapterPath: string | null = null;
+	/** 当前章节号（用于自动编号） */
+	private currentChapterNum = 0;
+	private rules: RuleSet | null = null;
 
-	constructor(promptsDir: string, worldGraphDir: string) {
-		try {
-			this.systemPrompt = readFileSync(path.join(promptsDir, "renderer.md"), "utf-8");
-		} catch {
-			this.systemPrompt = "你是叙事渲染器。";
-		}
+	constructor(promptsDir: string, worldGraphDir: string, projectRoot: string | null) {
+		this.promptsDir = promptsDir;
+		this.baseSystemPrompt = this.loadPrompt();
 		this.renderTool = createRenderTool();
-		this.outputPath = path.join(worldGraphDir, "narrative.txt");
+		this.runtimeOutputPath = path.join(worldGraphDir, "narrative.txt");
+		// 工程正文目录：projectRoot/正文/
+		this.chapterOutputDir = projectRoot
+			? path.join(projectRoot, "正文")
+			: null;
+	}
+
+	/** 从文件加载提示词（构造时和 setRules 时调用） */
+	private loadPrompt(): string {
+		try {
+			return readFileSync(path.join(this.promptsDir, "renderer.md"), "utf-8");
+		} catch {
+			return "你是叙事渲染器。";
+		}
+	}
+
+	/** 注入工程规则（RuleLoader 加载后调用）。同时重读 prompt 文件，实现热重载 */
+	setRules(rules: RuleSet): void {
+		this.rules = rules;
+		this.baseSystemPrompt = this.loadPrompt();
+		this.agent = null;
+	}
+
+	private buildSystemPrompt(): string {
+		if (!this.rules) return this.baseSystemPrompt;
+		const parts: string[] = [];
+		if (this.rules.common) {
+			parts.push("--- 总规则（始终遵守）---");
+			parts.push(this.rules.common);
+		}
+		if (this.rules.renderer) {
+			parts.push("--- 文风规则 + 检查清单（渲染时遵守）---");
+			parts.push(this.rules.renderer);
+		}
+		parts.push("--- 渲染器职责 ---");
+		parts.push(this.baseSystemPrompt);
+		return parts.join("\n\n");
 	}
 
 	private getOrCreateAgent(model: Model<any>, apiKey: string | undefined): Agent {
@@ -76,7 +129,7 @@ export class Renderer {
 
 		this.agent = new Agent({
 			initialState: {
-				systemPrompt: this.systemPrompt,
+				systemPrompt: this.buildSystemPrompt(),
 				model,
 				thinkingLevel: "low",
 				tools: [this.renderTool],
@@ -102,6 +155,7 @@ export class Renderer {
 		model: Model<any>,
 		apiKey: string | undefined,
 		signal?: AbortSignal,
+		chapter?: ChapterInstruction,
 	): Promise<RenderResult> {
 		const agent = this.getOrCreateAgent(model, apiKey);
 		const prompt = buildRenderPrompt(event, outputs, renderStyle, focus, mode);
@@ -132,31 +186,96 @@ export class Renderer {
 		const text = result?.text ?? fallbackRender(event, outputs, renderStyle, focus);
 		const resultMode: RenderMode = (result?.mode as RenderMode) ?? mode;
 
-		// 写入文件
-		await this.writeToFile(text, resultMode);
+		// 加版本标记（HTML 注释，不影响阅读）
+		const taggedText = tagRenderOutput(text);
 
-		return { text, mode: resultMode };
+		// 写入运行时文件（world-graph/narrative.txt，用于 git 版本管理）
+		await this.writeToRuntime(taggedText, resultMode);
+
+		// 写入工程正文文件（按章节分文件）
+		const chapterPath = await this.writeToChapter(taggedText, resultMode, event, chapter);
+
+		return { text: taggedText, mode: resultMode, chapterPath };
 	}
 
-	// 写入 narrative.txt
-	private async writeToFile(text: string, mode: RenderMode): Promise<void> {
+	// 写入运行时 narrative.txt（world-graph 内部，git 追踪）
+	private async writeToRuntime(text: string, mode: RenderMode): Promise<void> {
 		try {
 			if (mode === "rewrite") {
-				// 重写模式：覆盖文件
-				await fs.writeFile(this.outputPath, text + "\n\n", "utf-8");
+				await fs.writeFile(this.runtimeOutputPath, text + "\n\n", "utf-8");
 			} else {
-				// append 模式：追加
-				const existing = await fs.readFile(this.outputPath, "utf-8").catch(() => "");
-				await fs.writeFile(this.outputPath, existing + text + "\n\n", "utf-8");
+				const existing = await fs.readFile(this.runtimeOutputPath, "utf-8").catch(() => "");
+				await fs.writeFile(this.runtimeOutputPath, existing + text + "\n\n", "utf-8");
 			}
 		} catch (err) {
-			console.error("[renderer] writeToFile failed:", err);
+			console.error("[renderer] writeToRuntime failed:", err);
 		}
 	}
 
-	// 获取输出文件路径（供主流程记录到 details）
+	// 写入工程正文文件（按章节分文件）
+	// - chapter.startNewChapter=true → 创建新章节文件，更新 currentChapterPath
+	// - 否则追加到当前章节文件（无当前章节时自动创建第 1 章）
+	// 返回写入的章节文件路径
+	private async writeToChapter(
+		text: string,
+		mode: RenderMode,
+		event: EventNode,
+		chapter?: ChapterInstruction,
+	): Promise<string | null> {
+		if (!this.chapterOutputDir) return null;
+		try {
+			await fs.mkdir(this.chapterOutputDir, { recursive: true });
+
+			// 判断是否需要开新章节
+			const needNewChapter =
+				chapter?.startNewChapter === true || this.currentChapterPath === null;
+
+			if (needNewChapter) {
+				this.currentChapterNum += 1;
+				const num = String(this.currentChapterNum).padStart(2, "0");
+				const title = chapter?.chapterTitle ?? `第${this.currentChapterNum}章`;
+				// 文件名：第01章-初入王都.md（标题为空时只有编号）
+				const safeTitle = title.replace(/[<>:"/\\|?*]/g, "").slice(0, 30);
+				const fileName = `第${num}章-${safeTitle}.md`;
+				const chapterPath = path.join(this.chapterOutputDir, fileName);
+
+				const header = `# 第${num}章 ${title}\n\n<!-- event: ${event.id} | ${event.time} @ ${event.place} | ${event.what} -->\n\n`;
+				// 新章节总是覆盖写（rewrite 模式天然如此；append 模式下新章节也从头开始）
+				await fs.writeFile(chapterPath, `${header}${text}\n`, "utf-8");
+				this.currentChapterPath = chapterPath;
+				return chapterPath;
+			}
+
+			// 追加到当前章节
+			const chapterPath = this.currentChapterPath!;
+			const header = `\n\n<!-- event: ${event.id} | ${event.time} @ ${event.place} | ${event.what} -->\n\n`;
+			if (mode === "rewrite") {
+				// rewrite 模式：覆盖当前章节文件
+				const existing = await fs.readFile(chapterPath, "utf-8").catch(() => "");
+				// 保留章节标题行
+				const titleLine = existing.split("\n").find((l) => l.startsWith("# "));
+				const titleHeader = titleLine ? `${titleLine}\n\n` : "";
+				await fs.writeFile(chapterPath, `${titleHeader}${header}${text}\n`, "utf-8");
+			} else {
+				// append 模式：追加到当前章节
+				const existing = await fs.readFile(chapterPath, "utf-8").catch(() => "");
+				await fs.writeFile(chapterPath, existing + `${header}${text}\n`, "utf-8");
+			}
+			return chapterPath;
+		} catch (err) {
+			console.error("[renderer] writeToChapter failed:", err);
+			return null;
+		}
+	}
+
+	/** 获取当前章节文件路径（供外部查询） */
+	getCurrentChapterPath(): string | null {
+		return this.currentChapterPath;
+	}
+
+	// 获取运行时输出路径（供主流程记录到 details）
 	getOutputPath(): string {
-		return this.outputPath;
+		return this.runtimeOutputPath;
 	}
 
 	reset(): void {
