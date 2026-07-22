@@ -1,0 +1,310 @@
+/**
+ * routes.ts — world-graph 可视化服务的 JSON API 路由
+ *
+ * 全部端点挂在 /api 前缀下，统一响应 envelope：
+ *   成功 { ok: true, data, error: null }
+ *   失败 { ok: false, data: null, error: { code, message } }
+ *
+ * 写路径一律走 WorldGraph 公开方法；POST /api/events 强制 source: "user"
+ * （前端编辑产生的事件与引擎扩散事件区分）。
+ *
+ * 检索：server 注入可选 Search 实例；standalone 无 embedder 时
+ * forceFulltext=true（Search.fulltext 不依赖 embedder，见 src/search.ts）。
+ */
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { WorldGraph } from "@pi/world-graph";
+import type { EventRecordInput } from "@pi/world-graph";
+import type { Search } from "../search.ts";
+
+export interface VisualizerContext {
+  wg: WorldGraph;
+  search: Search | null;
+  /** standalone 无 embedder 时为 true：/api/search 强制 fulltext */
+  forceFulltext: boolean;
+}
+
+type JsonValue = unknown;
+
+function send(res: ServerResponse, status: number, payload: JsonValue): void {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+  });
+  res.end(body);
+}
+
+function ok(res: ServerResponse, data: JsonValue, status = 200): void {
+  send(res, status, { ok: true, data, error: null });
+}
+
+function fail(res: ServerResponse, status: number, code: string, message: string): void {
+  send(res, status, { ok: false, data: null, error: { code, message } });
+}
+
+/** storyTime 必填端点的参数提取，缺失时抛带 code 的错误 */
+function requireStoryTime(url: URL): string {
+  const st = url.searchParams.get("storyTime");
+  if (!st) {
+    const err = new Error("缺少必填参数 storyTime") as Error & { httpCode?: number; code?: string };
+    err.httpCode = 400;
+    err.code = "STORY_TIME_REQUIRED";
+    throw err;
+  }
+  return st;
+}
+
+/** 请求体字段校验 */
+function requireFields(body: unknown, fields: string[]): Record<string, unknown> {
+  if (body === null || typeof body !== "object") {
+    const err = new Error("请求体必须是 JSON 对象") as Error & { httpCode?: number; code?: string };
+    err.httpCode = 400;
+    err.code = "INVALID_BODY";
+    throw err;
+  }
+  const obj = body as Record<string, unknown>;
+  for (const f of fields) {
+    if (obj[f] === undefined || obj[f] === null) {
+      const err = new Error(`请求体缺少字段 ${f}`) as Error & { httpCode?: number; code?: string };
+      err.httpCode = 400;
+      err.code = "MISSING_FIELD";
+      throw err;
+    }
+  }
+  return obj;
+}
+
+/**
+ * 处理 /api 请求。始终写出响应（未知 /api 路由 → 404 NOT_FOUND）。
+ * 由 server.ts 在确认 pathname 以 /api 开头后调用。
+ */
+export async function handleApi(
+  ctx: VisualizerContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  body: unknown,
+): Promise<void> {
+  const { wg, search } = ctx;
+  const method = req.method ?? "GET";
+  // 去掉 /api 前缀后的路径段
+  const segments = url.pathname
+    .slice("/api".length)
+    .split("/")
+    .filter(Boolean)
+    .map((s) => decodeURIComponent(s));
+
+  try {
+    if (method === "GET") {
+      await handleGet(ctx, res, url, segments);
+    } else if (method === "POST") {
+      await handlePost(wg, res, segments, body);
+    } else if (method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+    } else {
+      fail(res, 404, "NOT_FOUND", `未找到路由 ${method} ${url.pathname}`);
+    }
+  } catch (err) {
+    const e = err as Error & { httpCode?: number; code?: string };
+    if (typeof e.httpCode === "number") {
+      fail(res, e.httpCode, e.code ?? "BAD_REQUEST", e.message);
+    } else if (method === "POST") {
+      // 写路径：WorldGraph 方法抛出的均为业务错误（实体不存在/已闭合/zod 校验）
+      const isZod = (err as { name?: string }).name === "ZodError";
+      fail(res, 400, isZod ? "VALIDATION_ERROR" : "BUSINESS_ERROR", e.message);
+    } else {
+      fail(res, 500, "INTERNAL_ERROR", e.message);
+    }
+  }
+}
+
+async function handleGet(
+  ctx: VisualizerContext,
+  res: ServerResponse,
+  url: URL,
+  segments: string[],
+): Promise<void> {
+  const { wg, search } = ctx;
+  const [head, id, sub] = segments;
+
+  // GET /api/status
+  if (head === "status" && segments.length === 1) {
+    const storyTimes = await wg.listStoryTimes();
+    const latest = storyTimes[storyTimes.length - 1];
+    const entities = latest ? await wg.getAllEntities(latest) : [];
+    const events = await wg.getAllEvents();
+    ok(res, { entityCount: entities.length, eventCount: events.length, storyTimes });
+    return;
+  }
+
+  // GET /api/graph?storyTime=&includeClosed=
+  if (head === "graph" && segments.length === 1) {
+    const storyTime = requireStoryTime(url);
+    const entities = await wg.getAllEntities(storyTime);
+    const includeClosed = url.searchParams.get("includeClosed") === "1";
+    const relations = includeClosed
+      ? await wg.getRelationHistory()
+      : await wg.getAllRelationsAt(storyTime);
+    ok(res, { entities, relations });
+    return;
+  }
+
+  // GET /api/entities/:id?storyTime=  /  GET /api/entities/:id/history
+  if (head === "entities" && id) {
+    if (sub === "history") {
+      const history = await wg.getEntityHistory(id);
+      const relations = await wg.getRelationHistory(id);
+      ok(res, { ...history, relations });
+      return;
+    }
+    if (!sub) {
+      const storyTime = requireStoryTime(url);
+      const snap = await wg.getEntityAt(id, storyTime);
+      if (!snap) {
+        fail(res, 404, "ENTITY_NOT_FOUND", `实体 ${id} 在 ${storyTime} 不存在`);
+        return;
+      }
+      ok(res, snap);
+      return;
+    }
+  }
+
+  // GET /api/declarations/:declId/visibility?storyTime=
+  if (head === "declarations" && id && sub === "visibility") {
+    const storyTime = url.searchParams.get("storyTime") ?? undefined;
+    const list = await wg.getVisibilityForDeclaration(id, storyTime);
+    ok(res, { declarationId: id, visibility: list });
+    return;
+  }
+
+  // GET /api/search?q=&storyTime=&type=&mode=
+  if (head === "search" && segments.length === 1) {
+    if (!search) {
+      fail(res, 501, "SEARCH_UNAVAILABLE", "检索不可用（未注入 Search 实例）");
+      return;
+    }
+    const q = url.searchParams.get("q");
+    if (!q) {
+      fail(res, 400, "MISSING_FIELD", "缺少必填参数 q");
+      return;
+    }
+    const storyTime = requireStoryTime(url);
+    const modeParam = url.searchParams.get("mode");
+    const mode = ctx.forceFulltext
+      ? "fulltext"
+      : ((modeParam as "fulltext" | "vector" | "hybrid" | null) ?? "hybrid");
+    const typeFilter = url.searchParams.get("type") as
+      | "character" | "location" | "item" | "concept" | null;
+    const results = await search.search(q, {
+      storyTime,
+      mode,
+      ...(typeFilter ? { typeFilter } : {}),
+    });
+    ok(res, { results });
+    return;
+  }
+
+  // GET /api/events  /  GET /api/events/:id/chain
+  if (head === "events") {
+    if (id && sub === "chain") {
+      const chain = await wg.traceCauses(id);
+      ok(res, { events: chain });
+      return;
+    }
+    if (segments.length === 1) {
+      const events = await wg.getAllEvents();
+      ok(res, { events });
+      return;
+    }
+  }
+
+  // GET /api/character-view?characterId=&storyTime=
+  if (head === "character-view" && segments.length === 1) {
+    const characterId = url.searchParams.get("characterId");
+    if (!characterId) {
+      fail(res, 400, "MISSING_FIELD", "缺少必填参数 characterId");
+      return;
+    }
+    const storyTime = requireStoryTime(url);
+    const view = await wg.getCharacterView(characterId, storyTime);
+    ok(res, { view });
+    return;
+  }
+
+  fail(res, 404, "NOT_FOUND", `未找到路由 GET ${url.pathname}`);
+}
+
+async function handlePost(
+  wg: WorldGraph,
+  res: ServerResponse,
+  segments: string[],
+  body: unknown,
+): Promise<void> {
+  const [head, id, sub] = segments;
+
+  // POST /api/events — body 为 EventRecordInput，强制 source: "user"
+  if (head === "events" && segments.length === 1) {
+    const obj = requireFields(body, ["eventId", "type", "storyTime", "entityId"]);
+    const input = { ...obj, source: "user" } as unknown as EventRecordInput;
+    await wg.processEvent(input);
+    ok(res, { eventId: obj.eventId });
+    return;
+  }
+
+  // POST /api/entities/:id/summary — body { summary }
+  if (head === "entities" && id && sub === "summary") {
+    const obj = requireFields(body, ["summary"]);
+    await wg.updateEntitySummary(id, String(obj.summary));
+    ok(res, { entityId: id });
+    return;
+  }
+
+  // POST /api/relations — body { sourceId, targetId, label, storyTime }
+  if (head === "relations" && segments.length === 1) {
+    const obj = requireFields(body, ["sourceId", "targetId", "label", "storyTime"]);
+    await wg.addRelation(
+      String(obj.sourceId), String(obj.targetId), String(obj.label), String(obj.storyTime),
+    );
+    ok(res, { sourceId: obj.sourceId, targetId: obj.targetId, label: obj.label });
+    return;
+  }
+
+  // POST /api/relations/close — body { sourceId, targetId, label, storyTime }
+  if (head === "relations" && id === "close") {
+    const obj = requireFields(body, ["sourceId", "targetId", "label", "storyTime"]);
+    await wg.closeRelation(
+      String(obj.sourceId), String(obj.targetId), String(obj.label), String(obj.storyTime),
+    );
+    ok(res, { sourceId: obj.sourceId, targetId: obj.targetId, label: obj.label });
+    return;
+  }
+
+  // POST /api/visibility — body { characterId, declarationId, confidence, source, storyTime }
+  if (head === "visibility" && segments.length === 1) {
+    const obj = requireFields(body, ["characterId", "declarationId", "confidence", "source", "storyTime"]);
+    await wg.setVisibility(String(obj.characterId), String(obj.declarationId), {
+      state: "known",
+      confidence: Number(obj.confidence),
+      source: String(obj.source),
+      validFrom: String(obj.storyTime),
+      isExplicit: true,
+    });
+    ok(res, { characterId: obj.characterId, declarationId: obj.declarationId });
+    return;
+  }
+
+  // POST /api/visibility/close — body { characterId, declarationId, storyTime }
+  if (head === "visibility" && id === "close") {
+    const obj = requireFields(body, ["characterId", "declarationId", "storyTime"]);
+    await wg.closeVisibility(String(obj.characterId), String(obj.declarationId), String(obj.storyTime));
+    ok(res, { characterId: obj.characterId, declarationId: obj.declarationId });
+    return;
+  }
+
+  fail(res, 404, "NOT_FOUND", "未找到路由 POST /api/" + segments.join("/"));
+}

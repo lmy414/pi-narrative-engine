@@ -1,11 +1,13 @@
 {
   "name": "narrative-engine",
   "version": "0.1.0",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "type": "module",
   "description": "Narrative engine extension for pi (novel writing with world-graph state).",
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.mjs",
     "sync": "node scripts/sync.mjs",
     "dev": "node scripts/sync.mjs --watch",
     "import": "node dist/tools/import-novel.js"
@@ -18,6 +20,7 @@
     "@mariozechner/pi-ai": "^0.73.0",
     "@mariozechner/pi-coding-agent": "^0.73.0",
     "@types/node": "^20.14.0",
+    "litegraph.js": "^0.7.18",
     "typebox": "^1.1.24",
     "typescript": "^5.4.0"
   },

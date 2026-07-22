@@ -3,15 +3,16 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 13 个 world_* 工具供主会话/scheduler 调用
- * - session_shutdown 时关闭 WorldGraph
+ * - 注册 19 个 world_* 工具供主会话/scheduler/前端调用
+ * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *
- * 工具集（V2，13 个）：
+ * 工具集（V2，19 个）：
  *   生命周期：session_start / session_shutdown（pi.on，非 registerTool）
- *   查询类：world_status / world_query / world_entity_get / world_relations / world_event_chain / world_character_view
- *   写入类：world_entity_create / world_entity_kill / world_relation_add / world_relation_close / world_event_apply
- *   可见性：world_visibility_set / world_visibility_infer
+ *   查询类：world_status / world_query / world_entity_get / world_entity_history / world_relations / world_relation_history / world_event_chain / world_character_view / world_story_times
+ *   写入类：world_entity_create / world_entity_kill / world_entity_update_summary / world_relation_add / world_relation_close / world_event_apply
+ *   可见性：world_visibility_set / world_visibility_close / world_visibility_infer
+ *   可视化：open_visualizer
  *
  * 存储路径：<cwd>/.pi/world-graph-v2/
  *
@@ -27,6 +28,8 @@ import { Type } from "typebox";
 import { WorldGraph } from "@pi/world-graph";
 import { Embedder } from "./embedder.ts";
 import { Search } from "./search.ts";
+import { startVisualizer } from "./visualizer/server.ts";
+import type { VisualizerServer } from "./visualizer/server.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -36,10 +39,11 @@ let wg: WorldGraph | null = null;
 let embedder: Embedder | null = null;
 let search: Search | null = null;
 let currentStoryTime: string | null = null;
+let visualizerServer: VisualizerServer | null = null;
 
 /** 测试辅助：获取内部状态 */
 export function getState() {
-  return { wg, embedder, search, currentStoryTime };
+  return { wg, embedder, search, currentStoryTime, visualizerServer };
 }
 
 /** 工具调用前调用，确保已初始化 */
@@ -88,6 +92,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => {
+    if (visualizerServer) {
+      try {
+        visualizerServer.close();
+      } catch {
+        // 忽略关闭错误
+      }
+      visualizerServer = null;
+    }
     if (wg) {
       try {
         wg.close();
@@ -302,6 +314,17 @@ export default function (pi: ExtensionAPI) {
         ]),
         storyTime: Type.String(),
         entityId: Type.String(),
+        source: Type.Optional(Type.Union([
+          Type.Literal("engine"),
+          Type.Literal("user"),
+        ])),
+        entityType: Type.Optional(Type.Union([
+          Type.Literal("character"),
+          Type.Literal("location"),
+          Type.Literal("item"),
+          Type.Literal("concept"),
+        ])),
+        summary: Type.Optional(Type.String()),
         newFacts: Type.Optional(Type.Array(Type.Object({
           entityId: Type.String(),
           property: Type.String(),
@@ -422,6 +445,27 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "world_visibility_close",
+    label: "World Visibility Close",
+    description: "闭合可见性声明：撤销某角色对某声明的可见性",
+    parameters: Type.Object({
+      characterId: Type.String(),
+      declarationId: Type.String(),
+      storyTime: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const st = resolveStoryTime(params.storyTime);
+      await g.closeVisibility(params.characterId, params.declarationId, st);
+      const details = { ok: true, characterId: params.characterId, declarationId: params.declarationId, storyTime: st };
+      return {
+        content: [{ type: "text", text: `可见性已撤销：${params.characterId} -✗-> ${params.declarationId} @ ${st}` }],
+        details,
+      };
+    },
+  });
+
   // --------------------------------------------------------------------------
   // 查询工具（1 个）
   // --------------------------------------------------------------------------
@@ -458,6 +502,135 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: JSON.stringify(results) }],
         details: { results, count: results.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "world_entity_update_summary",
+    label: "World Entity Update Summary",
+    description: "更新实体摘要（作者可见的元信息，纯展示字段，不参与时态/检索/可见性）",
+    parameters: Type.Object({
+      entityId: Type.String(),
+      summary: Type.String(),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      await g.updateEntitySummary(params.entityId, params.summary);
+      const details = { ok: true, entityId: params.entityId, summary: params.summary };
+      return {
+        content: [{ type: "text", text: `实体 ${params.entityId} 摘要已更新` }],
+        details,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "world_entity_history",
+    label: "World Entity History",
+    description: "查询单个实体的全部版本（含已闭合记录），按 validFrom 升序。返回 Entity 记录数组 + 全部 Fact（含历史）",
+    parameters: Type.Object({
+      entityId: Type.String(),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const history = await g.getEntityHistory(params.entityId);
+      return {
+        content: [{ type: "text", text: JSON.stringify(history) }],
+        details: history,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "world_relation_history",
+    label: "World Relation History",
+    description: "查询关系历史（含已闭合）。不传 entityId 返回全部关系",
+    parameters: Type.Object({
+      entityId: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const history = await g.getRelationHistory(params.entityId);
+      return {
+        content: [{ type: "text", text: JSON.stringify(history) }],
+        details: { relations: history, count: history.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "world_story_times",
+    label: "World Story Times",
+    description: "列出所有出现过的 storyTime（去重升序），供 storyTime 快照选择器使用",
+    parameters: Type.Object({}),
+    async execute() {
+      const g = requireWg();
+      const times = await g.listStoryTimes();
+      return {
+        content: [{ type: "text", text: JSON.stringify(times) }],
+        details: { storyTimes: times, count: times.length },
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 可视化工具（1 个）
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "open_visualizer",
+    label: "Open Visualizer",
+    description:
+      "启动 world-graph 可视化服务（幂等：已启动则直接返回现有 URL）。可选 port 参数，缺省 7421。",
+    promptSnippet: "启动世界图可视化页面",
+    parameters: Type.Object({
+      port: Type.Optional(Type.Number()),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      type Details = {
+        ok: boolean;
+        url?: string;
+        port?: number;
+        alreadyRunning?: boolean;
+        error?: string;
+      };
+      if (visualizerServer) {
+        const details: Details = {
+          ok: true,
+          url: visualizerServer.url,
+          port: visualizerServer.port,
+          alreadyRunning: true,
+        };
+        return {
+          content: [{ type: "text", text: `可视化服务已在运行: ${visualizerServer.url}` }],
+          details,
+        };
+      }
+      try {
+        visualizerServer = await startVisualizer({
+          wg: g,
+          search,
+          ...(params.port !== undefined ? { port: params.port } : {}),
+        });
+      } catch (err) {
+        const message = `可视化服务启动失败：${(err as Error).message}（可尝试更换 port 参数）`;
+        const details: Details = { ok: false, error: message };
+        return {
+          content: [{ type: "text", text: message }],
+          details,
+        };
+      }
+      const details: Details = {
+        ok: true,
+        url: visualizerServer.url,
+        port: visualizerServer.port,
+        alreadyRunning: false,
+      };
+      return {
+        content: [{ type: "text", text: `可视化服务已启动: ${visualizerServer.url}` }],
+        details,
       };
     },
   });

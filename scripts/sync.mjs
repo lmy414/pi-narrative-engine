@@ -10,11 +10,13 @@
  * 默认目标：../novel/.pi/extensions/narrative-engine
  * （相对于扩展仓库根目录，可通过 --target 覆盖）
  *
- * 同步策略：清空目标目录，然后递归复制 dist/ 下所有文件。
- * pi 加载扩展时会在目标目录查找 index.js（或 index.ts / package.json）。
+ * 同步策略：
+ * - 清空目标目录，然后递归复制 dist/ 下所有文件
+ * - 复制 package.json（含 pi.extensions 声明 + 运行时依赖）
+ * - 不同步 node_modules；目标目录首次需手动 `npm install`
  */
 
-import { cp, mkdir, rm, readdir, watch } from "node:fs/promises";
+import { cp, mkdir, rm, readdir, watch, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +24,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const srcDir = resolve(repoRoot, "dist");
+const srcPackageJson = resolve(repoRoot, "package.json");
 
 const defaultTarget = resolve(repoRoot, "..", "novel", ".pi", "extensions", "narrative-engine");
 
@@ -57,8 +60,22 @@ async function sync(target) {
 	}
 	await mkdir(target, { recursive: true });
 
+	// 复制 dist/ 产物
 	await cp(srcDir, target, { recursive: true });
+
+	// 复制 package.json（含 pi.extensions 声明）
+	await copyFile(srcPackageJson, resolve(target, "package.json"));
+
+	// 若仓库根存在 visualizer-ui/（可视化前端静态资源），一并复制
+	const uiDir = resolve(repoRoot, "visualizer-ui");
+	if (existsSync(uiDir)) {
+		await cp(uiDir, resolve(target, "visualizer-ui"), { recursive: true });
+		console.log(`[sync] 已复制 visualizer-ui/ → ${relative(repoRoot, resolve(target, "visualizer-ui"))}`);
+	}
+
 	console.log(`[sync] 已同步 ${relative(repoRoot, srcDir)}/ → ${relative(repoRoot, target)}`);
+	console.log(`[sync] 已复制 package.json`);
+	console.log(`[sync] 提示：首次同步后请在目标目录运行 \`npm install\` 安装运行时依赖`);
 }
 
 async function watchMode(target) {
