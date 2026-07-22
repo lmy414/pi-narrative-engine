@@ -9,7 +9,7 @@ import {
   embedding,
   sqliteVecStrategy,
 } from "@nicia-ai/typegraph";
-import type { HistoryStore } from "@nicia-ai/typegraph";
+import type { HistoryStore, EmbeddingValue } from "@nicia-ai/typegraph";
 import {
   createSqliteBackend,
   generateSqliteMigrationSQL,
@@ -136,6 +136,21 @@ export class WorldGraph {
 
   close(): void {
     this.db.close();
+  }
+
+  /**
+   * 暴露 SDK 全文/向量/混合检索能力。
+   * 透传 store.search（StoreSearch<typeof graph>），调用方可用 fulltext/vector/hybrid。
+   */
+  get search() {
+    return this.store.search;
+  }
+
+  /**
+   * 暴露 SDK QueryBuilder 入口，供复杂图遍历查询使用。
+   */
+  query() {
+    return this.store.query();
   }
 
   async birthEntity(
@@ -437,5 +452,50 @@ export class WorldGraph {
       if (snap) snapshots.push(snap);
     }
     return snapshots;
+  }
+
+  /**
+   * 重新嵌入所有 Entity 与 Fact 的 embedding 向量。
+   *
+   * - Entity：用其 validFrom（诞生时刻）取快照，传入 embedEntity 得到向量
+   * - Fact：直接构造 StateDeclaration 传入 embedFact 得到向量
+   *
+   * [存疑] Entity embedding 用诞生时刻快照，不包含后续变更的 properties；
+   * 若需"当前态"语义应改用 INFINITY 查询。当前遵循 Task 0.2 规格用 validFrom。
+   *
+   * embedding 字段在 SDK 中是 branded type（EmbeddingValue），embedder 返回 number[]，
+   * 此处经 unknown 双重断言绕过 brand 检查（运行时仍为 number[]）。
+   */
+  async reembedAll(embedder: {
+    embedEntity(snap: EntitySnapshot): Promise<number[]>;
+    embedFact(decl: StateDeclaration): Promise<number[]>;
+  }): Promise<void> {
+    const entities = await this.store.nodes.Entity.find();
+    for (const ent of entities) {
+      const snap = await this.getEntityAt(ent.entityId, ent.validFrom);
+      if (snap) {
+        const vec = await embedder.embedEntity(snap);
+        await this.store.nodes.Entity.update(ent.id, {
+          embedding: vec as unknown as EmbeddingValue,
+        });
+      }
+    }
+    const facts = await this.store.nodes.Fact.find();
+    for (const f of facts) {
+      const decl: StateDeclaration = {
+        declarationId: f.declarationId,
+        entityId: f.entityId,
+        property: f.property,
+        value: f.value,
+        valueText: f.valueText,
+        modality: f.modality,
+        validFrom: f.validFrom,
+        validTo: f.validTo,
+      };
+      const vec = await embedder.embedFact(decl);
+      await this.store.nodes.Fact.update(f.id, {
+        embedding: vec as unknown as EmbeddingValue,
+      });
+    }
   }
 }
