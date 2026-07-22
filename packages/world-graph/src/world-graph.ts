@@ -13,7 +13,7 @@ import {
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
 import { z } from "zod";
 import { EntityType, Modality } from "./types.ts";
-import type { StateDeclaration, EventRecord } from "./types.ts";
+import type { StateDeclaration, VisibilityDeclaration, EventRecord } from "./types.ts";
 import { EventLog } from "./event-log.ts";
 
 const INFINITY = "Infinity";
@@ -55,6 +55,20 @@ const RelationNode = defineNode("Relation", {
   }),
 });
 
+const VisibilityNode = defineNode("Visibility", {
+  schema: z.object({
+    visibilityId: z.string(),
+    characterId: z.string(),
+    declarationId: z.string(),
+    state: z.enum(["known"]),
+    confidence: z.number(),
+    source: z.string(),
+    validFrom: z.string(),
+    validTo: z.string(),
+    isExplicit: z.boolean(),
+  }),
+});
+
 const declaresEdge = defineEdge("declares");
 
 const graph = defineGraph({
@@ -63,6 +77,7 @@ const graph = defineGraph({
     Entity: { type: EntityNode },
     Fact: { type: FactNode },
     Relation: { type: RelationNode },
+    Visibility: { type: VisibilityNode },
   },
   edges: {
     declares: { type: declaresEdge, from: [EntityNode], to: [FactNode] },
@@ -293,5 +308,96 @@ export class WorldGraph {
 
   async traceCauses(eventId: string): Promise<EventRecord[]> {
     return this.eventLog.traceBack(eventId);
+  }
+
+  async setVisibility(
+    characterId: string,
+    declarationId: string,
+    opts: {
+      state: "known";
+      confidence: number;
+      source: string;
+      validFrom: string;
+      isExplicit: boolean;
+    },
+  ): Promise<void> {
+    const visibilityId = `vis-${characterId}-${declarationId}-${opts.validFrom}`;
+    await this.store.nodes.Visibility.create({
+      visibilityId,
+      characterId,
+      declarationId,
+      state: opts.state,
+      confidence: opts.confidence,
+      source: opts.source,
+      validFrom: opts.validFrom,
+      validTo: INFINITY,
+      isExplicit: opts.isExplicit,
+    });
+  }
+
+  async getVisibilityForCharacter(characterId: string, storyTime: string): Promise<VisibilityDeclaration[]> {
+    const all = await this.store.nodes.Visibility.find();
+    return all
+      .filter((v: any) => v.characterId === characterId
+        && v.validFrom <= storyTime
+        && (v.validTo === INFINITY || storyTime < v.validTo))
+      .map((v: any) => ({
+        characterId: v.characterId,
+        declarationId: v.declarationId,
+        state: v.state,
+        confidence: v.confidence,
+        source: v.source,
+        validFrom: v.validFrom,
+        validTo: v.validTo,
+        isExplicit: v.isExplicit,
+      })) as VisibilityDeclaration[];
+  }
+
+  async getAllDeclarationsAt(storyTime: string): Promise<StateDeclaration[]> {
+    const facts = await this.store.nodes.Fact.find();
+    return facts
+      .filter((f: any) => f.validFrom <= storyTime
+        && (f.validTo === INFINITY || storyTime < f.validTo))
+      .map((f: any) => ({
+        declarationId: f.declarationId,
+        entityId: f.entityId,
+        property: f.property,
+        value: f.value,
+        modality: f.modality,
+        validFrom: f.validFrom,
+        validTo: f.validTo,
+      })) as StateDeclaration[];
+  }
+
+  async getAllRelationsAt(storyTime: string): Promise<Array<{
+    relationId: string; sourceId: string; targetId: string;
+    label: string; validFrom: string; validTo: string;
+  }>> {
+    const rels = await this.store.nodes.Relation.find();
+    return rels
+      .filter((r: any) => r.validFrom <= storyTime
+        && (r.validTo === INFINITY || storyTime < r.validTo))
+      .map((r: any) => ({
+        relationId: r.relationId,
+        sourceId: r.sourceId,
+        targetId: r.targetId,
+        label: r.label,
+        validFrom: r.validFrom,
+        validTo: r.validTo,
+      }));
+  }
+
+  async inferVisibility(storyTime: string): Promise<void> {
+    const { inferVisibility: impl } = await import("./character-view.ts");
+    await impl(this, storyTime);
+  }
+
+  async getCharacterView(
+    characterId: string,
+    storyTime: string,
+    opts: { modalityFilter?: Modality[] } = {},
+  ): Promise<StateDeclaration[]> {
+    const { characterView } = await import("./character-view.ts");
+    return characterView(this, characterId, storyTime, opts);
   }
 }
