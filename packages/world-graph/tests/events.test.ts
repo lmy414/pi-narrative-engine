@@ -21,7 +21,7 @@ function withTempLog(fn: (log: EventLog, dir: string) => Promise<void>): () => P
 function withTempWg(fn: (wg: WorldGraph, dir: string) => Promise<void>): () => Promise<void> {
   return async () => {
     const dir = mkdtempSync(join(tmpdir(), "wg-evt-"));
-    const wg = new WorldGraph({
+    const wg = await WorldGraph.create({
       dbPath: join(dir, "world.db"),
       eventLogPath: join(dir, "events.jsonl"),
     });

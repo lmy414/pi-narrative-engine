@@ -1,10 +1,13 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import {
-  createStore,
+  createStoreWithSchema,
   defineNode,
   defineEdge,
   defineGraph,
+  searchable,
+  embedding,
+  sqliteVecStrategy,
 } from "@nicia-ai/typegraph";
 import type { HistoryStore } from "@nicia-ai/typegraph";
 import {
@@ -29,6 +32,7 @@ const EntityNode = defineNode("Entity", {
     type: EntityType,
     validFrom: z.string(),
     validTo: z.string(),
+    embedding: embedding(512).optional(),
   }),
 });
 
@@ -36,8 +40,10 @@ const FactNode = defineNode("Fact", {
   schema: z.object({
     declarationId: z.string(),
     entityId: z.string(),
-    property: z.string(),
+    property: searchable({ language: "zh" }),
     value: z.unknown(),
+    valueText: searchable({ language: "zh" }).optional(),
+    embedding: embedding(512).optional(),
     modality: Modality,
     validFrom: z.string(),
     validTo: z.string(),
@@ -102,14 +108,30 @@ export class WorldGraph {
   private store: HistoryStore<typeof graph>;
   private eventLog: EventLog;
 
-  constructor(opts: WorldGraphOptions) {
-    this.db = new Database(opts.dbPath);
-    this.db.pragma("journal_mode = WAL");
-    const drizzleDb = drizzle(this.db);
-    this.db.exec(generateSqliteMigrationSQL());
+  private constructor(
+    db: Database.Database,
+    store: HistoryStore<typeof graph>,
+    eventLog: EventLog,
+  ) {
+    this.db = db;
+    this.store = store;
+    this.eventLog = eventLog;
+  }
+
+  /**
+   * 异步工厂：通过 createStoreWithSchema 初始化 fulltext/vector storage。
+   * searchable/embedding 字段要求 store 在创建时已完成 schema 初始化，
+   * 否则 node.create 会触发 STORE_NOT_INITIALIZED。
+   */
+  static async create(opts: WorldGraphOptions): Promise<WorldGraph> {
+    const db = new Database(opts.dbPath);
+    db.pragma("journal_mode = WAL");
+    const drizzleDb = drizzle(db);
+    db.exec(generateSqliteMigrationSQL());
     const backend = createSqliteBackend(drizzleDb);
-    this.store = createStore(graph, backend, { history: true });
-    this.eventLog = new EventLog(opts.eventLogPath);
+    const [store, _schemaResult] = await createStoreWithSchema(graph, backend, { history: true });
+    const eventLog = new EventLog(opts.eventLogPath);
+    return new WorldGraph(db, store, eventLog);
   }
 
   close(): void {
@@ -135,6 +157,7 @@ export class WorldGraph {
         entityId,
         property: prop,
         value: val,
+        valueText: String(val),
         modality: "fact",
         validFrom: storyTime,
         validTo: INFINITY,
@@ -297,6 +320,7 @@ export class WorldGraph {
             entityId: fact.entityId,
             property: fact.property,
             value: fact.value,
+            valueText: String(fact.value),
             modality: fact.modality,
             validFrom: event.storyTime,
             validTo: INFINITY,

@@ -38,6 +38,7 @@ export const StateDeclaration = z.object({
   entityId: z.string(),
   property: z.string(),
   value: z.unknown(),
+  valueText: z.string().optional(),
   modality: Modality,
   validFrom: z.string(),  // ISO 8601 字符串或故事时间标识
   validTo: z.string(),    // "Infinity" = 未闭合

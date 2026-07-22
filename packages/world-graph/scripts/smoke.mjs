@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const dir = mkdtempSync(join(tmpdir(), "wg-smoke-"));
-const wg = new WorldGraph({
+const wg = await WorldGraph.create({
   dbPath: join(dir, "world.db"),
   eventLogPath: join(dir, "events.jsonl"),
 });

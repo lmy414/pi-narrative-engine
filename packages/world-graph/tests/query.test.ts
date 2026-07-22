@@ -8,7 +8,7 @@ import { WorldGraph } from "../src/world-graph.ts";
 function withTempWg(fn: (wg: WorldGraph) => Promise<void>): () => Promise<void> {
   return async () => {
     const dir = mkdtempSync(join(tmpdir(), "wg-q-"));
-    const wg = new WorldGraph({ dbPath: join(dir, "world.db"), eventLogPath: join(dir, "events.jsonl") });
+    const wg = await WorldGraph.create({ dbPath: join(dir, "world.db"), eventLogPath: join(dir, "events.jsonl") });
     try { await fn(wg); } finally { wg.close(); rmSync(dir, { recursive: true, force: true }); }
   };
 }
