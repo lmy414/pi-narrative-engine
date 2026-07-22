@@ -10,8 +10,10 @@ export {
   EntityType,
   Modality,
   EventType,
+  EventSource,
   StateDeclaration,
   EventRecord,
   VisibilityDeclaration,
   INFRA_RELATIONS,
 } from "./types.ts";
+export type { EventRecordInput } from "./types.ts";

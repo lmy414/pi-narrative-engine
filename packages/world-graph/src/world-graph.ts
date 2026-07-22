@@ -16,8 +16,8 @@ import {
   generateSqliteMigrationSQL,
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
 import { z } from "zod";
-import { EntityType, Modality } from "./types.ts";
-import type { StateDeclaration, VisibilityDeclaration, EventRecord } from "./types.ts";
+import { EntityType, Modality, EventRecord } from "./types.ts";
+import type { StateDeclaration, VisibilityDeclaration, EventRecordInput } from "./types.ts";
 import { EventLog } from "./event-log.ts";
 
 const INFINITY = "Infinity";
@@ -31,6 +31,7 @@ const EntityNode = defineNode("Entity", {
   schema: z.object({
     entityId: z.string(),
     type: EntityType,
+    summary: z.string().default(""),  // 作者可见的实体摘要，纯展示字段，不参与检索/可见性/时态
     validFrom: z.string(),
     validTo: z.string(),
     embedding: embedding(512).optional(),
@@ -99,6 +100,7 @@ export interface WorldGraphOptions {
 export interface EntitySnapshot {
   entityId: string;
   type: EntityType;
+  summary: string;
   validFrom: string;
   validTo: string;
   properties: StateDeclaration[];
@@ -165,10 +167,12 @@ export class WorldGraph {
     entityType: EntityType,
     initialProps: Record<string, unknown>,
     storyTime: string,
+    summary?: string,
   ): Promise<void> {
     await this.store.nodes.Entity.create({
       entityId,
       type: entityType,
+      summary: summary ?? "",
       validFrom: storyTime,
       validTo: INFINITY,
     });
@@ -240,6 +244,7 @@ export class WorldGraph {
     return {
       entityId,
       type: ent.type,
+      summary: ent.summary ?? "",
       validFrom: ent.validFrom,
       validTo: ent.validTo,
       properties: props,
@@ -261,6 +266,19 @@ export class WorldGraph {
       validFrom: storyTime,
       validTo: INFINITY,
     });
+  }
+
+  /**
+   * 更新实体摘要（作者可见的元信息，纯展示字段）。
+   * 不参与时态/检索/可见性，直接覆盖当前值。
+   */
+  async updateEntitySummary(entityId: string, summary: string): Promise<void> {
+    const entities = await this.store.nodes.Entity.find();
+    const ent = entities.find(
+      (e: any) => e.entityId === entityId && e.validTo === INFINITY,
+    );
+    if (!ent) throw new Error(`Entity ${entityId} not found or already dead`);
+    await this.store.nodes.Entity.update(ent.id, { summary });
   }
 
   async closeRelation(
@@ -303,7 +321,9 @@ export class WorldGraph {
       }));
   }
 
-  async processEvent(event: EventRecord): Promise<void> {
+  async processEvent(input: EventRecordInput): Promise<void> {
+    // 解析并应用默认值（source 缺省为 "engine"），日志中始终落完整记录
+    const event = EventRecord.parse(input);
     // 写入 JSONL 事件日志（先写日志，确保因果链可回溯）
     await this.eventLog.append(event);
 
@@ -311,11 +331,12 @@ export class WorldGraph {
       case "birth":
         await this.birthEntity(
           event.entityId,
-          "character",  // [存疑] processEvent birth 未传 entityType，临时默认 character
+          event.entityType ?? "character",
           Object.fromEntries(
             (event.newFacts ?? []).map((f) => [f.property, f.value]),
           ),
           event.storyTime,
+          event.summary,
         );
         break;
 
@@ -405,6 +426,49 @@ export class WorldGraph {
       })) as VisibilityDeclaration[];
   }
 
+  /**
+   * 闭合可见性声明：撤销某角色对某声明的可见性。
+   * 找到匹配的未闭合记录（validTo === "Infinity"），闭合之。
+   * 实现仿照 closeRelation。
+   */
+  async closeVisibility(characterId: string, declarationId: string, storyTime: string): Promise<void> {
+    const all = await this.store.nodes.Visibility.find();
+    const vis = all.find(
+      (v: any) => v.characterId === characterId
+        && v.declarationId === declarationId
+        && v.validTo === INFINITY,
+    );
+    if (!vis) {
+      throw new Error(`Visibility ${characterId}->${declarationId} not found or already closed`);
+    }
+    await this.store.nodes.Visibility.update(vis.id, { validTo: storyTime });
+  }
+
+  /**
+   * 反向可见性查询：某条声明被哪些角色可见。
+   * 不传 storyTime 返回全部历史（含已闭合），传 storyTime 只返回该时刻有效的。
+   */
+  async getVisibilityForDeclaration(
+    declarationId: string,
+    storyTime?: string,
+  ): Promise<VisibilityDeclaration[]> {
+    const all = await this.store.nodes.Visibility.find();
+    return all
+      .filter((v: any) => v.declarationId === declarationId)
+      .filter((v: any) => !storyTime
+        || (v.validFrom <= storyTime && (v.validTo === INFINITY || storyTime < v.validTo)))
+      .map((v: any) => ({
+        characterId: v.characterId,
+        declarationId: v.declarationId,
+        state: v.state,
+        confidence: v.confidence,
+        source: v.source,
+        validFrom: v.validFrom,
+        validTo: v.validTo,
+        isExplicit: v.isExplicit,
+      })) as VisibilityDeclaration[];
+  }
+
   async getAllDeclarationsAt(storyTime: string): Promise<StateDeclaration[]> {
     const facts = await this.store.nodes.Fact.find();
     return facts
@@ -465,6 +529,96 @@ export class WorldGraph {
       if (snap) snapshots.push(snap);
     }
     return snapshots;
+  }
+
+  /**
+   * 历史查询：单个实体的全部版本（含已闭合记录），按 validFrom 升序。
+   * 返回 Entity 记录数组 + 全部 Fact（含历史），供详情抽屉"历史"页签使用。
+   */
+  async getEntityHistory(entityId: string): Promise<{
+    entities: Array<{
+      entityId: string;
+      type: EntityType;
+      summary: string;
+      validFrom: string;
+      validTo: string;
+    }>;
+    facts: StateDeclaration[];
+  }> {
+    const entities = await this.store.nodes.Entity.find();
+    const ents = entities
+      .filter((e: any) => e.entityId === entityId)
+      .map((e: any) => ({
+        entityId: e.entityId,
+        type: e.type,
+        summary: e.summary ?? "",
+        validFrom: e.validFrom,
+        validTo: e.validTo,
+      }))
+      .sort((a: any, b: any) => a.validFrom.localeCompare(b.validFrom));
+
+    const facts = await this.store.nodes.Fact.find();
+    const allFacts = facts
+      .filter((f: any) => f.entityId === entityId)
+      .map((f: any) => ({
+        declarationId: f.declarationId,
+        entityId: f.entityId,
+        property: f.property,
+        value: f.value,
+        valueText: f.valueText,
+        modality: f.modality,
+        validFrom: f.validFrom,
+        validTo: f.validTo,
+      }) as StateDeclaration)
+      .sort((a, b) => a.validFrom.localeCompare(b.validFrom));
+
+    return { entities: ents, facts: allFacts };
+  }
+
+  /**
+   * 关系历史查询（含已闭合）。不传 entityId 返回全部关系。
+   */
+  async getRelationHistory(entityId?: string): Promise<Array<{
+    relationId: string;
+    sourceId: string;
+    targetId: string;
+    label: string;
+    validFrom: string;
+    validTo: string;
+  }>> {
+    const rels = await this.store.nodes.Relation.find();
+    return rels
+      .filter((r: any) => !entityId || r.sourceId === entityId || r.targetId === entityId)
+      .map((r: any) => ({
+        relationId: r.relationId,
+        sourceId: r.sourceId,
+        targetId: r.targetId,
+        label: r.label,
+        validFrom: r.validFrom,
+        validTo: r.validTo,
+      }))
+      .sort((a, b) => a.validFrom.localeCompare(b.validFrom));
+  }
+
+  /**
+   * 列出所有出现过的 storyTime（从 events + Entity/Fact/Relation/Visibility 的 validFrom/validTo 聚合）。
+   * 去重升序，供前端 storyTime 快照选择器使用。
+   * "Infinity" 被排除（它不是真实时刻）。
+   */
+  async listStoryTimes(): Promise<string[]> {
+    const times = new Set<string>();
+    const events = await this.eventLog.readAll();
+    for (const e of events) {
+      times.add(e.storyTime);
+    }
+    for (const nodeName of ["Entity", "Fact", "Relation", "Visibility"] as const) {
+      const records = await (this.store.nodes as any)[nodeName].find();
+      for (const r of records) {
+        if (r.validFrom && r.validFrom !== INFINITY) times.add(r.validFrom);
+        if (r.validTo && r.validTo !== INFINITY) times.add(r.validTo);
+      }
+    }
+    return Array.from(times).sort((a, b) => a.localeCompare(b));
   }
 
   /**

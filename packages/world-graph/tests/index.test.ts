@@ -7,7 +7,7 @@ import {
   EventType,
   INFRA_RELATIONS,
 } from "../src/index.ts";
-import type { EventRecord, StateDeclaration, VisibilityDeclaration } from "../src/index.ts";
+import type { EventRecordInput, StateDeclaration, VisibilityDeclaration } from "../src/index.ts";
 
 test("WorldGraph 类可导入", () => {
   assert.equal(typeof WorldGraph, "function");
@@ -25,7 +25,7 @@ test("INFRA_RELATIONS 常量可导入且含 located_in", () => {
 });
 
 test("类型可导入（编译期检查）", () => {
-  const evt: EventRecord = {
+  const evt: EventRecordInput = {
     eventId: "e1", type: "birth", storyTime: "t1", entityId: "x1",
   };
   const decl: StateDeclaration = {

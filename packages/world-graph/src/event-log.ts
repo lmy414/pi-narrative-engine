@@ -1,5 +1,6 @@
 import { appendFileSync, readFileSync, existsSync } from "node:fs";
-import type { EventRecord } from "./types.ts";
+import { EventRecord } from "./types.ts";
+import type { EventRecordInput } from "./types.ts";
 
 /**
  * EventLog — JSONL append-only 事件日志（飞书文档"步骤 3"）
@@ -9,8 +10,9 @@ import type { EventRecord } from "./types.ts";
 export class EventLog {
   constructor(private readonly path: string) {}
 
-  async append(event: EventRecord): Promise<void> {
-    const line = JSON.stringify(event) + "\n";
+  async append(input: EventRecordInput): Promise<void> {
+    // parse 应用默认值（source 缺省 "engine"），日志行始终是完整 EventRecord
+    const line = JSON.stringify(EventRecord.parse(input)) + "\n";
     appendFileSync(this.path, line, "utf-8");
   }
 

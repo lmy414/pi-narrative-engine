@@ -50,12 +50,19 @@ export type StateDeclaration = z.infer<typeof StateDeclaration>;
  * type=change 时用 invalidated/newFacts
  * type=birth/death 时可省略 invalidated/newFacts
  * causedBy 指向因果链前驱事件
+ * source 区分事件来源：engine=引擎扩散产生，user=用户/前端编辑产生
  */
+export const EventSource = z.enum(["engine", "user"]);
+export type EventSource = z.infer<typeof EventSource>;
+
 export const EventRecord = z.object({
   eventId: z.string(),
   type: EventType,
   storyTime: z.string(),
   entityId: z.string(),
+  source: EventSource.default("engine"),
+  entityType: EntityType.optional(),  // birth 事件用：指定实体类型，默认 character
+  summary: z.string().optional(),     // birth 事件用：实体摘要（作者可见元信息）
   invalidated: z.array(z.object({
     declarationId: z.string(),
     property: z.string(),
@@ -69,6 +76,8 @@ export const EventRecord = z.object({
   causedBy: z.string().optional(),
 });
 export type EventRecord = z.infer<typeof EventRecord>;
+/** 调用方传入的事件（source 可省略，parse 时默认 "engine"） */
+export type EventRecordInput = z.input<typeof EventRecord>;
 
 /**
  * 可见性声明 — character_view 的基础单元（飞书文档"2.6 可见性管理"+"步骤 5"）
