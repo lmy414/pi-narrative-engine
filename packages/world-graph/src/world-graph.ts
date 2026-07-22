@@ -13,7 +13,7 @@ import {
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
 import { z } from "zod";
 import { EntityType, Modality } from "./types.ts";
-import type { StateDeclaration } from "./types.ts";
+import type { StateDeclaration, EventRecord } from "./types.ts";
 import { EventLog } from "./event-log.ts";
 
 const INFINITY = "Infinity";
@@ -241,5 +241,57 @@ export class WorldGraph {
         validFrom: r.validFrom,
         validTo: r.validTo,
       }));
+  }
+
+  async processEvent(event: EventRecord): Promise<void> {
+    // 写入 JSONL 事件日志（先写日志，确保因果链可回溯）
+    await this.eventLog.append(event);
+
+    switch (event.type) {
+      case "birth":
+        await this.birthEntity(
+          event.entityId,
+          "character",  // [存疑] processEvent birth 未传 entityType，临时默认 character
+          Object.fromEntries(
+            (event.newFacts ?? []).map((f) => [f.property, f.value]),
+          ),
+          event.storyTime,
+        );
+        break;
+
+      case "death":
+        await this.killEntity(event.entityId, event.storyTime);
+        break;
+
+      case "change":
+        // 闭合旧声明
+        for (const inv of event.invalidated ?? []) {
+          const facts = await this.store.nodes.Fact.find();
+          const oldFact = facts.find(
+            (f: any) => f.declarationId === inv.declarationId && f.validTo === INFINITY,
+          );
+          if (oldFact) {
+            await this.store.nodes.Fact.update(oldFact.id, { validTo: event.storyTime });
+          }
+        }
+        // 写入新声明
+        for (const fact of event.newFacts ?? []) {
+          const declarationId = `decl-${fact.entityId}-${fact.property}-${event.storyTime}`;
+          await this.store.nodes.Fact.create({
+            declarationId,
+            entityId: fact.entityId,
+            property: fact.property,
+            value: fact.value,
+            modality: fact.modality,
+            validFrom: event.storyTime,
+            validTo: INFINITY,
+          });
+        }
+        break;
+    }
+  }
+
+  async traceCauses(eventId: string): Promise<EventRecord[]> {
+    return this.eventLog.traceBack(eventId);
   }
 }
