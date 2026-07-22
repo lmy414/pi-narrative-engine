@@ -24,6 +24,7 @@ function withTempWg(fn: (wg: WorldGraph, dir: string) => Promise<void>): () => P
 test("birthEntity 创建实体 + 初始属性", withTempWg(async (wg) => {
   await wg.birthEntity("ent-macbeth", "character", { title: "Thane of Glamis" }, "act1-scene1");
   const snap = await wg.getEntityAt("ent-macbeth", "act1-scene1");
+  assert.ok(snap, "实体应存在");
   assert.equal(snap.entityId, "ent-macbeth");
   assert.equal(snap.type, "character");
   assert.equal(snap.validFrom, "act1-scene1");
