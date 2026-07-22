@@ -1,0 +1,94 @@
+import { z } from "zod";
+
+/**
+ * 实体类型 — 4 类几何定义（飞书文档"三、实体类型"）
+ * - character: 有意志的实体（角色）
+ * - location: 被动空间实体（场景）
+ * - item: 物品实体
+ * - concept: 弥漫性概念实体（世界观、规则、组织）
+ */
+export const EntityType = z.enum(["character", "location", "item", "concept"]);
+export type EntityType = z.infer<typeof EntityType>;
+
+/**
+ * 模态系统 — 声明的认识论地位（飞书文档"五、模态系统"）
+ * - fact: 客观事实
+ * - belief: 角色信念（主观）
+ * - hypothesis: 假设/推测
+ */
+export const Modality = z.enum(["fact", "belief", "hypothesis"]);
+export type Modality = z.infer<typeof Modality>;
+
+/**
+ * 事件类型 — 3 类原子操作（飞书文档"6.1 事件的结构"）
+ * - birth: 实体诞生
+ * - death: 实体消亡
+ * - change: 状态/关系变更
+ */
+export const EventType = z.enum(["birth", "death", "change"]);
+export type EventType = z.infer<typeof EventType>;
+
+/**
+ * 状态声明 — TypeGraph 中状态的最小单元（飞书文档"步骤 1"）
+ * 每条声明独立持有 validFrom/validTo 时态区间
+ * validTo = "Infinity" 表示未闭合
+ */
+export const StateDeclaration = z.object({
+  declarationId: z.string(),
+  entityId: z.string(),
+  property: z.string(),
+  value: z.unknown(),
+  modality: Modality,
+  validFrom: z.string(),  // ISO 8601 字符串或故事时间标识
+  validTo: z.string(),    // "Infinity" = 未闭合
+});
+export type StateDeclaration = z.infer<typeof StateDeclaration>;
+
+/**
+ * 事件记录 — JSONL 事件日志的条目（飞书文档"2.4 事件处理"）
+ * type=change 时用 invalidated/newFacts
+ * type=birth/death 时可省略 invalidated/newFacts
+ * causedBy 指向因果链前驱事件
+ */
+export const EventRecord = z.object({
+  eventId: z.string(),
+  type: EventType,
+  storyTime: z.string(),
+  entityId: z.string(),
+  invalidated: z.array(z.object({
+    declarationId: z.string(),
+    property: z.string(),
+  })).optional(),
+  newFacts: z.array(z.object({
+    entityId: z.string(),
+    property: z.string(),
+    value: z.unknown(),
+    modality: Modality,
+  })).optional(),
+  causedBy: z.string().optional(),
+});
+export type EventRecord = z.infer<typeof EventRecord>;
+
+/**
+ * 可见性声明 — character_view 的基础单元（飞书文档"2.6 可见性管理"+"步骤 5"）
+ * [存疑-1] 文档未给完整字段表，本 schema 基于 2.6 + 步骤5/6 散见字段整合
+ * Task 7 实施前需 fetch 飞书文档"七、知识可见性"section 核对
+ */
+export const VisibilityDeclaration = z.object({
+  characterId: z.string(),
+  declarationId: z.string(),
+  state: z.enum(["known"]),  // [存疑-1] 文档只示例 "known"，保守只支持此值
+  confidence: z.number().min(0).max(1),
+  source: z.string(),        // "witnessed" | "rumor" | 自定义
+  validFrom: z.string(),
+  validTo: z.string().default("Infinity"),
+  isExplicit: z.boolean(),
+});
+export type VisibilityDeclaration = z.infer<typeof VisibilityDeclaration>;
+
+/**
+ * 基础设施关系常量 — [存疑-2] 飞书文档"四、模块导出清单"提到但未列举
+ * 推测至少含 located_in（步骤6 用到）
+ * Task 9 实施前需 fetch 飞书文档"四、关系类型"section 核对
+ */
+export const INFRA_RELATIONS: readonly string[] = ["located_in"] as const;
