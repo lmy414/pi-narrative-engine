@@ -400,4 +400,18 @@ export class WorldGraph {
     const { characterView } = await import("./character-view.ts");
     return characterView(this, characterId, storyTime, opts);
   }
+
+  async getAllEntities(storyTime: string): Promise<EntitySnapshot[]> {
+    const entities = await this.store.nodes.Entity.find();
+    const valid = entities.filter(
+      (e: any) => e.validFrom <= storyTime
+        && (e.validTo === INFINITY || storyTime < e.validTo),
+    );
+    const snapshots: EntitySnapshot[] = [];
+    for (const ent of valid) {
+      const snap = await this.getEntityAt(ent.entityId, storyTime);
+      if (snap) snapshots.push(snap);
+    }
+    return snapshots;
+  }
 }
