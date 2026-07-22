@@ -347,10 +347,10 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 **返回**：`StateDeclaration[]` — 该角色在 `storyTime` 时刻可见的所有声明。
 
-**五步过滤**（由 `@pi/world-graph` 的 `character-view.ts` 实现）：
-1. 显式可见性（`setVisibility` 设置的）
-2. 推断可见性（`inferVisibility` 从 `located_in` 关系推断）
-3. 时间过滤（`validFrom <= storyTime < validTo`）
+**五步过滤**（由 `@pi/world-graph` 的 `character-view.ts` 实现，2026-07-22 语义修订：知识持续）：
+1. 候选声明：全部 StateDeclaration（含已闭合——知识不因声明闭合/实体死亡而消失）
+2. 可见性来源：`setVisibility` 显式设置 + `inferVisibility` 从 `located_in` 推断写入的记录
+3. 时间过滤：可见性需覆盖 storyTime（`validFrom <= storyTime < validTo`），且有效起点取 `max(visibility.validFrom, declaration.validFrom)`（不能先于声明存在而知晓）；**有效终点只看可见性的 `validTo`**——知识一旦获得就持续持有，直到可见性被显式撤销（`world_visibility_close`）
 4. 模态过滤（可选，通过 `modalityFilter` 参数）
 5. 去重
 
@@ -578,6 +578,7 @@ const wg = await WorldGraph.create({
 | `async getVisibilityForCharacter(characterId, storyTime): Promise<VisibilityDeclaration[]>` | 查询角色可见性 |
 | `async getVisibilityForDeclaration(declarationId, storyTime?): Promise<VisibilityDeclaration[]>` | 反向查询（某声明被谁知道） |
 | `async getAllDeclarationsAt(storyTime): Promise<StateDeclaration[]>` | 列出所有有效声明 |
+| `async getAllDeclarations(): Promise<StateDeclaration[]>` | 全部声明（含已闭合，供知识持续语义使用） |
 | `async inferVisibility(storyTime): Promise<void>` | 推断可见性 |
 | `async getCharacterView(characterId, storyTime, opts?): Promise<StateDeclaration[]>` | 角色视角（五步过滤） |
 

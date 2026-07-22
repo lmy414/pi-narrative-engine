@@ -4,15 +4,17 @@ import type { VisibilityDeclaration, StateDeclaration, Modality } from "./types.
 const INFINITY = "Infinity";
 
 /**
- * character_view 五步过滤（飞书文档"步骤 5"）
- * 1. 查询 storyTime 时刻所有有效 StateDeclaration
- * 2. 查询 characterId 在 storyTime 时刻的所有 VisibilityDeclaration
- * 3. 取 visibility.validFrom 与 declaration.validFrom 的 max 作为有效起点
- * 4. 取 visibility.validTo 与 declaration.validTo 的 min 作为有效终点
- * 5. 过滤 state === "known" && start <= storyTime < end && modalityFilter 命中
+ * character_view 五步过滤（飞书文档"步骤 5"，2026-07-22 语义修订：知识持续）
+ * 1. 查询全部 StateDeclaration（含已闭合——知识不因声明闭合/实体死亡而消失）
+ * 2. 查询 characterId 在 storyTime 时刻持有的 VisibilityDeclaration
+ *    （可见性需覆盖 storyTime：validFrom <= storyTime < validTo，由查询保证）
+ * 3. 有效起点 = max(visibility.validFrom, declaration.validFrom)（不能先于声明存在而知晓）
+ * 4. 有效终点 = visibility.validTo（不再与 declaration.validTo 取交：
+ *    知识一旦获得就持续持有，直到可见性被显式撤销）
+ * 5. 过滤 state === "known" && start <= storyTime && modalityFilter 命中
  *
  * 注意：validTo = "Infinity" 表示未闭合，字符串比较 'I' < 'a' 会导致误判，
- * 故 min(validTo) 与 storyTime < end 均需特殊处理 Infinity。
+ * 故覆盖判断需特殊处理 Infinity（由 getVisibilityForCharacter 处理）。
  */
 export async function characterView(
   wg: WorldGraph,
@@ -20,7 +22,7 @@ export async function characterView(
   storyTime: string,
   opts: { modalityFilter?: Modality[] } = {},
 ): Promise<StateDeclaration[]> {
-  const allDecls = await wg.getAllDeclarationsAt(storyTime);
+  const allDecls = await wg.getAllDeclarations();
   const visDecls = await wg.getVisibilityForCharacter(characterId, storyTime);
   const modalityFilter = opts.modalityFilter;
 
@@ -30,13 +32,7 @@ export async function characterView(
     if (!vis) continue;
     if (vis.state !== "known") continue;
     const start = vis.validFrom > decl.validFrom ? vis.validFrom : decl.validFrom;
-    // min(validTo)：Infinity 视为大于任何有限值
-    const end = vis.validTo === INFINITY
-      ? decl.validTo
-      : (decl.validTo === INFINITY
-        ? vis.validTo
-        : (vis.validTo < decl.validTo ? vis.validTo : decl.validTo));
-    if (!(start <= storyTime && (end === INFINITY || storyTime < end))) continue;
+    if (!(start <= storyTime)) continue;
     if (modalityFilter && !modalityFilter.includes(decl.modality)) continue;
     visible.push(decl);
   }

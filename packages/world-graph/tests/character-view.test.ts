@@ -63,3 +63,28 @@ test("characterView modalityFilter 过滤", withTempWg(async (wg) => {
   assert.ok(onlyFact.every((d: any) => d.modality === "fact"));
   assert.ok(onlyBelief.every((d: any) => d.modality === "belief"));
 }));
+
+test("characterView 知识持续：声明闭合后仍可见，直到可见性被撤销", withTempWg(async (wg) => {
+  await wg.birthEntity("ent-master", "character", { role: "长老" }, "act1-scene1");
+  await wg.birthEntity("ent-hero", "character", {}, "act1-scene1");
+  // hero 在 scene2 得知师父身份（rumor）
+  await wg.setVisibility("ent-hero", "decl-ent-master-role-act1-scene1", {
+    state: "known", confidence: 0.5, source: "rumor",
+    validFrom: "act1-scene2", isExplicit: true,
+  });
+  // scene3 师父死亡，级联闭合其所有声明
+  await wg.killEntity("ent-master", "act1-scene3");
+  // scene4（声明已闭合）：知识应仍可见
+  const viewAfter = await wg.getCharacterView("ent-hero", "act1-scene4");
+  const known = viewAfter.find((d: any) => d.declarationId === "decl-ent-master-role-act1-scene1");
+  assert.ok(known, "声明闭合后知识仍应可见（知识持续语义）");
+  assert.equal(known.value, "长老");
+  // 撤销可见性后：不再可见
+  await wg.closeVisibility("ent-hero", "decl-ent-master-role-act1-scene1", "act1-scene5");
+  const viewRevoked = await wg.getCharacterView("ent-hero", "act1-scene6");
+  assert.equal(
+    viewRevoked.find((d: any) => d.declarationId === "decl-ent-master-role-act1-scene1"),
+    undefined,
+    "可见性撤销后不应再可见",
+  );
+}));

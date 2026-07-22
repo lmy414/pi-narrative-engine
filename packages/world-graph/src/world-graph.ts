@@ -485,6 +485,24 @@ export class WorldGraph {
       })) as StateDeclaration[];
   }
 
+  /**
+   * 全部声明（不做时态过滤，含已闭合）。
+   * 供 character_view 的"知识持续"语义使用：声明闭合后知识不消失。
+   */
+  async getAllDeclarations(): Promise<StateDeclaration[]> {
+    const facts = await this.store.nodes.Fact.find();
+    return facts
+      .map((f: any) => ({
+        declarationId: f.declarationId,
+        entityId: f.entityId,
+        property: f.property,
+        value: f.value,
+        modality: f.modality,
+        validFrom: f.validFrom,
+        validTo: f.validTo,
+      })) as StateDeclaration[];
+  }
+
   async getAllRelationsAt(storyTime: string): Promise<Array<{
     relationId: string; sourceId: string; targetId: string;
     label: string; validFrom: string; validTo: string;
