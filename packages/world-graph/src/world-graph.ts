@@ -356,6 +356,12 @@ export class WorldGraph {
     return this.eventLog.traceBack(eventId);
   }
 
+  /** 读取所有事件记录（按 storyTime 升序） */
+  async getAllEvents(): Promise<EventRecord[]> {
+    const all = await this.eventLog.readAll();
+    return all.sort((a, b) => a.storyTime.localeCompare(b.storyTime));
+  }
+
   async setVisibility(
     characterId: string,
     declarationId: string,
