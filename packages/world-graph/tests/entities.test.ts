@@ -48,3 +48,22 @@ test("killEntity 闭合实体 validTo", withTempWg(async (wg) => {
   const after = await wg.getEntityAt("ent-duncan", "act2-scene2");
   assert.equal(after, null, "消亡时间点应返回 null");
 }));
+
+test("addRelation + getRelations", withTempWg(async (wg) => {
+  await wg.birthEntity("ent-macbeth", "character", {}, "act1-scene1");
+  await wg.birthEntity("ent-inverness", "location", {}, "act1-scene1");
+  await wg.addRelation("ent-macbeth", "ent-inverness", "located_in", "act1-scene1");
+  const neighbors = await wg.getRelations("ent-macbeth", "act1-scene1");
+  assert.ok(neighbors.some((n: any) => n.targetId === "ent-inverness" && n.label === "located_in"));
+}));
+
+test("closeRelation 闭合关系", withTempWg(async (wg) => {
+  await wg.birthEntity("ent-macbeth", "character", {}, "act1-scene1");
+  await wg.birthEntity("ent-inverness", "location", {}, "act1-scene1");
+  await wg.addRelation("ent-macbeth", "ent-inverness", "located_in", "act1-scene1");
+  await wg.closeRelation("ent-macbeth", "ent-inverness", "located_in", "act2-scene1");
+  const before = await wg.getRelations("ent-macbeth", "act1-scene2");
+  assert.ok(before.some((n: any) => n.label === "located_in"), "闭合前应查到关系");
+  const after = await wg.getRelations("ent-macbeth", "act2-scene1");
+  assert.ok(!after.some((n: any) => n.label === "located_in"), "闭合后应查不到关系");
+}));

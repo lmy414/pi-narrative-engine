@@ -44,6 +44,17 @@ const FactNode = defineNode("Fact", {
   }),
 });
 
+const RelationNode = defineNode("Relation", {
+  schema: z.object({
+    relationId: z.string(),
+    sourceId: z.string(),
+    targetId: z.string(),
+    label: z.string(),
+    validFrom: z.string(),
+    validTo: z.string(),
+  }),
+});
+
 const declaresEdge = defineEdge("declares");
 
 const graph = defineGraph({
@@ -51,6 +62,7 @@ const graph = defineGraph({
   nodes: {
     Entity: { type: EntityNode },
     Fact: { type: FactNode },
+    Relation: { type: RelationNode },
   },
   edges: {
     declares: { type: declaresEdge, from: [EntityNode], to: [FactNode] },
@@ -172,5 +184,62 @@ export class WorldGraph {
       validTo: ent.validTo,
       properties: props,
     };
+  }
+
+  async addRelation(
+    sourceId: string,
+    targetId: string,
+    label: string,
+    storyTime: string,
+  ): Promise<void> {
+    const relationId = `rel-${sourceId}-${label}-${targetId}-${storyTime}`;
+    await this.store.nodes.Relation.create({
+      relationId,
+      sourceId,
+      targetId,
+      label,
+      validFrom: storyTime,
+      validTo: INFINITY,
+    });
+  }
+
+  async closeRelation(
+    sourceId: string,
+    targetId: string,
+    label: string,
+    storyTime: string,
+  ): Promise<void> {
+    const rels = await this.store.nodes.Relation.find();
+    const rel = rels.find(
+      (r: any) => r.sourceId === sourceId && r.targetId === targetId
+                && r.label === label && r.validTo === INFINITY,
+    );
+    if (!rel) throw new Error(`Relation ${sourceId}-${label}-${targetId} not found or already closed`);
+    await this.store.nodes.Relation.update(rel.id, { validTo: storyTime });
+  }
+
+  async getRelations(entityId: string, storyTime: string): Promise<Array<{
+    relationId: string;
+    sourceId: string;
+    targetId: string;
+    label: string;
+    validFrom: string;
+    validTo: string;
+  }>> {
+    const rels = await this.store.nodes.Relation.find();
+    return rels
+      .filter((r: any) =>
+        (r.sourceId === entityId || r.targetId === entityId)
+        && r.validFrom <= storyTime
+        && (r.validTo === INFINITY || storyTime < r.validTo),
+      )
+      .map((r: any) => ({
+        relationId: r.relationId,
+        sourceId: r.sourceId,
+        targetId: r.targetId,
+        label: r.label,
+        validFrom: r.validFrom,
+        validTo: r.validTo,
+      }));
   }
 }
