@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { load as loadSqliteVec } from "sqlite-vec";
 import {
   createStoreWithSchema,
   defineNode,
@@ -122,13 +123,19 @@ export class WorldGraph {
    * 异步工厂：通过 createStoreWithSchema 初始化 fulltext/vector storage。
    * searchable/embedding 字段要求 store 在创建时已完成 schema 初始化，
    * 否则 node.create 会触发 STORE_NOT_INITIALIZED。
+   *
+   * sqlite-vec 扩展在 Database 创建后立即加载，使 createSqliteBackend
+   * 的 vector strategy 可用（向量 DDL/写入/检索）。
+   * createStoreWithSchema 默认 systemIndexes:"materialize"，自动调用
+   * materializeSystemIndexesOnBoot，无需手动 materializeIndexes/rebuildFulltext。
    */
   static async create(opts: WorldGraphOptions): Promise<WorldGraph> {
     const db = new Database(opts.dbPath);
     db.pragma("journal_mode = WAL");
+    loadSqliteVec(db);
     const drizzleDb = drizzle(db);
     db.exec(generateSqliteMigrationSQL());
-    const backend = createSqliteBackend(drizzleDb);
+    const backend = createSqliteBackend(drizzleDb, { vector: sqliteVecStrategy });
     const [store, _schemaResult] = await createStoreWithSchema(graph, backend, { history: true });
     const eventLog = new EventLog(opts.eventLogPath);
     return new WorldGraph(db, store, eventLog);
