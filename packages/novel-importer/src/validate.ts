@@ -326,7 +326,7 @@ function runP1Checks(ctx: ValidationContext): string[] {
 
   // ---- 1. property 命名规范（建议，不强制） ----
   const knownProps = new Set([
-    "name", "summary", "personality", "background", "speaking_style", "goals",
+    "name", "personality", "background", "speaking_style", "goals",
     "abilities", "appearance", "location", "mood", "health", "current_action",
     "description", "type", "weather", "time_of_day", "atmosphere",
     "material", "owner", "history", "state", "wear",

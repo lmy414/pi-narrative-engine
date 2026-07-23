@@ -62,7 +62,7 @@ export interface EventHint {
   type: EventType;
   entity_hint: string;
   entity_type?: EntityType; // birth 事件必填
-  summary?: string; // birth 事件用：实体摘要
+  summary?: string; // birth 事件用：实体无状态客观事实描述（独立数据字段，不进 Fact）
   new_facts?: NewFactHint[];
   invalidated?: InvalidatedHint[];
   /** 调试用：事件叙事摘要（≤300字，人类可读），写入 _v3_dump.json */

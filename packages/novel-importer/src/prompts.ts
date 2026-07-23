@@ -255,7 +255,7 @@ export function buildChapterEventsPrompt(
 - 平淡叙事不要切分，一章 1-50 个事件
 
 ## 2. 事件类型（三类原子操作）
-- \`birth\`：实体首次登场。**关键规则：每个实体在本书中第一次出现时，必须先生成 birth 事件，再生成 change/death 事件**。第 1 章中所有出现的实体（包括主角、配角、地点、物品、概念）都必须先 birth。birth 事件含 new_facts = 实体初始属性（如 name/summary/personality 等），不含 invalidated。
+- \`birth\`：实体首次登场。**关键规则：每个实体在本书中第一次出现时，必须先生成 birth 事件，再生成 change/death 事件**。第 1 章中所有出现的实体（包括主角、配角、地点、物品、概念）都必须先 birth。birth 事件含 new_facts = 实体初始属性（如 name/personality 等，不含 summary），顶层 summary 字段 = 实体无状态客观事实描述。不含 invalidated。
 - \`change\`：状态变更。new_facts = 新声明。invalidated = 被替换的旧声明（只写 property）。⚠️ 不能对未 birth 的实体生成 change 事件。
 - \`death\`：实体退场（死亡/离开/消失）。不含 new_facts/invalidated。⚠️ 不能对未 birth 的实体生成 death 事件。
 
@@ -287,10 +287,10 @@ ${alreadyBornListJson}
 ## 4. 状态声明（new_facts）
 每个声明包含：
 - \`property\`：属性路径，按实体类型差异化：
-  - character: name/summary/personality/background/speaking_style/goals/abilities/appearance/location/mood/health/current_action
-  - location: name/summary/description/type/weather/time_of_day/atmosphere
-  - item: name/summary/material/owner/history/abilities/state/location/wear
-  - concept: name/summary/rules/scope/elements
+  - character: name/personality/background/speaking_style/goals/abilities/appearance/location/mood/health/current_action
+  - location: name/description/type/weather/time_of_day/atmosphere
+  - item: name/material/owner/history/abilities/state/location/wear
+  - concept: name/rules/scope/elements
   - 跨实体信念：belief.about_{对象}.{方面}（如 belief.about_彩叶.trust）
   - 跨实体假设：hypothesis.about_{对象}.{方面}
 - \`value\`：属性值（字符串/数字/布尔/对象均可）
@@ -301,6 +301,8 @@ ${alreadyBornListJson}
 - \`target_hint\`：跨实体声明时目标实体名（省略时默认 = entity_hint）
 
 ⚠️ 重要：birth 事件的 modality 和 target_hint 都会被系统丢弃（硬编码 fact，所有声明归属 entity_hint）。若需 belief/hypothesis 模态或跨实体声明的初始声明，请在 birth 后紧跟一个 change 事件写入（change 事件保留 modality 和 target_hint）。
+
+⚠️ summary 不作为属性写入 new_facts。实体的详细描述走 birth 事件顶层的 summary 字段（独立数据字段，不进 Fact）。
 
 ## 5. 被替换的旧声明（invalidated）
 change 事件中，被替换的旧声明只写 \`property\`（系统会自动查找对应的 declarationId）。
@@ -317,7 +319,7 @@ change 事件中，被替换的旧声明只写 \`property\`（系统会自动查
       "type": "birth | change | death",
       "entity_hint": "实体规范名",
       "entity_type": "character | location | item | concept（仅 birth 事件必填）",
-      "summary": "实体摘要（≤200字，仅 birth 事件）",
+      "summary": "实体无状态客观事实描述（仅 birth 事件，作为实体独立数据字段，不进 new_facts）",
       "new_facts": [
         {
           "property": "属性路径",

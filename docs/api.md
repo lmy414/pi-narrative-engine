@@ -184,7 +184,9 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `initialProps` | `Record<string, unknown>` | 否 | 初始属性（每个键值对成为一个 Fact） |
 | `storyTime` | string | 是 | 诞生时刻 |
 
-> **注**：本工具不支持设置 `summary`。如需设置实体摘要，使用 `world_entity_update_summary`。birth 事件（`world_event_apply` 带 `type: "birth"`）才支持 `summary` 参数。
+> **注**：本工具不支持设置 `summary`。如需设置实体描述，使用 `world_entity_update_summary`。birth 事件（`world_event_apply` 带 `type: "birth"`）才支持 `summary` 参数。
+
+> **summary 字段语义**：实体的**无状态客观事实描述**（独立数据字段，不进 Fact/属性）。与 Fact 节点的区别——summary 存不变的客观事实（如"林冲，八十万禁军教头，豹头环眼"），Fact 存随事件变化的状态（如 mood/location/health）。角色扮演注入上下文时 = summary + 当前 properties 拼接。参与向量检索（`embedEntity` 文本拼接）。
 
 **示例**：
 ```json
@@ -320,7 +322,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
     entityId: string,                                   // 主角实体 ID
     source?: "engine" | "user",                         // 事件来源（默认 "engine"）
     entityType?: "character" | "location" | "item" | "concept",  // birth 事件用：实体类型（默认 "character"）
-    summary?: string,                                   // birth 事件用：实体摘要（作者可见元信息）
+    summary?: string,                                   // birth 事件用：实体无状态客观事实描述（独立数据字段）
     newFacts?: Array<{                                  // type=birth/change 时的新增声明
       entityId: string,
       property: string,
@@ -337,7 +339,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 ```
 
 **事件类型语义**：
-- `birth`：实体诞生（调用 `birthEntity`，`entityType` 默认 `"character"`，`newFacts` 作为初始属性，`summary` 写入实体元信息）
+- `birth`：实体诞生（调用 `birthEntity`，`entityType` 默认 `"character"`，`newFacts` 作为初始属性，`summary` 写入实体无状态描述字段）
 - `death`：实体消亡（调用 `killEntity`）
 - `change`：状态变更（先闭合 `invalidated` 中的声明，再写入 `newFacts`）
 
@@ -486,9 +488,9 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `entityId` | string | 是 | 实体 ID |
-| `summary` | string | 是 | 新摘要 |
+| `summary` | string | 是 | 新无状态描述 |
 
-**特性**：`summary` 不参与时态/检索/可见性，直接覆盖。旧摘要不保留历史。
+**特性**：`summary` 为实体无状态客观事实描述（独立数据字段，不进 Fact）。参与向量检索（`embedEntity` 文本拼接）。不参与时态/可见性，直接覆盖。旧描述不保留历史。
 
 ---
 
@@ -669,11 +671,11 @@ const wg = await WorldGraph.create({
 **实体**：
 | 方法 | 说明 |
 |------|------|
-| `async birthEntity(entityId, type, initialProps, storyTime, summary?): Promise<void>` | 创建实体（`summary` 可选，作者可见元信息） |
+| `async birthEntity(entityId, type, initialProps, storyTime, summary?): Promise<void>` | 创建实体（`summary` 可选，实体无状态客观事实描述） |
 | `async killEntity(entityId, storyTime): Promise<void>` | 消亡实体 |
 | `async getEntityAt(entityId, storyTime): Promise<EntitySnapshot \| null>` | bi-temporal 查询 |
 | `async getAllEntities(storyTime): Promise<EntitySnapshot[]>` | 列出所有有效实体 |
-| `async updateEntitySummary(entityId, summary): Promise<void>` | 更新实体摘要（纯展示字段） |
+| `async updateEntitySummary(entityId, summary): Promise<void>` | 更新实体无状态描述（独立字段，参与向量检索） |
 | `async getEntityHistory(entityId): Promise<{entities, facts}>` | 实体全部版本（含已闭合） |
 
 **关系**：
@@ -960,7 +962,7 @@ interface StateDeclaration {
 interface EntitySnapshot {
   entityId: string;
   type: EntityType;
-  summary: string;          // 作者可见元信息（纯展示，不参与检索/时态/可见性）
+  summary: string;          // 实体无状态客观事实描述（独立数据字段，参与向量检索，注入角色扮演上下文）
   validFrom: string;
   validTo: string;
   properties: StateDeclaration[];
@@ -977,7 +979,7 @@ interface EventRecord {
   entityId: string;
   source: EventSource;      // 事件来源，默认 "engine"
   entityType?: EntityType;  // birth 事件用：实体类型（默认 "character"）
-  summary?: string;         // birth 事件用：实体摘要（作者可见元信息）
+  summary?: string;         // birth 事件用：实体无状态客观事实描述（独立数据字段）
   invalidated?: Array<{     // type=change 时的闭合声明
     declarationId: string;
     property: string;

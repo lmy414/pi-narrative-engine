@@ -31,7 +31,7 @@ const EntityNode = defineNode("Entity", {
   schema: z.object({
     entityId: z.string(),
     type: EntityType,
-    summary: z.string().default(""),  // 作者可见的实体摘要，纯展示字段，不参与检索/可见性/时态
+    summary: z.string().default(""),  // 实体无状态客观事实描述，独立数据字段，参与向量检索，注入角色扮演上下文
     validFrom: z.string(),
     validTo: z.string(),
     embedding: embedding(512).optional(),

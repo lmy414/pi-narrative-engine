@@ -94,7 +94,7 @@ export const mergeDecisionsTool: Tool = {
  * 对应 spec L543-566
  *
  * 字段约束：
- * - birth 事件必含 entity_type 和 summary
+ * - birth 事件必含 entity_type 和 summary（summary = 实体无状态客观事实描述，独立数据字段）
  * - change 事件必含 new_facts 或 invalidated（至少一项）
  * - death 事件不含 new_facts/invalidated
  * - storyTime 必须符合 `ch\d{3}\.ev\d{3}` 格式（在 stages.ts 校验）

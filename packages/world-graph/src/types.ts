@@ -62,7 +62,7 @@ export const EventRecord = z.object({
   entityId: z.string(),
   source: EventSource.default("engine"),
   entityType: EntityType.optional(),  // birth 事件用：指定实体类型，默认 character
-  summary: z.string().optional(),     // birth 事件用：实体摘要（作者可见元信息）
+  summary: z.string().optional(),     // birth 事件用：实体无状态客观事实描述（独立数据字段）
   invalidated: z.array(z.object({
     declarationId: z.string(),
     property: z.string(),
