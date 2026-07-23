@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Graph V3 原型</title>
+<style>
+  :root {
+    --c-character: #4A90E2; --c-location: #7ED321; --c-item: #F5A623; --c-concept: #9013FE;
+    --ink: #dfe4ec; --ink-2: #8a93a5; --line: #2a2f3a; --bg: #14171d; --card: #1c2028;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+         color: var(--ink); background: var(--bg); height: 100vh; overflow: hidden;
+         display: flex; flex-direction: column; }
+
+  /* ---------- 顶部时间轴 ---------- */
+  #timeline-bar { background: var(--card); border-bottom: 1px solid var(--line);
+                  padding: 10px 20px 14px; }
+  #timeline-bar .tb-row { display: flex; align-items: center; gap: 14px; }
+  #timeline-bar .tb-title { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+  #timeline-track { position: relative; flex: 1; height: 34px; }
+  #timeline-track .rail { position: absolute; left: 0; right: 0; top: 16px; height: 2px; background: var(--line); }
+  .tick { position: absolute; top: 0; transform: translateX(-50%); cursor: pointer; text-align: center; }
+  .tick .dot { width: 12px; height: 12px; border-radius: 50%; background: #c6d0dd;
+               border: 2px solid var(--card); margin: 11px auto 2px; transition: all .15s; }
+  .tick .lbl { font-size: 12px; color: var(--ink-2); }
+  .tick:hover .dot { background: #9fb4cc; }
+  .tick.active .dot { background: var(--c-character); transform: scale(1.35); }
+  .tick.active .lbl { color: var(--ink); font-weight: 600; }
+  .tick .evt { font-size: 10px; color: #b6c2d0; }
+
+  /* ---------- 主区三栏 ---------- */
+  #main { flex: 1; display: flex; min-height: 0; }
+
+  /* 左栏 */
+  #left { width: 250px; background: var(--card); border-right: 1px solid var(--line);
+          display: flex; flex-direction: column; }
+  #left .pad { padding: 12px; }
+  #search { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px;
+            font-size: 13px; outline: none; background: #14171d; color: var(--ink); }
+  #search:focus { border-color: var(--c-character); }
+  #chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--line);
+          color: var(--ink-2); cursor: pointer; user-select: none; }
+  .chip.on { color: #fff; border-color: transparent; }
+  .chip.on[data-type="character"] { background: var(--c-character); }
+  .chip.on[data-type="location"] { background: var(--c-location); }
+  .chip.on[data-type="item"] { background: var(--c-item); }
+  .chip.on[data-type="concept"] { background: var(--c-concept); }
+  #entity-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .ent { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; }
+  .ent:hover { background: #232833; }
+  .ent.sel { background: #22314a; outline: 1px solid #33507e; }
+  .ent .n { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .ent .n .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .ent .s { font-size: 11px; color: var(--ink-2); margin-top: 2px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ent .dead { font-size: 10px; color: #c0392b; margin-left: 4px; }
+  #left .count { font-size: 11px; color: var(--ink-2); padding: 6px 14px; border-top: 1px solid var(--line); }
+
+  /* 中栏 3D */
+  #center { flex: 1; position: relative; min-width: 0; }
+  #graph3d { position: absolute; inset: 0; }
+  #center .hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-2);
+                  background: rgba(28,32,40,.85); padding: 4px 10px; border-radius: 6px; pointer-events: none; }
+  #center .view-title { position: absolute; left: 12px; top: 10px; font-size: 13px; color: var(--ink-2);
+                        background: rgba(28,32,40,.85); padding: 4px 10px; border-radius: 6px; }
+
+  /* 右栏 */
+  #right { width: 330px; background: var(--card); border-left: 1px solid var(--line);
+           overflow-y: auto; }
+  #right .empty { padding: 40px 20px; text-align: center; color: var(--ink-2); font-size: 13px; }
+  .sec { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .sec h3 { font-size: 13px; color: var(--ink-2); font-weight: 600; margin-bottom: 10px; }
+  .kv { display: flex; font-size: 13px; margin-bottom: 6px; }
+  .kv .k { width: 72px; color: var(--ink-2); flex: none; }
+  .kv .v { flex: 1; word-break: break-all; }
+  table.props { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.props th { text-align: left; color: var(--ink-2); font-weight: 500; padding: 4px 6px;
+                   border-bottom: 1px solid var(--line); }
+  table.props td { padding: 5px 6px; border-bottom: 1px solid #232833; word-break: break-all; }
+  .mod { font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+  .mod.fact { background: #1d3a28; color: #4caf7d; }
+  .mod.belief { background: #3d2f18; color: #d9a04a; }
+  .mod.hypothesis { background: #2f2145; color: #a577e0; }
+  .rel-row { font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid #232833; }
+  .rel-row .arrow { color: var(--ink-2); margin: 0 4px; }
+  .proto-tag { position: absolute; right: 12px; top: 10px; font-size: 11px; color: #fff;
+               background: #9fb4cc; padding: 3px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<header id="timeline-bar">
+  <div class="tb-row">
+    <span class="tb-title">故事时间</span>
+    <div id="timeline-track"><div class="rail"></div></div>
+    <span class="tb-title" id="now-label"></span>
+  </div>
+</header>
+
+<div id="main">
+  <aside id="left">
+    <div class="pad">
+      <input id="search" placeholder="搜索实体（名称/摘要/属性）">
+      <div id="chips">
+        <span class="chip on" data-type="character">角色</span>
+        <span class="chip on" data-type="location">地点</span>
+        <span class="chip on" data-type="item">物品</span>
+        <span class="chip on" data-type="concept">概念</span>
+      </div>
+    </div>
+    <div id="entity-list"></div>
+    <div class="count" id="count"></div>
+  </aside>
+
+  <section id="center">
+    <div id="graph3d"></div>
+    <div class="view-title" id="view-title"></div>
+    <div class="hint">左键旋转 · 右键平移 · 滚轮缩放 · 悬停看摘要 · 点击节点查看详情</div>
+    <span class="proto-tag">原型 · 数据为真实种子库</span>
+  </section>
+
+  <aside id="right">
+    <div class="empty" id="right-empty">点击左侧列表或图中的节点<br>查看实体详情<br><br>（原型为只读，编辑在正式版）</div>
+    <div id="right-body" style="display:none">
+      <div class="sec" id="sec-basic"></div>
+      <div class="sec"><h3>属性（当前时刻生效）</h3><div id="sec-props"></div></div>
+      <div class="sec"><h3>关系</h3><div id="sec-rels"></div></div>
+    </div>
+  </aside>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/three-spritetext.min.js"></script>
+<script src="vendor/3d-force-graph.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

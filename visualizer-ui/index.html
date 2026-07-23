@@ -1,209 +1,33 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>World Graph 可视化</title>
-<link rel="stylesheet" href="vendor/litegraph.css">
+<title>World Graph 可视化 V3</title>
+<link rel="stylesheet" href="vendor/element-plus.index.css">
+<link rel="stylesheet" href="vendor/element-plus.dark.css-vars.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div id="app"></div>
 
-<!-- 顶部提示条 -->
-<div id="toast" class="toast hidden"></div>
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/element-plus.full.min.js"></script>
+<script src="vendor/element-plus.locale.zh-cn.min.js"></script>
+<script src="vendor/three.min.js"></script>
+<script src="vendor/three-spritetext.min.js"></script>
+<script src="vendor/3d-force-graph.min.js"></script>
 
-<!-- 顶部工具栏 -->
-<header id="toolbar">
-  <div class="tb-group">
-    <label class="tb-label">故事时间</label>
-    <select id="story-time-select" class="tb-select"></select>
-  </div>
-
-  <div class="tb-group" id="type-chips">
-    <span class="chip active" data-type="character"><i class="dot" style="background:#4A90E2"></i>角色</span>
-    <span class="chip active" data-type="location"><i class="dot" style="background:#7ED321"></i>地点</span>
-    <span class="chip active" data-type="item"><i class="dot" style="background:#F5A623"></i>物品</span>
-    <span class="chip active" data-type="concept"><i class="dot" style="background:#9013FE"></i>概念</span>
-  </div>
-
-  <div class="tb-group">
-    <input id="search-input" type="text" placeholder="搜索实体，回车确认" class="tb-input">
-  </div>
-
-  <div class="tb-group">
-    <label class="tb-check"><input type="checkbox" id="include-closed"> 显示已闭合</label>
-  </div>
-
-  <div class="tb-group">
-    <label class="tb-label">角色视角</label>
-    <select id="character-view-select" class="tb-select"><option value="">无</option></select>
-  </div>
-
-  <div class="tb-group">
-    <button id="btn-new-relation" class="tb-btn">新建关系</button>
-    <button id="btn-relayout" class="tb-btn">重新布局</button>
-    <button id="btn-refresh" class="tb-btn">刷新</button>
-    <button id="btn-help" class="tb-btn">帮助</button>
-  </div>
-
-  <div class="tb-spacer"></div>
-
-  <nav class="tb-tabs">
-    <span class="tab active" data-view="graph">世界图</span>
-    <span class="tab" data-view="events">事件链</span>
-  </nav>
-</header>
-
-<!-- 主区 -->
-<main id="main">
-  <section id="view-graph" class="view active">
-    <canvas id="graph-canvas"></canvas>
-    <div id="graph-empty" class="empty-hint hidden">
-      <p>这里还是一片空白。</p>
-      <p><b>右键画布空白处</b>（或双击空白处）新建第一个实体；</p>
-      <p>也可以点右上角「帮助」查看完整操作指南。</p>
-    </div>
-    <div id="relation-mode-hint" class="mode-hint hidden">新建关系模式：依次点击两个节点（再点工具栏按钮取消）</div>
-  </section>
-  <section id="view-events" class="view">
-    <div id="events-scroll">
-      <div id="events-canvas-wrap">
-        <svg id="events-links"></svg>
-        <div id="events-cards"></div>
-      </div>
-    </div>
-    <div id="event-detail" class="event-detail hidden"></div>
-  </section>
-</main>
-
-<!-- 右侧详情抽屉 -->
-<aside id="detail-drawer" class="hidden">
-  <div class="drawer-head">
-    <span id="drawer-title">详情</span>
-    <span id="drawer-close" class="drawer-close">&times;</span>
-  </div>
-  <div class="drawer-tabs">
-    <span class="dtab active" data-dtab="basic">基本</span>
-    <span class="dtab" data-dtab="props">属性</span>
-    <span class="dtab" data-dtab="rels">关系</span>
-    <span class="dtab" data-dtab="vis">可见性</span>
-    <span class="dtab" data-dtab="history">历史</span>
-  </div>
-  <div class="drawer-body">
-    <div class="dpane active" data-dpane="basic"></div>
-    <div class="dpane" data-dpane="props"></div>
-    <div class="dpane" data-dpane="rels"></div>
-    <div class="dpane" data-dpane="vis"></div>
-    <div class="dpane" data-dpane="history"></div>
-  </div>
-</aside>
-
-<!-- 新建实体 modal -->
-<div id="modal-new-entity" class="modal-mask hidden">
-  <div class="modal">
-    <div class="modal-title">新建实体</div>
-    <div class="form-row"><label>实体 ID</label><input id="ne-id" type="text" placeholder="如 linmo、qingshuang-jian"></div>
-    <div class="form-hint">唯一标识，创建后不可改。建议小写英文/数字/连字符，如 linmo、qingshuang-jian</div>
-    <div class="form-row"><label>类型</label>
-      <select id="ne-type">
-        <option value="character">角色 character（有意志的人物）</option>
-        <option value="location">地点 location（场景/空间）</option>
-        <option value="item">物品 item（道具/物件）</option>
-        <option value="concept">概念 concept（世界观/组织/规则）</option>
-      </select>
-    </div>
-    <div class="form-row"><label>摘要</label><input id="ne-summary" type="text"></div>
-    <div class="form-hint">一句话描述这个实体，会显示在画布卡片上，仅作者可见、不影响剧情逻辑</div>
-    <div class="form-row"><label>初始属性</label></div>
-    <div class="form-hint">每行一个属性，会作为该实体的『事实声明』存进图谱，可在详情抽屉随时增删改。例如：属性名=姓名，值=林墨</div>
-    <div id="ne-props"></div>
-    <button id="ne-add-prop" class="tb-btn small">+ 添加属性行</button>
-    <div id="ne-error" class="form-error hidden"></div>
-    <div class="form-footer" id="ne-storytime"></div>
-    <div class="modal-actions">
-      <button id="ne-cancel" class="tb-btn">取消</button>
-      <button id="ne-ok" class="tb-btn primary">创建</button>
-    </div>
-  </div>
-</div>
-
-<!-- 新建关系 label 输入 modal -->
-<div id="modal-relation" class="modal-mask hidden">
-  <div class="modal">
-    <div class="modal-title">新建关系</div>
-    <div class="form-row"><label>关系</label><span id="rel-endpoints"></span></div>
-    <div class="form-row"><label>关系名</label><input id="rel-label" type="text" placeholder="如 师徒 / located_in（位于）"></div>
-    <div class="modal-actions">
-      <button id="rel-cancel" class="tb-btn">取消</button>
-      <button id="rel-ok" class="tb-btn primary">创建</button>
-    </div>
-  </div>
-</div>
-
-<!-- 帮助 modal -->
-<div id="modal-help" class="modal-mask hidden">
-  <div class="modal help-modal">
-    <div class="modal-title">新手操作指南</div>
-    <div class="help-body">
-      <h4>画布操作</h4>
-      <ul>
-        <li>滚轮：缩放画布；按住空白处拖拽：平移画布；拖拽节点：调整位置（自动记住）</li>
-        <li><b>双击节点</b>：打开右侧详情抽屉，可查看和编辑该实体</li>
-        <li><b>双击画布空白</b>：新建实体</li>
-        <li><b>右键空白</b>：新建实体；<b>右键节点</b>：查看详情 / 消亡实体；<b>右键连线</b>：闭合关系</li>
-        <li>左键点击连线可选中它，按 Delete 键闭合</li>
-      </ul>
-      <h4>顶部工具栏</h4>
-      <ul>
-        <li><b>故事时间</b>：查看某一时刻的世界快照，默认最新时刻</li>
-        <li><b>类型过滤</b>：点击彩色标签，显示/隐藏对应类型的实体</li>
-        <li><b>搜索</b>：输入关键词回车，命中的实体会高亮并居中</li>
-        <li><b>显示已闭合</b>：勾选后显示已消亡的实体、已闭合的关系（灰色虚线）</li>
-        <li><b>角色视角</b>：只看某个角色知道的信息，TA 不知道的属性会灰显；选「无」退出</li>
-        <li><b>新建关系</b>：点击后依次点两个实体，输入关系名即可</li>
-        <li><b>重新布局</b>：清空手动拖过的位置，重新自动排列</li>
-      </ul>
-      <h4>详情抽屉（双击节点打开）</h4>
-      <ul>
-        <li><b>基本</b>：查看标识与时间，编辑摘要（失焦自动保存）</li>
-        <li><b>属性</b>：增删改实体的属性，点「保存修改」统一提交</li>
-        <li><b>关系</b>：查看该实体的所有关系，可闭合</li>
-        <li><b>可见性</b>：设置哪些角色知道某条属性</li>
-        <li><b>历史</b>：该实体的全部版本与变更时间线</li>
-      </ul>
-      <h4>事件链页签</h4>
-      <ul>
-        <li>按故事时间从左到右排列，展示每一次世界变更</li>
-        <li><b>蓝色描边</b>＝人工编辑产生；<b>灰色描边</b>＝引擎自动产生</li>
-        <li>点击事件卡片，下方显示完整内容（新增属性 / 失效属性 / 因果来源）</li>
-      </ul>
-    </div>
-    <div class="modal-actions">
-      <button id="help-close" class="tb-btn primary">知道了</button>
-    </div>
-  </div>
-</div>
-
-<!-- 通用确认 modal -->
-<div id="modal-confirm" class="modal-mask hidden">
-  <div class="modal">
-    <div class="modal-title" id="confirm-title">确认</div>
-    <div class="confirm-text" id="confirm-text"></div>
-    <div class="modal-actions">
-      <button id="confirm-cancel" class="tb-btn">取消</button>
-      <button id="confirm-ok" class="tb-btn danger">确认</button>
-    </div>
-  </div>
-</div>
-
-<!-- 画布右键菜单 -->
-<div id="ctx-menu" class="ctx-menu hidden"></div>
-
-<script src="vendor/litegraph.js"></script>
 <script src="api.js"></script>
-<script src="graph-view.js"></script>
-<script src="detail-panel.js"></script>
-<script src="events-view.js"></script>
+<script src="components/timeline-bar.js"></script>
+<script src="components/entity-list.js"></script>
+<script src="components/graph-3d.js"></script>
+<script src="components/snapshot-table.js"></script>
+<script src="components/relation-form.js"></script>
+<script src="components/detail-editor.js"></script>
+<script src="components/entity-form.js"></script>
+<script src="components/event-timeline.js"></script>
+<script src="components/help-tour.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
