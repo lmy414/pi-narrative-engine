@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnIbaZAeQ3O7PY0sHAXgCJFb\"><h2 id=\"doxcnIbaZAeQ3O7PY0sHAXgCJFb\">理论深化：背景信息如何影响事件与决策</h2><p id=\"doxcnipD9c63krPoxem2zgDSRAf\"></p><p id=\"doxcnjcgNMzmUbDnNqX23G9Jjgt\"><b>当前模型的盲区：执行器拿到世界状态后，AI\"自行判断\"角色怎么做，缺少明确的因果层。</b></p><p id=\"doxcniFdybOsPtDw3v2y26QId8c\"></p><p id=\"doxcnYVTDGRRwUzO79HSKL6Eceb\">因果关系不是由状态自动生成的，而是由角色基于背景信息做出的决策驱动的：</p><p id=\"doxcnQ5VFchok2eNksz0Vjav93b\">世界状态 → 角色认知（知道什么）→ 角色动机（想要什么）→ 角色决策（做什么）→ 事件</p><p id=\"doxcnaoXodHVmnSYsyoeGFOCpJh\"></p><p id=\"doxcnrFeoL0DNxKFYAglEvX6tlb\"><b>三层信息差：</b></p><p id=\"doxcnBQMp6ZapiH4Oqcy4u5GkEc\">认知层——角色不知道某事（如外面暴雨）→ 错误行动 → 意外推动剧情 → 延迟扩散</p><p id=\"doxcnpwzEueDNaXL9OfoLKJxBre\">动机层——角色知道但面临两难 → 抉择 → 塑造人物 → 累积扩散</p><p id=\"doxcnvCyMdl3L0SDBLvc6kMp4Ff\">决策层——角色行动但选错 → 后果 → 角色弧转变 → 即时扩散</p><p id=\"doxcnsqgdahuRhjWUqwsMXa8hDb\"></p><p id=\"doxcn8CsPQmDEBHcw5Us9uVJzHc\">待文献验证的方向：Genette聚焦理论（谁说/谁知道）、认知叙事学（角色心智模型）、可能世界理论（角色选择路径）。</p><p id=\"doxcnIBck6Nk22sxNPdWxpNimkb\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnwCKfv6AYaBQUvU5jURgglf\"><h2 id=\"doxcnwCKfv6AYaBQUvU5jURgglf\">上下文压缩策略：按事件久远度分层</h2><p id=\"doxcnxKgS2r91aktSDlGeokrWDd\"></p><p id=\"doxcnsar0yH6U4zR85PMWmmKync\"><b>基于图事件的久远度压缩，不是一刀切。</b></p><p id=\"doxcnym9WsCnoJbJ3RhtZFklCOc\"></p><p id=\"doxcnh4902kAdhNfve8XpBdeAFb\">最近N个事件：保留完整记忆（角色对话、情绪细节、原文）。</p><p id=\"doxcn9YN4hlaVYbNnEZPbkmgRlh\">较早事件：压缩为逻辑叙事（因果链摘要、状态变化记录、关键节点）。</p><p id=\"doxcnpahTGogJ738T7RmNGmizBe\">早期事件：高度压缩为因果骨架（谁做了什么，扩散了什么）。</p><p id=\"doxcnqtWkZlIv7vw0yYyNF688Eh\"></p><p id=\"doxcnCDJm1Je7WzPlhF3K8XhGSg\">好处：渲染器始终能看到最近事件的完整文本——保持风格连贯；同时不会被无限制膨胀的全文上下文淹没。</p><p id=\"doxcn2mUIn0oVobHsi8PQmnlzHg\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

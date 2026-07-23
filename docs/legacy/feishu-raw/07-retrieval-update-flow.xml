@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnUUkn5xs1OBYsFx1DKdoJVf\"><h2 id=\"doxcnUUkn5xs1OBYsFx1DKdoJVf\">世界知识检索与更新完整流程</h2><p id=\"doxcny6Ws7cwdh5IHYGpPANdMkb\"></p><p id=\"doxcnGdihSU7sxBAZ32ht2UkHVh\"><b>调度器（循环控制）</b></p><p id=\"doxcnZc8s2EHhHEAuft2nlp8uWd\">① 读取当前事件节点</p><p id=\"doxcnEiXN0URHEjZty5Mqe34uxh\">② 沿图边查找涉及的世界背景条目及相邻关联条目</p><p id=\"doxcnro7ak5VPITY1AAjG6VPBAd\">③ 提取条目中的自然语言知识（content字段）</p><p id=\"doxcn5p26yaHU2ismdKV8sF8A4g\">④ 拼接提示词，注入执行器</p><p id=\"doxcnTbbT7m2HzqADUw5tIk1acf\"></p><p id=\"doxcnXzUGFLojFp9UQ6u3p0Uksf\"><b>执行器（文本生成）</b></p><p id=\"doxcnBrsXzrDcdVUT33Tf1GGekf\">⑤ 接收提示词，生成叙事文本</p><p id=\"doxcn0lK9APwZyhK5gNyCprmjUc\">⑥ 返回生成结果给调度器</p><p id=\"doxcnOkU0gkjEgekbmt9OhN2d1c\"></p><p id=\"doxcn5Vx5xtFmqxrNiCVuV0xtm2\"><b>调度器（扩散处理）</b></p><p id=\"doxcnvtuFEYwOC3T6EZhxNa9MNr\">⑦ 分析生成结果，分离出扩散（状态变化）</p><p id=\"doxcn9LPe87q7W1onPZC1Da7uKd\">⑧ 将扩散结果写回对应图节点（更新 content）</p><p id=\"doxcniFf0J0XRPVICP9e5gqI4vb\">⑨ 增量更新图谱——受影响节点的边和内容</p><p id=\"doxcn8YZwaWZKt3gpat5D53Mvfh\">⑩ 提取下一轮事件涉及的知识，回到步骤①，直到结束标记</p><p id=\"doxcnXEpzqR3YHLtyzo4Cc2evke\"></p><p id=\"doxcnz0vRDiTB5FtiXgGhRoDtAd\">核心特征：图不是一次性建好的，而是随着每次事件扩散增量更新的。这与 Understand Anything 的增量指纹更新同构——每次事件就是一次图谱的快照变更。</p><p id=\"doxcnTYbxIQYdNEQewatKBC1VBd\"></p><p id=\"doxcngsZ9oGuU7EU133ksuPIwxr\"><b>与世界观调研的对照：CIDOC-CRM 的事件-时间-地点-参与者模型可映射为图的节点类型；Obsidian+Dataview 的 MD+YAML 可映射为节点存储格式；Neo4j 图遍历可映射为调度器的沿边检索算法。</b></p><p id=\"doxcnEX0XzJHHgwnDlQOkKjx88e\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

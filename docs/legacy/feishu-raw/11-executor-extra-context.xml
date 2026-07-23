@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnSoEMqu3NLXSgcjjOkeUqJX\"><h2 id=\"doxcnSoEMqu3NLXSgcjjOkeUqJX\">执行器附加上下文：解决事件孤立感</h2><p id=\"doxcnR6NDHuFAvMmbualUwBqupQ\"></p><p id=\"doxcnMQKmdiARrdn0BYxJFqHzYg\">仅靠扩散传递状态变化不够——需要给执行器注入更多上下文，增强事件间的因果连贯性。分为三层：</p><p id=\"doxcnbCgaPgiMgk4sWvRwycKPFh\"></p><p id=\"doxcnJeIrcL81PgCcthk0ABuaAc\"><b>用户提供层</b></p><p id=\"doxcnqudzOjcgrYXnvhEJMKFpXd\">事件意图：本事件要表达什么。角色弧状态：角色正处于什么转折阶段。由创作者在事件输入时一并给出，不可自动化。</p><p id=\"doxcnvYu0chQEngpICkrOD8bf2e\"></p><p id=\"doxcnKdhSrgRKwum7V41oLD2dlg\"><b>引擎自动层</b></p><p id=\"doxcnn9QxasrX7K387VkU81KDef\">前 N 个事件摘要：调度器维护一个滑动窗口的历史摘要，每次循环自动更新并注入执行器提示词。</p><p id=\"doxcnwyaDhbZD0r2LJIIpYQ4VAR\"></p><p id=\"doxcnwke4ufOb4ciPGOmVxJOMHh\">执行器最终拿到的提示词 = 当前世界状态（图检索） + 事件意图（用户） + 角色弧（用户） + 历史摘要（引擎）</p><p id=\"doxcnHkcrLj8WjbTLCIeP4c265b\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

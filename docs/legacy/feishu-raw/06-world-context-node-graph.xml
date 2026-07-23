@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcn2GTecKQCb03JdBMOOoMIjf\"><h2 id=\"doxcn2GTecKQCb03JdBMOOoMIjf\">世界背景的组织形式：节点图</h2><p id=\"doxcnskvtEKi7PFoPlL2ZPG2dcg\"></p><p id=\"doxcnm7LedwpcaRhngKKxw7eC1g\"><b>每个世界条目是图上的一个节点，节点之间按相关性用边连接。检索和扩散均沿边进行。</b></p><p id=\"doxcnx7j8HH4cAv98VXERdMSk9M\"></p><p id=\"doxcn9GxggQM2HZyLPo2kVkXXSe\">节点：世界条目（角色、地点、规则、关系...），每个节点有自然语言 content 字段</p><p id=\"doxcnQysxVZQRsrDFAW03HLcpTp\">边：相关性连接（角色A-居住-城市B、角色A-爱上-角色C、城市B-属于-王国D...）</p><p id=\"doxcnSBbuGDi3Ne9O5O5AgZ3eIb\"></p><p id=\"doxcnd5kyKdYp7DVXzPFrGUczRd\">检索：从事件相关的节点出发，沿边 BFS/DFS 遍历 N 步，收集途经节点的 content 注入 AI 上下文</p><p id=\"doxcnv6olbWKYYxq5vqkcaI1jSb\">扩散：事件结果沿关联边写入目标节点，触发邻接节点的级联状态更新</p><p id=\"doxcngxjMUfJy5RTAOt30ld4Qrc\"></p><p id=\"doxcndESCvwpb5xMXmmjdkMg2Cf\"><b>优势：</b></p><ul><li id=\"doxcn5NqMuZNdpuOWxCdsJBfU7b\">不需要手动维护触发条件——图的拓扑结构本身就是检索路径</li><li id=\"doxcnnEwUW829MUn855fXzp9Gdb\">扩散可沿边自动传播（A死亡→关系边→C悲痛→社会边→势力格局变化）</li><li id=\"doxcnmp1oc3gMQ64Amk8hn4C8nd\">可视化友好——创作者可以看到世界状态的全景图</li></ul><p id=\"doxcnAjFTxEuu9k47tJFhCs7glJ\"></p><p id=\"doxcnwPeKTGRN3ydqvNzDwJNwKb\"><b>待细化：</b></p><ul><li id=\"doxcnSVkTJr0R8uEoyNQzeCYW9c\">边的构建方式——创作者手动连线，还是从自然语言条目中自动推断？</li><li id=\"doxcnGmTJ6pQTV4OxofphA07faf\">遍历深度控制——沿边走几步合适？太浅遗漏信息，太深带回噪音</li><li id=\"doxcnB8owM4JOQzUBnX9yhwLxid\">扩散级联控制——单事件触发多少级联更新？如何防止状态爆炸</li></ul><p id=\"doxcnQYANaxnxEJy7aLAt0677nx\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

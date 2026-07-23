@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnwRd2H0yMpzlE8ly6VvFHpf\"><h2 id=\"doxcnwRd2H0yMpzlE8ly6VvFHpf\">核心循环增加：语义理解层</h2><p id=\"doxcnGS573JTcYTpMCnMKpuVS0c\"></p><p id=\"doxcneAPDEKt3WJe1QLLQdT9Y6o\"><b>在事件输入之前增加一层语义理解。</b></p><p id=\"doxcn9dgyBb6ZyyT8SKinP3QzHe\"></p><p id=\"doxcn7vAgZONWpk90Zsvw1bwA2e\">用户自然语言描述 → 语义理解层解析 → 结构化事件输入（五要素）→ 调度器 → ...</p><p id=\"doxcnubAuXtftr1oixd74sKanIe\"></p><p id=\"doxcnFTdC8Xkm7giIqScdiuzDRe\"><b>语义理解层职责：</b></p><p id=\"doxcn76T4xhmMBS2WXRDJ6gDTOc\">从自然语言中提取时间、地点、发生了什么、事件意图、涉及角色</p><p id=\"doxcnU8THOmb7wdShnNQTmPafwe\">将模糊描述转化为调度器可执行的结构化事件节点</p><p id=\"doxcnlhjpHdvWCmZdkGCSkfp3if\">自动匹配世界图中已有角色/地点，检测新增条目</p><p id=\"doxcn4XPvigmiWJItNLmYosRxtc\"></p><p id=\"doxcnGLsJV2AYc9knsIYbArs1ad\">这让整个引擎的入口从\"表单填写\"变成\"对话\"——创作者只需用自然语言说想发生什么，语义层自动组织为调度器的标准输入。</p><p id=\"doxcngHZOPfXN10C0tFZicK9Fca\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

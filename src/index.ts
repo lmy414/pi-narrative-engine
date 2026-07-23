@@ -30,6 +30,7 @@ import { Embedder } from "./embedder.ts";
 import { Search } from "./search.ts";
 import { startVisualizer } from "./visualizer/server.ts";
 import type { VisualizerServer } from "./visualizer/server.ts";
+import { runImportPipeline } from "@pi/novel-importer";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -40,10 +41,12 @@ let embedder: Embedder | null = null;
 let search: Search | null = null;
 let currentStoryTime: string | null = null;
 let visualizerServer: VisualizerServer | null = null;
+/** session_start 时记录 cwd，供 import_novel 等工具默认 worldGraphDir 使用 */
+let sessionCwd: string | null = null;
 
 /** 测试辅助：获取内部状态 */
 export function getState() {
-  return { wg, embedder, search, currentStoryTime, visualizerServer };
+  return { wg, embedder, search, currentStoryTime, visualizerServer, sessionCwd };
 }
 
 /** 工具调用前调用，确保已初始化 */
@@ -55,6 +58,11 @@ function requireWg(): WorldGraph {
 function requireSearch(): Search {
   if (!search) throw new Error("Search not initialized (session_start not fired?)");
   return search;
+}
+
+function requireEmbedder(): Embedder {
+  if (!embedder) throw new Error("Embedder not initialized (session_start not fired?)");
+  return embedder;
 }
 
 /** 解析 storyTime：优先用参数，否则用 currentStoryTime */
@@ -79,6 +87,7 @@ export default function (pi: ExtensionAPI) {
   // --------------------------------------------------------------------------
 
   pi.on("session_start", async (_event, ctx) => {
+    sessionCwd = ctx.cwd;
     const dir = resolveWorldGraphDir(ctx.cwd);
     await fs.mkdir(dir, { recursive: true });
     wg = await WorldGraph.create({
@@ -111,6 +120,7 @@ export default function (pi: ExtensionAPI) {
     embedder = null;
     search = null;
     currentStoryTime = null;
+    sessionCwd = null;
   });
 
   // --------------------------------------------------------------------------
@@ -631,6 +641,74 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: `可视化服务已启动: ${visualizerServer.url}` }],
         details,
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 导入工具（1 个）— V3 小说导入管道
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "import_novel",
+    label: "Import Novel",
+    description:
+      "从 EPUB 文件导入小说到世界图（V3）。执行 8 阶段管道：EPUB分章→实体预扫描→章节事件流→实体消解→关系抽取→可见性推断→写入world-graph→向量补齐+校验。内部并行 spawn 多个 LLM 子代理处理各章节。长时间运行任务（11章约10分钟）。",
+    promptSnippet: "导入小说到世界图（V3，全自动 8 阶段管道）",
+    parameters: Type.Object({
+      epubPath: Type.String({ description: "EPUB 文件绝对路径" }),
+      worldGraphDir: Type.Optional(Type.String({
+        description: "world-graph 存储目录（缺省 <cwd>/.pi/world-graph-v3/）",
+      })),
+      chapters: Type.Optional(Type.Array(Type.Integer(), {
+        description: "限定导入章节（1-based），缺省全部",
+      })),
+      model: Type.Optional(Type.String({
+        description: "LLM 模型名（缺省用 pi 配置或环境变量 PI_MODEL）",
+      })),
+      apiKey: Type.Optional(Type.String({
+        description: "LLM API key（缺省读环境变量 DEEPSEEK_API_KEY 或 PI_API_KEY）",
+      })),
+      concurrency: Type.Optional(Type.Integer({
+        description: "章节并行限流（缺省 3）",
+        minimum: 1,
+        maximum: 10,
+      })),
+      resumeFromStage: Type.Optional(Type.Integer({
+        description: "从指定阶段恢复（1-8，缺省从1开始）",
+        minimum: 1,
+        maximum: 8,
+      })),
+    }),
+    async execute(_id, params) {
+      // 复用已实例化的 Embedder（Xenova/bge-small-zh-v1.5, 512 维）
+      // 注入到 runImportPipeline 供 reembedAll 使用
+      const emb = requireEmbedder();
+
+      const result = await runImportPipeline({
+        epubPath: params.epubPath,
+        worldGraphDir: params.worldGraphDir,
+        chapters: params.chapters,
+        model: params.model,
+        apiKey: params.apiKey,
+        concurrency: params.concurrency,
+        resumeFromStage: params.resumeFromStage,
+        cwd: sessionCwd ?? process.cwd(),
+        embedder: emb, // 注入 TextEmbedder（Embedder.embed 满足接口）
+      });
+
+      const text = [
+        `导入完成：`,
+        `  实体数: ${result.entityCount}`,
+        `  事件数: ${result.eventCount}`,
+        `  关系数: ${result.relationCount}`,
+        `  可见性数: ${result.visibilityCount}`,
+        `  存储目录: ${result.worldGraphDir}`,
+        `  dump 文件: ${result.dumpPath}`,
+      ].join("\n");
+      return {
+        content: [{ type: "text", text }],
+        details: result,
       };
     },
   });

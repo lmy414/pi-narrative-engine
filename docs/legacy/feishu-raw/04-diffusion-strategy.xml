@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnQPniI2SwC0fEo89dOVOxYy\"><h2 id=\"doxcnQPniI2SwC0fEo89dOVOxYy\">三、待细化：扩散识别策略</h2><ul><li id=\"doxcnRLf8Hj0Y6xkjYLdpB1QoVe\">LLM分析：再用一次LLM分析输出提取状态变化（灵活但多一层开销）</li><li id=\"doxcnHCJMmYpXZZYN8r1u962KRc\">规则匹配：预定义扩散模板，匹配写入（高效但灵活性低）</li><li id=\"doxcnY9ruwHWzKmn7N5rgFVhGfc\">混合方案：LLM粗筛+创作者确认（推荐方向）</li></ul><p id=\"doxcngAb5kLB3ef8b2IaEDlFB1d\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

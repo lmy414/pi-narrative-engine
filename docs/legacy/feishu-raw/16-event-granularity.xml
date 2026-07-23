@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnwmU2cFNDOZ35ii2GISm1vd\"><h2 id=\"doxcnwmU2cFNDOZ35ii2GISm1vd\">概念验证发现：事件粒度与叙事连续性</h2><p id=\"doxcn7Sq24nnl3gEpOQanb16bpc\"></p><p id=\"doxcnnY6nwqW4wPTfYjpbB9qRrb\"><b>短篇测试通过，但暴露了长篇的关键问题：事件之间不连续。</b></p><p id=\"doxcnhx8ODbfnwRET844jlZCorh\"></p><p id=\"doxcnwj8oRMIXEdY45tnKCUVfRg\">当前架构：每个事件独立运行，渲染器在事件结束后介入。输出是\"事件摘要串\"，靠时间标签（第二天/第三天）缝合。长篇里这不可接受——读者读到的不是故事，是摘要。</p><p id=\"doxcnCmyc8g4Wa9albbnmMtI89f\"></p><p id=\"doxcnQEBpLhqPwy9FgbyLBdXdac\">根因：渲染器在循环外部。但叙事里过渡本身就是内容——事件A如何滑入事件B，那个\"滑入\"就是叙事。</p><p id=\"doxcnPWyq4NrqM44mBhlpCi69Pc\"></p><p id=\"doxcnkhwh0BLL1SDLN4QKWgR2v0\"><b>解决方向：</b></p><ul><li id=\"doxcnjC6nJOLTklD407fctQTLRe\">渲染器提升到循环内部——按场景为单位持续输出，不做事件级分段</li><li id=\"doxcnvb7Wq02LgJJVM2m96i8UHb\">事件粒度细化——引入\"微事件\"（比当前事件粒度更细的推进单元）</li><li id=\"doxcnNCTYYhKgMoL4ild0RW0EFc\">缝合机制——调度器在事件间隙插入过渡微事件，让事件链自然流动</li></ul><p id=\"doxcn8xvn4KfpbOWxkDCzEgf0Jb\"></p><p id=\"doxcniEex2nC0gn4gusLqbfrcuf\">待验证：渲染器连续输出模式下，扩散提取的时机如何调整。</p><p id=\"doxcndCVag8cbeJKj8HHRzMDlEe\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

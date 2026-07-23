@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcndHaUrP66G57zBHDq1x3YXe\"><h2 id=\"doxcndHaUrP66G57zBHDq1x3YXe\">世界背景的定义</h2><p id=\"doxcn3P8NAgco68ZDoMldy2XJ2c\"></p><p id=\"doxcn3IbJf4ZwhdzbpiaapHtgtc\"><b>一切会在剧情中动态进行演化的内容都可以认为是世界背景。</b></p><p id=\"doxcnwuIjkXAsypqDEIKkh8wqmg\"></p><p id=\"doxcnyweY7Wh4fZSf8bQPRrgxOe\">包括但不限于：角色信息（情感状态、认知、关系）、社会背景（制度、风气、群体关系）、设定（物理规则、魔法体系、历史事件）等。</p><p id=\"doxcnfG2GpePcuzaLphDuG4AAyb\"></p><p id=\"doxcnZQ8fEqcSRe0SGlKtenrNAf\">核心特征不是\"和主线逻辑无关\"，而是\"在剧情中动态演化\"。这与之前的定义一致：角色状态被事件修改，因此角色也是世界背景的一部分——它和天气、社会规则一样，都是事件扩散的写入目标。</p><p id=\"doxcn5IAS8aEBI65z7txxUXIQub\"></p><p id=\"doxcnSXgmbgow8t7lTN09JEpVSc\">这直接决定了叙事引擎中世界书的数据结构：角色、场景、规则、关系都是同一层级的状态条目，用统一的 key/content/triggers 格式管理。</p><p id=\"doxcnkmcMmvTeFlmz1wQJ4EDJLd\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

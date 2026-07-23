@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnLmWddFCg3cZ0Wsrbv2AFse\"><h2 id=\"doxcnLmWddFCg3cZ0Wsrbv2AFse\">执行器架构升级：多角色子代理 + 渲染器</h2><p id=\"doxcnhaqhA2xLyz57oWfs89R39g\"></p><p id=\"doxcnuFSidz5RjzUvo2APX6iRJd\"><b>核心变化：信息差从模拟变为结构——不是让一个AI假装角色知道不同的事，而是每个角色拥有独立的子代理实例，调度器按信息差定向分配知识。</b></p><p id=\"doxcnqzmU7oUKymQtoA6BvxvaKd\"></p><p id=\"doxcnPVtvNT2IaRL6em4yAeL66c\">架构流程：</p><p id=\"doxcnaJSUUgmsMmxMISzHrARopn\">① 调度器定向分配知识——按Genette聚焦理论，每角色子代理只拿到该角色视角已知的世界条目子集</p><p id=\"doxcn3OiX6JEtEIIXrEaJbLZQif\">② 角色子代理并行交互——角色扮演产出结构化数据（行为、对话、情绪状态变化），不直接生成最终文本</p><p id=\"doxcn3oiVpvRA7VgaziN0fnnG56\">③ 结构化数据双路输出：一路回调度器更新世界图，一路交渲染器</p><p id=\"doxcn1fog1s5L8EyCh9KCdzZbEd\">④ 渲染器将结构化数据渲染为最终叙事文本（对应骨骼/渲染双层架构）</p><p id=\"doxcnLQEc8oaSXUG2sdN8eKnLhe\"></p><p id=\"doxcnLvp8xm4DuVM75k2YS5Tatj\"><b>理论依据：</b></p><ul><li id=\"doxcnO1BlAOveUY2hYa1500ieIh\">Oz Project可信代理：角色不需要\"智能\"，只需\"看起来有生命\"——隔离的子代理天然模拟有限理性和独立人格</li><li id=\"doxcnJjDCx1BjQggxJEraYC7Eod\">Genette内聚焦：信息差从叙事技巧变为架构原则——调度器按角色权限过滤世界条目后再注入</li><li id=\"doxcn7Vg1sFE72tBou8Z03NGXJc\">MEXICA故事生成系统：语义层(结构化)和文本层分离——角色交互=语义层，渲染器=文本层</li><li id=\"doxcnUGP5U8EFyl8KMx44I504ae\">NWM知识分层模型：角色/读者/系统三层知识状态，角色子代理天然对应\"角色层\"</li></ul><p id=\"doxcn1MSUSWcWqJ8Ep3HWPs9Jvd\"></p><p id=\"doxcnDcVdYrWucHE2XTwhdCQ5oD\">与之前架构的对比：</p><p id=\"doxcnhG4LY75p2MDbestMkyEnVe\">旧：执行器(单代理) → 直接生成文本 → 调度器从文本中提取扩散（扩散提取不可靠）</p><p id=\"doxcnY2jY5Jk0Jjbkc9HqvPf0E9\">新：多角色子代理 → 结构化输出 → 扩散天然以结构化形式呈现 → 写回世界图（扩散提取可靠化）</p><p id=\"doxcnqL6mqSJeQBMxPtV6wucXmg\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

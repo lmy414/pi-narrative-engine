@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcncM1AtemWJzbyI7jK3UAEDa\"><h2 id=\"doxcncM1AtemWJzbyI7jK3UAEDa\">调研：信息差、沉默/反事件与伏笔理论</h2><p id=\"doxcnIr3Dco7AEJcfJnb9JWyu3Y\"></p><p id=\"doxcngmqrS0UmaUPOf0cI9Zjhed\"><b>三条研究轴心汇聚于同一命题：如何在计算系统中建模\"叙事信息的策略性管理\"。</b></p><p id=\"doxcnpVq7KTYxjLRWVhEV0PeM8g\"></p><p id=\"doxcna5GcVBr26vcMHY2S7hPeJb\">1. 信息差与戏剧反讽</p><ul><li id=\"doxcnJiPrYLt3p42Gpkvg08VNtR\">Genette聚焦理论：内聚焦天然产生信息差（读者只通过角色视角感知），外聚焦极端化信息差（连内心都进不去），零聚焦可故意隐藏信息</li><li id=\"doxcntCkXRpHgqDmLzGN0xbJ2gh\">Booth《小说修辞学》：不可靠叙述者——叙述者与隐含作者之间的知识/价值偏差</li><li id=\"doxcn2429QQRuQrnkvJ8vlOGgye\">NWM (2026, arXiv:2607.05577)：直接建模\"谁在何时知道什么秘密\"——与认知-动机-决策三层信息差高度吻合</li></ul><p id=\"doxcnBz1ZhLiGd1zHa8AaSia0bn\"></p><p id=\"doxcn9kpRgpBSCe9Uf0h6uLieqe\">2. 沉默/反事件/留白</p><ul><li id=\"doxcnV86lmaXW81XL5AXk0ziX4e\">中国古典美学：\"计白当黑\"（书画）、\"言外之意\"（诗学）——沉默本身就是叙事信息</li><li id=\"doxcnWrgsctbsQsTogqYaEapRdg\">金圣叹\"不写之写\"：不直接描写反而是更深刻的描写——如不写宋江心理活动，反而使人物更丰富</li></ul><p id=\"doxcntiKhEh4DHxafTQZsaX5lCf\"></p><p id=\"doxcnCieVTzKt6Dq7pkXt3iX5hc\">3. 金圣叹草蛇灰线——最精密的前现代伏笔理论</p><ul><li id=\"doxcnsRj6WFkd3SQoVyGBgBD1zg\">\"隐与显的辩证\"：伏笔不能太明显也不能太隐蔽——半隐半现，第一遍不经意，第二遍惊叹\"原来早有暗示\"</li><li id=\"doxcnX7AP6CPmZp0NoyzeU1VLOd\">\"千里伏线\"：伏笔可跨越极大叙事距离（如武松哨棒跨越数回）</li><li id=\"doxcnSOnb2vEosF4RDeD87450bc\">\"物象作为线索\"：具体物象（哨棒、解腕尖刀）每次出现既暗示未来又呼应过去</li><li id=\"doxcnGvuZkLyt1TEdMOmvrUiVzf\">与Chekhov's gun的对比：契诃夫强调功能性回报，金圣叹增加了审美维度——追求\"若有若无\"的笔法</li></ul><p id=\"doxcnP8ljBKO0UH5qVujaj1Uloe\"></p><p id=\"doxcni75yly7pUwsBXl2n153vyb\"><b>对叙事引擎的启示：</b></p><ul><li id=\"doxcn7F70bakJKp8S50MCX53jtd\">知识状态分层：每个角色 + 读者 + 系统，三者各自维护独立知识图——戏剧反讽可还原为这些层之间的差异</li><li id=\"doxcnMi1HYQT9sx7LwbLpYH4FQh\">伏笔的后向一致性：需维护可回溯因果链——每个被planting的元素都有一条通向payoff的路径</li><li id=\"doxcniiZ6ExSDOMQq0v6DaYfyOf\">草蛇灰线的\"半隐半现\"：对应扩散机制中\"写入但不触发\"的延迟扩散——状态已变但暂不注入执行器上下文</li></ul><p id=\"doxcnQxZ4KbXvOX1MiLTrJASSRe\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

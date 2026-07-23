@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcncH7LjphpA5ksFpETsrOKyb\"><h2 id=\"doxcncH7LjphpA5ksFpETsrOKyb\">Pi 调研结论</h2><p id=\"doxcn63Jql6NKHVVJP7bZ2ApEFh\"></p><p id=\"doxcnixe63xWfSyAL0dJ4yn1HOc\">\"Hermes Pi\" 并非 Nous Research 官方项目。Pi（71k stars）是 Mario Zechner 的 TypeScript 编程代理，与 Hermes 完全独立。</p><p id=\"doxcn2sNsB6C0rXmKs1Aofzt7C6\"></p><p id=\"doxcn4tZJV7RPXIK0tKfvYtfmeg\"><b>叙事引擎基底建议：Hermes Agent（Python）</b></p><p id=\"doxcnfVuTAUyo5wuMsWkZdCnWIg\">理由：已有 delegation（角色子代理）、cron（定时推进）、持久记忆（跨会话世界图）、多平台网关（飞书交互）。Skills 定义引擎逻辑，自定义 Python 工具实现世界图操作。</p><p id=\"doxcnf93Tk0rGUzMwZxAgar6YBe\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnUTlgWVllYmWYtzXT6AQ9Xb\"><h2 id=\"doxcnUTlgWVllYmWYtzXT6AQ9Xb\">调研：角色弧、因果延迟与累积效应</h2><p id=\"doxcnaBUSl0GlCyZwRV4A12Hqcg\"></p><p id=\"doxcnUQuEn7vmSNw5I4Z8YWk8Ab\"><b>1. 角色弧理论——对应即时扩散（决策层）</b></p><ul><li id=\"doxcnmtgGOhM93swCd6i7qojFld\">Campbell单一神话→Vogler英雄之旅12阶段：角色状态按阶段线性推进</li><li id=\"doxcnLGDrDghXMvGJli0yA2hZJg\">McKee\"鸿沟\"原理：角色每次选择产生不可逆的状态变化→事件→扩散→角色弧推进</li><li id=\"doxcnFJecf5NLhvhFXFge18dU1f\">Truby角色网：角色不是孤立发展的，而是通过网络中其他角色的变化来映照</li><li id=\"doxcnKzhdpqdYvyIBNzN5S8ykwc\">计算方向：Drama Machine (2408.01725)用LLM驱动角色驱动的互动戏剧，CHATTER系统形式化角色社会规范</li></ul><p id=\"doxcnHDJwKMFsFtgfhtuW3caZOZ\"></p><p id=\"doxcnYZqSCAyUEXHnBrgClopxXf\"><b>2. 因果延迟——对应延迟扩散</b></p><ul><li id=\"doxcnZiZ9CKbxeaUFjAHz74pped\">Genette时距四形态：停顿(叙事&gt;故事)/场景(叙事=故事)/概要(叙事&lt;故事)/省略(叙事=0)</li><li id=\"doxcnBXwrIGmyCSsajrwSmvgpog\">Rimmon-Kenan：因果延迟是制造悬念的核心手法——先展示结果，延迟揭示原因</li><li id=\"doxcnsyAGU2QMGdbBo3KgQVnQRc\">计算方向：Causal Micro-Narratives (2410.05252)用因果图建模微叙事链</li></ul><p id=\"doxcnpHojSF7HFkCeVNPmL3spbc\"></p><p id=\"doxcn1vtTOiixKxbpUtRmAcMP9e\"><b>3. 累积效应——对应累积扩散</b></p><ul><li id=\"doxcnsJhzWw4y5ZT8yq4EdfWcBb\">Chekhov's Gun：引入元素必须回收——setup-payoff的强制性因果约定</li><li id=\"doxcnLLFfxT9bGhEnBz0SDOl4Gc\">Barthes催化功能：微事件不改变核心选择但累积影响阅读体验→量变到质变</li><li id=\"doxcnntqlseA1ZxRP099y06yJQb\">Chatman卫星事件：围绕核心事件的小事件，删掉不影响因果但删掉失去血肉</li></ul><p id=\"doxcnq10dlOJg04X1h3Mle5Jpsb\"></p><p id=\"doxcnURb2SLLZWsdUMcSrkxabVe\"><b>对叙事引擎的启示：</b></p><ul><li id=\"doxcns0mi50m7i7GKp6rkEQRvqd\">角色弧 = 角色在世界图中的状态序列——线性推进/回退/循环三种模式需在扩散写入时区别处理（覆盖/追加/版本化）</li><li id=\"doxcnfHTPPTsV2XKW71NMDLb6Gc\">Genette时距 → 事件的\"扩散时间戳\"不应是单一的——同一事件的不同影响可以在不同时间点触发</li><li id=\"doxcnTvft3OtaYASrpaVZKmnU2d\">Chekhov's Gun → 伏笔的强制性回收——图节点需标记\"planted\"和\"paid_off\"状态，未回收的伏笔触发告警</li></ul><p id=\"doxcnO0rfJL7sQ0NpEkHgwPShsg\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

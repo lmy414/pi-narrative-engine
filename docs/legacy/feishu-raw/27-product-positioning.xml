@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcndSE672BnY4i26wK4OxteLb\"><h2 id=\"doxcndSE672BnY4i26wK4OxteLb\">产品定位：交互式叙事</h2><p id=\"doxcnDKdFZowh4bS80PndrsL1mc\"></p><p id=\"doxcnf6dfiHEGsC7aIg4rktqnFc\"><b>赛道不是\"AI写作工具\"（帮人写完），而是\"交互式叙事\"（帮人进入世界）。</b></p><p id=\"doxcncdUhKVl4kd0SqUSZyimtaf\"></p><p id=\"doxcnv1MRr2BQSbeN55wPsX0hVc\"><b>核心差异：</b></p><p id=\"doxcnqRNtO05NQ05MvUldXWe7Tb\">AI小说工具：流水线——进去一个prompt，出来一篇文本。AI替你写完，你是读者。</p><p id=\"doxcnDGEEGdMu3T3YODzjXwCO0J\">交互式叙事：沙盒——进去一个世界，你做选择，世界用扩散回应。AI构建世界，你是玩家/导演。</p><p id=\"doxcnWQl6BtvxZX5KE6zq9Iqncd\"></p><p id=\"doxcnxoNt9SRAvRQdgkfIPIXmdd\">引擎天然适配：分支选择系统、信息差驱动的角色反应、扩散因果的连锁效应——这些东西在\"AI帮你写\"场景是杀鸡用牛刀，在\"你在世界里做选择\"场景是核心体验。</p><p id=\"doxcnmrVcGb0VnIUVTCjyAs1AHg\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

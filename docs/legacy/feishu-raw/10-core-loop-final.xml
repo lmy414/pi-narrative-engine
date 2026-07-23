@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnt6yKlIhoF5QGipQ3KowB6b\"><h2 id=\"doxcnt6yKlIhoF5QGipQ3KowB6b\">核心循环（最终版）</h2><p id=\"doxcniziTEDzfdwa2SdzUcPc3Vc\"></p><p id=\"doxcnKm0fttMVIdVPDdtqaBs7nf\"><b>事件输入</b></p><p id=\"doxcnhA3rBmRXk7YdSnIgnoEqwh\">创作者定义当次事件需要发生什么。三要素：时间、地点、发生了什么。自然语言描述。</p><p id=\"doxcnLBBz8iaO8e85BqisKgq2jq\"></p><p id=\"doxcn8BArEXYIBnRDkn1cYADEoc\"><b>调度器：查询与组装</b></p><p id=\"doxcn1Ch0dUh9ciY69RtN874Hle\">根据事件输入，沿世界图查询对应的背景条目，将条目知识组装为提示词，传入执行器。</p><p id=\"doxcnhcxKP0qatiM3lB1q20dXxb\"></p><p id=\"doxcn3nnXg8X5OEZqmnh1OfJ2Gf\"><b>执行器：生成</b></p><p id=\"doxcnpiiNUDogpzGm5FVrnaJGQg\">接收提示词，调用 LLM 产生输出文本，返回调度器。</p><p id=\"doxcnkENUiNTFgfiyNLsshsHAsh\"></p><p id=\"doxcn1XDiulKUPzJ0x2xRC6mlZg\"><b>调度器：拆解与更新</b></p><p id=\"doxcnMbTQYyZUGoympTV823panu\">接收输出，拆解需要变更的条目，更新世界图对应节点的 content。查询下一个事件节点。</p><p id=\"doxcnYRcjjOHcpT8iOHfkXzv6Rb\"></p><p id=\"doxcnvHZaGvD50KKsp80hD8up8e\"><b>循环 → 暂停标记</b></p><p id=\"doxcncaFJnP674jS9i7sOT8bP8c\">以上流程循环执行，直到命中创作者设置的暂停标记。暂停点保留人在回路——创作者检查世界状态、调整后续事件。</p><p id=\"doxcn196yEWdLOmpQT6k4BtPidc\"></p><p id=\"doxcnNNHpk47px4xR1QpnYKzXMf\">循环结构：事件输入 → [调度器→执行器→调度器] → 下一个事件输入 → ... → 暂停标记</p><p id=\"doxcnmUHRdTENjZNkrPGaTS9pnh\"></p><p id=\"doxcnkFe8DaHAJQWjSfQWGUWOkh\"><b>✅ 核心循环概念验证通过</b></p><p id=\"doxcn2xOnZlrn0Izc3FjolW4tuI\"></p><p id=\"doxcnbOQlUD3lti0grSOSfFQExh\">用 Python 实现了调度器+执行器核心循环，验证了\"世界图 + LLM 扩散\"范式的可行性。</p><p id=\"doxcntEcdvZMKlAnsrWMYcGVNcg\">里程碑：事件输入→图检索→提示词拼接→LLM生成→扩散拆解→写回节点→下一个事件。全链路跑通。</p><p id=\"doxcnLrd1AG3PEqd27YVnBheIjf\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

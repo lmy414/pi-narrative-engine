@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcn7q1ZMeuZllxNXdFixklT8e\"><h2 id=\"doxcn7q1ZMeuZllxNXdFixklT8e\">二、关键设计决策</h2><p id=\"doxcn33OUv0cYigz41l9TzChrwh\"><b>调度器做扩散判断，不做内容生成</b></p><p id=\"doxcnhxpOEvWOlBwFcPHkN0uFWg\">扩散识别放在调度器而非执行器，确保扩散规则由创作者控制。可预设扩散类型（关系变化、物品状态变更、认知更新等），调度器按规则自动识别写入。</p><p id=\"doxcnidBSf2qmUNAca5d5Q1JL4g\"></p><p id=\"doxcnhTssIhdsCkurrgq3oxSYRh\"><b>子代理隔离</b></p><p id=\"doxcnkaRe33cWYshg5eoUartMrg\">每个事件使用独立的子代理实例，互不污染上下文。子代理仅需看到当前事件相关的世界条目，不需背负全部历史。解决长篇小说上下文爆炸问题。</p><p id=\"doxcnPgyGPPsy7rXFVGjbKMmpDd\"></p><p id=\"doxcn49tfhGHqHABQjqxKxNLUMh\"><b>暂停点设计</b></p><p id=\"doxcnKhP9gPS0UgCbPlpUyKdyGg\">保留人在回路——创作者在每个暂停点检查扩散结果、调整世界条目、修改后续节点。</p><p id=\"doxcn3UvGVez7wLjbQSdv5crYrd\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

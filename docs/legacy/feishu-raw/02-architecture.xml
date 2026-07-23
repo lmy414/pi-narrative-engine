@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnHekTWUekK1ahFxkTLKmgmd\"><h2 id=\"doxcnHekTWUekK1ahFxkTLKmgmd\">一、整体架构</h2><p id=\"doxcngsbcrnMDmqHEkn724bu8pd\"><b>叙事引擎由调度器(Scheduler)和执行器(Executor)两部分组成。</b></p><p id=\"doxcnaVXTawWqLiRxE5hAkeH1Gd\"></p><p id=\"doxcn3CLAn8rlLmBmMDFTMN1Gt1\"><b>调度器职责：</b></p><ul><li id=\"doxcnkxlBssvbXXp5vMe7QyQrQe\">按照用户编排的事件节点序列，读取当前节点</li><li id=\"doxcnf9nq15SBwP5riVt1HEoXfs\">收集事件所需的世界背景条目和角色信息</li><li id=\"doxcn5FvOFjvou6rFujRoSRy7Nd\">拼接成提示词，交给执行器</li><li id=\"doxcnxPZMwo79K8Uxlsd4hu9wYc\">接收执行器返回的文本输出</li><li id=\"doxcnB2T4XQEb6nhKdjD0eCryHh\">分析输出内容，识别扩散（状态变化）</li><li id=\"doxcnp4WLlZYhbk5tNGfNvN5Lub\">将扩散结果写入世界书对应条目</li><li id=\"doxcnse6nRKIn2Gyki6LoQn6YRe\">根据更新后的世界状态，调度下一个事件节点</li><li id=\"doxcnvg31kmw5JTW9ogJXAlYzhb\">到达用户设置的暂停点/结束标记时停止</li></ul><p id=\"doxcn9BGEMRKB5p7WruQVuFMcub\"></p><p id=\"doxcnMbTR7MvVSyCP2SfVvgkvld\"><b>执行器职责：</b></p><ul><li id=\"doxcnqv1EM7qJf2TokPQrVAKUwe\">子代理实例，接收调度器发来的提示词</li><li id=\"doxcnrcSMz8cSCtSh8A2nRjyiee\">按提示词执行事件，生成叙事文本</li><li id=\"doxcnnzZJTow0hrVPvlUZOGxsYf\">返回输出结果给调度器</li></ul><p id=\"doxcnIpkZCkNB7WR7EGNTYvVprc\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnuzhKCZjVDrsE82tb4p37mf\"><h2 id=\"doxcnuzhKCZjVDrsE82tb4p37mf\">语义理解层：意图分类</h2><p id=\"doxcnCpaDYVnehcmY8GFN7Minir\"></p><p id=\"doxcnIBWNTQ4VkWq783e5aw5Gac\"><b>语义层需要区分的五种用户意图：</b></p><p id=\"doxcnLdsnOpWKnUhWkfO28clfPf\"></p><ul><li id=\"doxcn6s4uvBMgQJBUzS2oD40u3e\">新增事件：\"接下来...\" → 追加到事件序列末尾</li><li id=\"doxcnzNjAFHZVHQ4hiKrVD2Cq3g\">修改事件：\"上一段改成...\" → 定位事件N，替换角色行为参数</li><li id=\"doxcng8uX232k4yjAS6PTlA7Ssf\">插入事件：\"在A和B之间加...\" → 事件序列中插入新节点</li><li id=\"doxcnHJiaYI7vStuMynjXqC485b\">查询世界：\"苏晚现在和谁关系最好？\" → 读取世界图，不操作事件</li><li id=\"doxcnl6hYwy5Fl2siRmriSp2Ovc\">删除事件：\"这段删了\" → 移除节点，回溯对应扩散</li></ul><p id=\"doxcn3wplwOIJf2HhqrcMSc09Dg\"></p><p id=\"doxcnc56Pi3wQicoogXR2l1Oy6f\">最复杂的是修改事件——修改后需要级联撤销该事件之后的所有扩散，重新从修改点执行循环。这要求世界图支持分支和回退。</p><p id=\"doxcnXXERCGZ40QS2af7MgkuQAd\"></p><p id=\"doxcn1bUq39iqq3MvEGVZkCzA7c\"><b>循环模式修正：取消自动推进，改为对话驱动。</b></p><p id=\"doxcnOTjXHKBnbN5Ef1aoXZ5YoC\">用户每次输入触发一轮循环 → 引擎输出文本+世界图状态 → 等待用户下一次输入。不输入不触发。</p><p id=\"doxcnw3WUG7VfUUY96jUmlxli4f\">好处：每轮输出后用户可检查、可修改上轮、可改变方向。完全的人在回路。</p><p id=\"doxcnt303xkgcMVJiiuhTXU0LLc\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

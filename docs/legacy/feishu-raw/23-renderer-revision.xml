@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnA42bfXjBIMi9A8EIZCOQvf\"><h2 id=\"doxcnA42bfXjBIMi9A8EIZCOQvf\">渲染器设计修正</h2><p id=\"doxcnnCsLovjUulyKXIuKueVGWz\"></p><p id=\"doxcncgRkhAb5iBPiWqCPWhnusg\"><b>渲染器是有状态、有记忆的独立子代理实例（类似角色代理持久化）。</b></p><p id=\"doxcnN4yd41txo49gWKGsRfdj7g\"></p><p id=\"doxcnulVXLr5qcpXHWwLiYaxUmg\"><b>关键能力：</b></p><p id=\"doxcnchqIkTpEoyNaHlAlPFEtPf\">1. 感知操作类型——语义层将\"新增/修改\"意图传递给渲染器。新增时续写，修改时定位到对应段落重写。</p><p id=\"doxcnsSeLdDML7oeQETUJNTWFIb\">2. 持有全文上下文——记住自己写过的所有内容，保持风格和叙事连续性。</p><p id=\"doxcnJQGlOanwKIxgpAtbWjIcMg\">3. 独立持久化——作为子代理实例，跨事件保持对话历史和写作记忆。</p><p id=\"doxcnABerX9kR5z5YsV1rUilXOd\"></p><p id=\"doxcnBkZ4TZvtApUDnbGVUoEswd\">新增模式：拿到结构化数据+已有全文→续写新段落，保持风格连贯。</p><p id=\"doxcne5PpXPCwgacPYHwh52HAEd\">修改模式：拿到结构化数据+上下文→定位目标段落→重写，前后衔接。</p><p id=\"doxcnRiFvhTYJj75wdEznBduSqd\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

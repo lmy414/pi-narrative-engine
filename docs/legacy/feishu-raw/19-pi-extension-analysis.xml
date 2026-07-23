@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnpIdELif6rqnFOwAiDCTRPf\"><h2 id=\"doxcnpIdELif6rqnFOwAiDCTRPf\">Pi 扩展机制——叙事引擎落地分析</h2><p id=\"doxcnnKp9Z4vngFn7um9nQxJEbd\"></p><p id=\"doxcnT7HYWtXXOJ2eIvtnILGTgb\"><b>Pi 的架构与叙事引擎需求高度匹配：</b></p><p id=\"doxcnaCkaSsDR7hH0aycbvILbsd\"></p><p id=\"doxcn3m5zZ62TSgfiHsNXZWsoeb\">1. 自定义 Agent（Markdown + YAML）</p><ul><li id=\"doxcn2Kvq3pjWfqW1J7WSTcIFUf\">Agent 定义在 ~/.pi/agent/agents/*.md，YAML frontmatter 配 model/tools，body 写系统提示词</li><li id=\"doxcn96X1l9vgpiEa73kd2u3dDe\">调度器、渲染器、每个角色子代理都可以定义为一个独立 Agent</li></ul><p id=\"doxcnmdn2ITHejUMcHvlzASWSgc\"></p><p id=\"doxcn8bcrqPQ9XvUjCNlTHHmIXb\">2. 原生多模型支持</p><ul><li id=\"doxcnoiCZSXWAtefe9LdegI9Cdc\">每个 Agent 可以独立指定模型——调度器用最强模型，角色代理用轻量模型</li><li id=\"doxcn6DImbizGIHzYXl9xrBg8Xf\">正是叙事引擎需要的：调度器深思熟虑，角色代理快速响应</li></ul><p id=\"doxcnrc6nKx2n4MOt27o7rbQpeb\"></p><p id=\"doxcnOfJGVZs1VgzHFXVxvqD2qd\">3. 自定义工具（pi.registerTool + TypeBox）</p><ul><li id=\"doxcnnKbawZZlX1Qmfbv08Aw6Nb\">world_graph_query / diffusion_write / narrative_step 可注册为自定义工具</li><li id=\"doxcnmBeRrCa9iIl40FYdUEzGge\">TypeBox 提供类型安全和参数验证</li></ul><p id=\"doxcnv7VaELANohocp9GFyyGDXd\"></p><p id=\"doxcnkxQP5aO2kYkKXGL3QTjRwe\">4. 子代理系统（独立进程 + JSON 行协议）</p><ul><li id=\"doxcnEHSK1IS6Ou938qsTIT8vsd\">角色代理作为独立子代理 spawn，通过 JSON 行协议通信</li><li id=\"doxcniv4nBALzBR5Dt8y3k0LbMd\">天然支持角色间的上下文隔离</li></ul><p id=\"doxcnRH5zA0VWZg4mUroBHrIwgh\"></p><p id=\"doxcn0KNR6MktsrI5vApU6Zxlfg\">5. 状态持久化（JSONL + 树形分支）</p><ul><li id=\"doxcn2S8qWTxisAMCB20N05HPpg\">世界图可存为 JSON 文件，扩散操作以 JSONL 追加</li><li id=\"doxcnFctmtqDOVym22SK2c1jUHc\">支持分支——尝试不同叙事方向</li></ul><p id=\"doxcnsQTI2VpuEHs9WSdVAkGNgc\"></p><p id=\"doxcnMzy0R6Gm1WqsCAqAZO4rAd\">6. Agent 循环钩子（15+ hooks）</p><ul><li id=\"doxcnqofoHvywvsa9IPTygOcVbg\">可自定义叙事引擎的特殊循环逻辑</li></ul><p id=\"doxcnn4TgmL2za07hTHmseueR9g\"></p><p id=\"doxcnBLw5KLYOPXYU2Vw3B4xXse\">结论：Pi 已具备叙事引擎所需的全部基建。开发路径：定义 Agent（调度器+渲染器+角色）→ 注册自定义 Tools → 编写世界图 JSON 存储 → 串联循环。</p><p id=\"doxcn9i29OVyK94QYjHpaIFQkLh\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

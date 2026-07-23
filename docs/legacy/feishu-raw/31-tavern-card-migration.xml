@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnIj767QRUg94PnU5cU9ecjh\"><h2 id=\"doxcnIj767QRUg94PnU5cU9ecjh\">角色定义：迁移酒馆角色卡</h2><p id=\"doxcn5lvVnm92NGu41wNe3wkXNe\"></p><p id=\"doxcnc8MLSQ1pOkB3ztuPnZTuVc\"><b>酒馆 V2 角色卡格式 → 叙事引擎角色节点的三层结构，直接复用：</b></p><p id=\"doxcnIpIjtuERJ5DSzVsTKpdsqb\"></p><p id=\"doxcnrhjfxc1SPGpKrBhuD2aF6d\"><b>基础设定（始终注入子代理）</b></p><ul><li id=\"doxcn8OMkj9CWLHf1Zpt1JTphXd\">酒馆的 description + personality → 引擎的角色卡 json</li><li id=\"doxcn8PBvLoOdfuC0ifw4K99eah\">酒馆的 mes_example → 角色说话风格的 Few-shot 模板</li><li id=\"doxcnvT0nw5PA7unbypwVOAJzEb\">酒馆的 post_history_instructions → 规则引擎的自检约束</li></ul><p id=\"doxcn6reQAmLfwwlmlEGV9uqjof\"></p><p id=\"doxcnDFEvSjctfdNbFYMT61jNzd\"><b>动态记忆（按久远度压缩后注入）</b></p><ul><li id=\"doxcnyEKl23Sv4IpCbcLmjeYLma\">酒馆没有这一层，引擎新增。记录角色经历过的事件摘要</li></ul><p id=\"doxcneJrnEHtDK1hhoQ8FwUIWTF\"></p><p id=\"doxcnbePVYsIdAAXZRdURPiZvBb\"><b>当前状态（实时读取）</b></p><ul><li id=\"doxcnlAsBdjS59HnjsjspMy9dHh\">酒馆也没有。情绪/关系值/位置，随每次扩散更新</li></ul><p id=\"doxcntqp3v9ozAp19q5zOLEQdqb\"></p><p id=\"doxcnVdX451qQCVXqWGVTvYjlad\">最大的区别：酒馆的 scenario 是固定的，引擎的 scenario 由调度器每轮动态注入——因为世界状态在变化。</p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

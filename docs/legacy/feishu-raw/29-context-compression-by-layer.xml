@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnJ6V7prZYnTKatZrdVOKvUh\"><h2 id=\"doxcnJ6V7prZYnTKatZrdVOKvUh\">上下文压缩策略（按世界层级）</h2><p id=\"doxcn1EiendjiM2UcIsyz74Sogg\"></p><p id=\"doxcncdNlv1i0eW06pC2gjzdFWc\"><b>结合四层世界背景，压缩策略按层级分别处理：</b></p><p id=\"doxcnrgEDKSM3wo3zGzv59QL9vb\"></p><p id=\"doxcnH1ZwJXDmscBCA4E6rimPxf\"><b>角色层</b></p><ul><li id=\"doxcnqxphSf0abBTaaMBzHWOv0d\">最近N个事件：完整记忆（对话+情绪+细节）</li><li id=\"doxcndEl8rzRgCyG422qHWiV4kf\">较早事件：压缩为角色状态摘要</li><li id=\"doxcnc5mEw72UlWCmVH4KJnF4Wt\">早期事件：因果骨架（做了什么+扩散了什么）</li></ul><p id=\"doxcnRTQqlDPNSGPAgciBBCNhEf\"></p><p id=\"doxcnYMkuIL4hoiSjd3qfQNsz0f\"><b>角色互动物层</b></p><ul><li id=\"doxcnWyiIG8oviBpfoBCzys9wAd\">最近N个事件：完整状态（铜币剩余数、武器状态）</li><li id=\"doxcnbJ2fhvsCDvodGTrc8JFIgh\">较早事件：仅保留当前状态值，不记录历史变化</li><li id=\"doxcnBJWmVTDLeIWs4OlWFes8vf\">早期事件：删除（旧物状态不参与叙事）</li></ul><p id=\"doxcnYs3nfEusZ1GmOUUVCqCeUf\"></p><p id=\"doxcnjV1Rz6OAtk2lzsOIMIA7zf\"><b>非角色交互物层</b></p><ul><li id=\"doxcnHqI4CIefLPfC24SExJ6dtg\">不压缩，因为换景时才触发检索。旧场景的氛围无关当前叙事</li></ul><p id=\"doxcnxZcPcpnlw6nBsREoZwpSog\"></p><p id=\"doxcnQraWIUwrP64vd8EJP7jsCd\"><b>背景环境层</b></p><ul><li id=\"doxcnsutU3nDsahPcKCpuOv8zXg\">不压缩，因为它是规则不是数据。累积但不衰减</li></ul><p id=\"doxcn90LtZloj5jTBGieGa6WIAe\"></p><p id=\"doxcn3lC78BrK3H41DqfDCJLhad\">核心逻辑：角色是主角→记忆衰减但不丢；互动物只保留当前态→历史无用；非互动物和背景不压缩。</p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

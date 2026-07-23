@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnPbLxxjWmdbomzIzV95nQbb\"><h2 id=\"doxcnPbLxxjWmdbomzIzV95nQbb\">世界图中角色节点的特殊结构</h2><p id=\"doxcnZgtjG2jFopa7zndAmpnPic\"></p><p id=\"doxcnTPxrAbouPeA26EMmzjECZd\"><b>角色节点不是普通的 key/content 条目，而是有结构的：</b></p><p id=\"doxcnqJykBiIXlW9PJx4cVArkJb\"></p><p id=\"doxcniDedKSmT2J7G5OWl3AsYFb\"><b>基础设定（酒馆角色卡）— 性格、背景、说话风格、外貌… 始终注入角色子代理</b></p><p id=\"doxcnsshbYdkwqhDPcAz1yul9ee\"><b>动态记忆 — 该角色经历过的事件（压缩摘要），按久远度分层</b></p><p id=\"doxcnJw9TNJ4J7LiKl0JEa7d1hg\"><b>当前状态 — 情绪、关系值、位置… 随扩散实时更新</b></p><p id=\"doxcngb3AaRFoG7QVwjQIsob0lb\"></p><p id=\"doxcnsw2WE5Osg3htCd8mywxBpe\">调度器分配知识时：基础设定始终注入，动态记忆按久远度压缩，当前状态从世界图实时读取。</p><p id=\"doxcn0F4nfyTE2rIWaifS6LqLMe\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

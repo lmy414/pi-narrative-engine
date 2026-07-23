@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnv5ruQAYl6TD3HzbY9FbuPb\"><h2 id=\"doxcnv5ruQAYl6TD3HzbY9FbuPb\">规则引擎参考：EmaoNovel</h2><p id=\"doxcnkS1oOSAahSrDM2FJPJVPyf\"></p><p id=\"doxcnj4Ng8pVNt0KaRg8wlwEqBg\"><b>EmaoNovel 的规则引擎不是传统代码实现，而是声明式 Markdown 系统 + AI 推理引擎。可借鉴到叙事引擎：</b></p><p id=\"doxcnTZKUht85th2Fh74gZQOGvh\"></p><ul><li id=\"doxcn8YCs7Y2rSQ1NxNm9vf2xHe\">规则存储：工作目录下 .narrative/rules/，按功能分层（角色约束/世界观一致性/风格控制/禁止模式）</li><li id=\"doxcnRvf8Aba8dBOmYQUNGwGqgh\">规则加载：顺序加载 + 优先级链，AI 语义匹配对应规则</li><li id=\"doxcnEWeD30PhjExBFUknHhsRiV\">自检节点：渲染前自检（是否违反角色约束？）+ 写入 narrative.txt 后自检（是否与上段衔接？）</li><li id=\"doxcn5J9SgznzS8N0CTmGw0jcSg\">自然语言管理：用户说\"加一条规则：苏晚不会主动表白\" → 语义层解析 → 写入 .narrative/rules/character.md</li><li id=\"doxcnCU5GjreqXZG0HIxANS3HCe\">项目隔离：切换工作目录即切换规则集</li></ul><p id=\"doxcnEucZBZBOEDxadis2apzqdd\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

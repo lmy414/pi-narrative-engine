@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnxlPyrKyUQ2ODCRExdgkBNh\"><h2 id=\"doxcnxlPyrKyUQ2ODCRExdgkBNh\">综合架构：四层蓝图</h2><p id=\"doxcn1fS0rZijDmCmGiJsyN7kTg\"><b>用户/API 层：全文搜索 + 结构化查询 + 自然语言查询 + 可视化导航</b></p><p id=\"doxcnE7Ba1NufyKyIR8G3nSAZfb\">知识层：实体类型注册表 + 关系类型注册表 + 属性模式 + 规则约束引擎</p><p id=\"doxcnMNAKcV3bcjmx5xQMifQH85\">存储层：图数据库（Neo4j）或 JSON 文件</p><p id=\"doxcnw1DmOWs5EyVcF3MqNMGL5e\">互操作层：导出/导入 + API + 版本控制</p><p id=\"PCaxdQyFiopldex3YDVclHbPnkL\"></p><p id=\"doxcn9K00bZegoIS4Uurd1rAaLe\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

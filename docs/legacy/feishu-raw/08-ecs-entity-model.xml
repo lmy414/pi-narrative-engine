@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnVLDMcQyncyVtUlbfnfHo4g\"><h2 id=\"doxcnVLDMcQyncyVtUlbfnfHo4g\">ECS-like 实体模型</h2><p id=\"doxcnyi1fMcWnez4S85gC8Wuzag\">Unity ECS 的 Entity=ID + Component=数据 模型天然适合可检索世界系统。每个世界条目是一个 Entity，携带多种 Component（名称、描述、位置、关系边等）。</p><p id=\"doxcnTsHpk0fhcQSL0Lw0yHFgEh\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

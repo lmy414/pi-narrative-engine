@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcntFh0JgczP1Pp6IXehZzt4f\"><h2 id=\"doxcntFh0JgczP1Pp6IXehZzt4f\">实现路径：独立 π 智能体（修正）</h2><p id=\"doxcnCkRqPrtMJ9gcStU2IcAEoe\"></p><p id=\"doxcnhHkC4hrAWZIw3omUzPvfFc\"><b>叙事引擎不是 Hermes 的扩展，而是一个独立的 π（智能体）。</b></p><p id=\"doxcnv9Ymx8PIKagEYl1MuK1Rzh\">有自己的身份、系统提示词、运行模式。作为独立实例运行，与 Hermes 并列。</p><p id=\"doxcnHZWT4rMot5q5gnNesgd0pc\"></p><p id=\"doxcn2XTfaYUdVJTje5kYV2SW10\">形态：一个独立 AI 智能体，内置叙事引擎循环。用户通过对话界面与之交互——编辑模式讨论设定、引擎模式驱动叙事推进。</p><p id=\"doxcnduexkwliNO6ncgvSerzugd\"></p><p id=\"doxcnO5FHZq1bOY4Ba5l0q0e4Bg\">先不做 GUI，通过对话界面验证闭环，后续再升级到蓝图式节点编辑器。</p><p id=\"doxcnxl6DIsa6IeJFNLcTEFkdHe\"></p><p id=\"doxcntkVV5PSvEkdPR8RVFnZ3Ke\">技术基底可沿用 Hermes 框架（Skill/Profile/delegate_task/自定义 Tools），但身份是独立的——不是一个工具，是一个搭档。</p><p id=\"doxcnb68yd9gSUC0HKziFpKPjle\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

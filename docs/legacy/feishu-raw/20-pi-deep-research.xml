@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnq1U9WMpfPleXkTVG9v9XBT\"><h2 id=\"doxcnq1U9WMpfPleXkTVG9v9XBT\">Pi 深度研究——叙事引擎落地路径</h2><p id=\"doxcn5hWeKMvZF2o1U3Cx4PFMXg\"></p><p id=\"doxcnMdkRWjXKL26ENS9DA0dMne\"><b>Pi（earendil-works/pi，71k stars）是一个终端 AI 编码 agent 框架。</b></p><p id=\"doxcnBfeFtxHJ7wXqduy2KnMiqd\">设计哲学：\"极简内核，最大可扩展\"——子代理、plan mode、MCP 等都不内置，全部通过 TypeScript 扩展实现。MIT 协议。</p><p id=\"doxcnTnvXDJfSqW5DIDC2qTBdAe\"></p><p id=\"doxcnX1Nxdc7UIcNBGNnLQ4GtD3\"><b>叙事引擎直接可用的能力：</b></p><p id=\"doxcnhZ69YPBC991NQhUhAsW8Le\"></p><p id=\"doxcnRi6CPYZADVwaaFJYLfhbBb\">Extensions（核心扩展机制）</p><ul><li id=\"doxcn832CKlFHI2LygTfkiPvykc\">pi.registerTool() + TypeBox schema → world_graph_query / diffusion_write / narrative_step</li><li id=\"doxcnK9loQcjT4sgGIsS22RmJJd\">支持流式更新、前后钩子、异步后台任务</li></ul><p id=\"doxcn7xZkWK2Jjljcuh3V2JHuxc\"></p><p id=\"doxcnuXMA5BqXRcZ5ls0XQN9lC7\">Skills（兼容 Claude Code/Codex 格式）</p><ul><li id=\"doxcnOGwkvcwOSgdKrer0MFQKBg\">调度器逻辑、角色定义可写为 Skill 文档，自动加载</li></ul><p id=\"doxcnPz06NCteXa4HMrW3gOyGae\"></p><p id=\"doxcnVXXJo965hQiE2P5A7QcoOg\">Orchestrator（多 Agent 编排）</p><ul><li id=\"doxcn3SBfjYjW2u6bn2UDeSSXxe\">独立进程 + JSON 行协议通信 → 角色子代理天然适配</li></ul><p id=\"doxcnNCFg0eT4Tl4SK19Ni2rCff\"></p><p id=\"doxcnP6xAnhA2oeQP5yuPL32REc\">状态持久化（JSONL 树型 + 分支）</p><ul><li id=\"doxcnvGpoEDh8tL46MdDnMNpNVh\">世界图每次扩散追加一行 JSONL，支持分支——尝试不同叙事方向</li></ul><p id=\"doxcna9Fy7LS69uYHZWAndXEIq3\"></p><p id=\"doxcnRsNZmxHREgu6Xxy03bSBiz\">25+ Provider、运行时切换模型</p><ul><li id=\"doxcnFH3QwYacHdHw9roGBPyLVg\">调度器用最强模型，角色代理用轻量模型——一个 Pi 实例内原生支持</li></ul><p id=\"doxcnNRFyE0n2RfES8nwX0R2qlb\"></p><p id=\"doxcnN8q1yRkadVXqjQz9VYWl5c\">SDK 模式（createAgentSession）</p><ul><li id=\"doxcn0UsN78jf3WbOyRUYkLk5sc\">可将叙事引擎嵌入自定义应用，后续做独立桌面 App 的路径</li></ul><p id=\"doxcnw3PHQ0XnMBnK2u3pSrlEqf\"></p><p id=\"doxcndcm8W1OjB2jCvAjPgPGq5d\">开发路径：安装 Pi → 创建 Extensions（注册叙事工具）→ 创建 Skills（调度器+角色定义）→ 世界图 JSONL 存储 → Orchestrator 串联角色代理 → SDK 模式包装。</p><p id=\"doxcn73rM6B7C4mrSPgHt9q2aye\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

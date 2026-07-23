@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcnUJDhcdiEmnMZ3D4G8snZMd\"><h2 id=\"doxcnUJDhcdiEmnMZ3D4G8snZMd\">长期方向：MCP 工具化</h2><p id=\"doxcnAUL8qfonUqvVtzbB9qn90f\">当前依赖 Pi 生态，长期目标做成标准 MCP（Model Context Protocol）工具。</p><p id=\"doxcnVbQ2cC9AHKQ3qFf3dPxbgf\">好处：不绑定任何特定平台。Claude Desktop、Hermes、Pi、VS Code——支持 MCP 的地方都能运行叙事引擎。用户选生态，不是生态选用户。</p><p id=\"doxcnxDHj8PWy0QZoGuUt5y7Rid\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}

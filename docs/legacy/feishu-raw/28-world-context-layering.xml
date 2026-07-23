@@ -1,0 +1,11 @@
+﻿{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "document": {
+      "content": "<fragment mode=\"section\" requested-start=\"doxcn758XB27jh7iteSs1GtLuOf\"><h2 id=\"doxcn758XB27jh7iteSs1GtLuOf\">世界背景的分层</h2><p id=\"doxcn0u1QpvY9AuBJwFrzG3ujRg\"></p><p id=\"doxcnH38RxE0ogaLre1ZWr5HTJb\"><b>世界条目按四层组织，控制检索精度和扩散范围：</b></p><p id=\"doxcnzgJsCIiAK0O5v0mPJiQi8e\"></p><p id=\"doxcn5QMtK6smaA15RSH9z9Ck2b\"><b>角色层</b></p><ul><li id=\"doxcnI54wGNLBYMVLbkPY5KiaJg\">事件涉及的角色 → 始终检索全部三层（基础设定+动态记忆+当前状态）</li><li id=\"doxcn6dZdwTgk8rbm40fZvjDOqf\">状态变化 → 写回角色节点的当前状态和动态记忆</li></ul><p id=\"doxcnSyCbOTtLl3REJ9DVcGES2e\"></p><p id=\"doxcnE4MpnHZIlIFLVwhSp1qqYd\"><b>角色互动物层</b></p><ul><li id=\"doxcnItkUEpwWdw44pZhGXI5FUe\">角色持有、使用、接触的物品 → 事件中涉及才检索</li><li id=\"doxcnZw1aUhb0PFLBtEatiIwBZg\">状态变化 → 写回该物节点。例：诺艾尔花掉一枚铜币→钱袋状态更新</li></ul><p id=\"doxcnCkqoCJmGHcIVhJFD0K4kJ3\"></p><p id=\"doxcnBUTdrJJYFYkmz2JCbjhzWh\"><b>非角色交互物层</b></p><ul><li id=\"doxcnnNuyitrZifPWgRolVkEsPc\">场景中的氛围元素：天气、人群、装饰 → 场景切换时检索，作为环境上下文注入</li><li id=\"doxcnBNMJsjncMcedGkP4bg6ulc\">不变化，仅描写</li></ul><p id=\"doxcnPH2rkMnGTr1Au8jQQbetic\"></p><p id=\"doxcnbeuJ9SRMGTfMlCDo2f0jdg\"><b>背景环境层</b></p><ul><li id=\"doxcnJNNYUurWSW5D3E9f8qp2sh\">世界规则和宏观氛围：晶石会发光、工会等级制度 → 始终注入</li><li id=\"doxcnxmKvj0hfRummKsphDLsL0g\">极少变，只有大事件触发。类似规则层，是约束而非数据</li></ul><p id=\"doxcnlLa3yFG6h3akC35sFZh0ph\"></p></fragment>",
+      "document_id": "I9WqdeRpfodKrYxGcsVcrYhdnQe",
+      "revision_id": 76
+    }
+  }
+}
