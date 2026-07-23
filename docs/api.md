@@ -1,15 +1,15 @@
 # Narrative Engine API 文档
 
-> **版本**: V2（tool-adaptation 重写后）
-> **适用分支**: `feat/world-graph-rewrite`
-> **最后更新**: 2026-07-23
+> **版本**: V2（tool-adaptation 重写后 + V3 导入器）
+> **适用分支**: `master`（原 `feat/world-graph-rewrite` 已 FF merge）
+> **最后更新**: 2026-07-24
 
 ## 目录
 
 - [1. 架构概览](#1-架构概览)
 - [2. 存储路径](#2-存储路径)
 - [3. storyTime 管理约定](#3-storytime-管理约定)
-- [4. PI 扩展工具 API（18 个 world_*）](#4-pi-扩展工具-api18-个-world_)
+- [4. PI 扩展工具 API（20 个）](#4-pi-扩展工具-api20-个)
   - [4.1 状态查询](#41-状态查询)
   - [4.2 实体工具](#42-实体工具)
   - [4.3 关系工具](#43-关系工具)
@@ -17,29 +17,32 @@
   - [4.5 可见性工具](#45-可见性工具)
   - [4.6 检索工具](#46-检索工具)
   - [4.7 历史与元信息工具](#47-历史与元信息工具)
+  - [4.8 可视化工具](#48-可视化工具)
+  - [4.9 导入工具](#49-导入工具)
 - [5. `@pi/world-graph` 包 API](#5-piworld-graph-包-api)
-- [6. `Search` 类 API](#6-search-类-api)
-- [7. `Embedder` 类 API](#7-embedder-类-api)
-- [8. 类型定义](#8-类型定义)
-- [9. SDK 检索能力](#9-sdk-检索能力)
-- [10. 可视化服务（Visualizer）](#10-可视化服务visualizer)
+- [6. `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
+- [7. `Search` 类 API](#7-search-类-api)
+- [8. `Embedder` 类 API](#8-embedder-类-api)
+- [9. 类型定义](#9-类型定义)
+- [10. SDK 检索能力](#10-sdk-检索能力)
+- [11. 可视化服务（Visualizer）](#11-可视化服务visualizer)
 
 ---
 
 ## 1. 架构概览
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  PI 主会话 / Scheduler / 前端                       │
-│  （通过 pi.registerTool 注册的 19 个工具调用）       │
-└──────────────────┬──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  PI 主会话 / Scheduler / 前端                             │
+│  （通过 pi.registerTool 注册的 20 个工具调用）             │
+└──────────────────┬───────────────────────────────────────┘
                    │
-┌──────────────────▼──────────────────────────────────┐
-│  narrative-engine/src/index.ts                       │
-│  - session_start: 初始化 WorldGraph/Embedder/Search │
-│  - 注册 18 个 world_* 工具 + open_visualizer       │
-│  - 管理 session 级 currentStoryTime                 │
-└────┬────────────┬──────────────┬────────────────────┘
+┌──────────────────▼───────────────────────────────────────┐
+│  narrative-engine/src/index.ts                            │
+│  - session_start: 初始化 WorldGraph/Embedder/Search      │
+│  - 注册 18 个 world_* + open_visualizer + import_novel   │
+│  - 管理 session 级 currentStoryTime                      │
+└────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │
      ▼            ▼              ▼
 ┌─────────┐ ┌──────────┐ ┌──────────────────────────┐
@@ -50,16 +53,16 @@
 └────┬────┘ └────┬─────┘ │  - EventLog              │
      │           │       └──────────┬───────────────┘
      │           │                  │
-     └───────────┴──────────────────┘
-                  │
-                  ▼
-     ┌──────────────────────────────┐
-     │ @nicia-ai/typegraph@0.40.0   │
-     │ - StoreSearch (fulltext/vec) │
-     │ - QueryBuilder               │
-     │ - searchable()/embedding()   │
-     │ - sqliteVecStrategy          │
-     └──────────────────────────────┘
+     ├───────────┴──────────────────┘
+     │
+     ▼
+┌──────────────────────────────┐    ┌──────────────────────────────┐
+│ @nicia-ai/typegraph@0.40.0   │    │ @pi/novel-importer           │
+│ - StoreSearch (fulltext/vec) │    │ - runImportPipeline (8 阶段) │
+│ - QueryBuilder               │    │ - resolveEntities (消解)     │
+│ - searchable()/embedding()   │    │ - writeToGraph (写入)        │
+│ - sqliteVecStrategy          │    │ - validateGraph (校验)       │
+└──────────────────────────────┘    └──────────────────────────────┘
 ```
 
 **核心依赖**：
@@ -74,6 +77,8 @@
 
 ## 2. 存储路径
 
+### 2.1 运行时目录（world_* 工具）
+
 默认路径：`<cwd>/.pi/world-graph-v2/`
 
 | 文件 | 用途 |
@@ -81,7 +86,24 @@
 | `world.db` | SQLite 数据库（Entity/Fact/Relation/Visibility 节点 + fulltext/vector 索引） |
 | `events.jsonl` | 事件日志（JSONL 格式，每行一条 EventRecord） |
 
-**旧路径** `<cwd>/.pi/world-graph/` 已废弃（V1 数据不迁移）。
+### 2.2 导入目录（import_novel 工具）
+
+默认路径：`<cwd>/.pi/world-graph-v3/`
+
+| 文件 | 用途 |
+|------|------|
+| `world.db` | SQLite 数据库（同上，但由导入管道写入） |
+| `events.jsonl` | 事件日志（由导入管道从章节事件流生成） |
+| `chapter-index.json` | 章节元数据索引（章节 ID → 标题/事件数等） |
+| `alias-index.json` | 别名索引（实体别名 → canonical entityId） |
+| `_v3_dump.json` | 阶段 1-6 中间产物（含 narrative_summary/evidence 调试字段） |
+
+### 2.3 目录关系
+
+- `world-graph-v2/` 与 `world-graph-v3/` 是**两个独立的世界图实例**，互不干扰
+- `import_novel` 默认写入 `v3/`，导入完成后可用可视化工具指向 `v3/` 目录查看
+- `world_*` 工具运行时操作 `v2/`，如需切换可在 `session_start` 前修改 `resolveWorldGraphDir`（当前硬编码，未支持配置）
+- 旧路径 `<cwd>/.pi/world-graph/` 已废弃（V1 数据不迁移）
 
 ---
 
@@ -104,14 +126,25 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
-## 4. PI 扩展工具 API（18 个 world_*）
+## 4. PI 扩展工具 API（20 个）
 
 所有工具通过 `pi.registerTool` 注册，遵循 PI ExtensionAPI 约定：
-- `name` — 工具唯一标识（`world_*` 前缀）
+- `name` — 工具唯一标识（`world_*` 前缀 / `open_visualizer` / `import_novel`）
 - `label` — 显示标签
 - `description` — LLM 可见的工具描述
 - `parameters` — TypeBox schema 定义参数
 - `async execute(_id, params)` — 执行体，返回 `{ content: [{type, text}], details }`
+
+**工具分类**（20 个）：
+- **状态查询**（1 个）：`world_status`
+- **实体工具**（3 个）：`world_entity_create` / `world_entity_kill` / `world_entity_get`
+- **关系工具**（3 个）：`world_relation_add` / `world_relation_close` / `world_relations`
+- **事件工具**（2 个）：`world_event_apply` / `world_event_chain`
+- **可见性工具**（4 个）：`world_character_view` / `world_visibility_set` / `world_visibility_infer` / `world_visibility_close`
+- **检索工具**（1 个）：`world_query`
+- **历史与元信息**（4 个）：`world_entity_update_summary` / `world_entity_history` / `world_relation_history` / `world_story_times`
+- **可视化**（1 个）：`open_visualizer`
+- **导入**（1 个）：`import_novel`
 
 ### 4.1 状态查询
 
@@ -150,7 +183,8 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `type` | `"character"` \| `"location"` \| `"item"` \| `"concept"` | 是 | 实体类型 |
 | `initialProps` | `Record<string, unknown>` | 否 | 初始属性（每个键值对成为一个 Fact） |
 | `storyTime` | string | 是 | 诞生时刻 |
-| `summary` | string | 否 | 实体摘要（作者可见元信息，纯展示字段，不参与检索/可见性/时态） |
+
+> **注**：本工具不支持设置 `summary`。如需设置实体摘要，使用 `world_entity_update_summary`。birth 事件（`world_event_apply` 带 `type: "birth"`）才支持 `summary` 参数。
 
 **示例**：
 ```json
@@ -511,6 +545,94 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
+### 4.8 可视化工具
+
+#### `open_visualizer`
+
+启动 world-graph 可视化服务（幂等：已启动则直接返回现有 URL）。
+
+**参数**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `port` | number | 否 | 端口，默认 7421 |
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "可视化服务已启动: http://localhost:7421/" }],
+  "details": {
+    "ok": true,
+    "url": "http://localhost:7421/",
+    "port": 7421,
+    "alreadyRunning": false
+  }
+}
+```
+
+**行为**：
+- 注入 session 的 `WorldGraph` 与 `Search` 实例
+- `session_shutdown` 时自动关闭
+- 已启动时直接返回现有 URL（`alreadyRunning: true`）
+
+**详见**：[第 11 节 可视化服务](#11-可视化服务visualizer)
+
+---
+
+### 4.9 导入工具
+
+#### `import_novel`
+
+从 EPUB 文件导入小说到世界图（V3）。执行 8 阶段管道，内部并行 spawn 多个 LLM 子代理处理各章节。长时间运行任务（11 章约 10 分钟）。
+
+**参数**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `epubPath` | string | 是 | EPUB 文件绝对路径 |
+| `worldGraphDir` | string | 否 | world-graph 存储目录（缺省 `<cwd>/.pi/world-graph-v3/`） |
+| `chapters` | number[] | 否 | 限定导入章节（1-based），缺省全部 |
+| `model` | string | 否 | LLM 模型名（缺省用 pi 配置或环境变量 `PI_MODEL`） |
+| `apiKey` | string | 否 | LLM API key（缺省读 `DEEPSEEK_API_KEY` 或 `PI_API_KEY`） |
+| `concurrency` | number | 否 | 章节并行限流（缺省 3，范围 1-10） |
+| `resumeFromStage` | number | 否 | 从指定阶段恢复（1-8，缺省从 1 开始） |
+
+**8 阶段管道**：
+1. EPUB 分章（`readChaptersFromEpub`）
+2. 全书实体预扫描（`scanEntitiesGlobal`）
+3. 章节事件流生成（`generateAllChapterEvents`，并行限流）
+4. 实体消解编排（`resolveEntities` → canonicalMap + aliasIndex，三级策略：精确匹配 / 字符串相似度 / LLM 判断）
+5. 关系抽取（`extractAllRelations`）
+6. 可见性推断（`inferAllVisibilities`）
+7. 写入 world-graph（`buildCausedByChain` + `writeToGraph`，eventId 生成 + causedBy 拓扑序 + 字段剥离 + state:"known"）
+8. 向量补齐 + P0/P1 校验（`validateGraph`，P0 失败抛错退出，P1 警告继续）
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "导入完成：\n  实体数: 25\n  事件数: 47\n  关系数: 21\n  可见性数: 162\n  存储目录: /path/to/world-graph-v3\n  dump 文件: /path/to/world-graph-v3/_v3_dump.json" }],
+  "details": {
+    "entityCount": 25,
+    "eventCount": 47,
+    "relationCount": 21,
+    "visibilityCount": 162,
+    "worldGraphDir": "/path/to/world-graph-v3",
+    "dumpPath": "/path/to/world-graph-v3/_v3_dump.json"
+  }
+}
+```
+
+**Resume 机制**：
+- `resumeFromStage` 允许从指定阶段恢复，跳过已完成的阶段
+- 阶段 7（写入）支持磁盘 resume：已写入的 `world.db` / `events.jsonl` 会被复用，不重复写入
+- 阶段 1-6 的中间产物保存在 `_v3_dump.json`，resume 时从 dump 恢复
+
+**Embedder 注入**：
+- 复用 session 级 `Embedder` 实例（Xenova/bge-small-zh-v1.5, 512 维）
+- 阶段 8 调用 `reembedAll` 为所有 Entity/Fact 补齐向量
+
+**详见**：[第 6 节 `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
+
+---
+
 ## 5. `@pi/world-graph` 包 API
 
 ### `WorldGraph` 类
@@ -594,7 +716,93 @@ const wg = await WorldGraph.create({
 
 ---
 
-## 6. `Search` 类 API
+## 6. `@pi/novel-importer` 包 API
+
+V3 小说导入器子包，通过 `import_novel` 工具暴露。详见 spec: `.trae/specs/import-novel-v3/spec.md`。
+
+### 主入口
+
+```typescript
+import { runImportPipeline } from "@pi/novel-importer";
+
+const result = await runImportPipeline({
+  epubPath: "/path/to/novel.epub",
+  worldGraphDir: "/path/to/world-graph-v3",  // 缺省 <cwd>/.pi/world-graph-v3/
+  chapters: [1, 2, 3],        // 可选：限定章节
+  model: "deepseek-chat",     // 可选：LLM 模型
+  apiKey: process.env.DEEPSEEK_API_KEY,  // 可选：API key
+  concurrency: 3,             // 可选：章节并行限流
+  resumeFromStage: 1,         // 可选：从阶段 N 恢复
+  cwd: process.cwd(),         // 注入 cwd 用于默认 worldGraphDir
+  embedder: embedderInstance, // 注入 TextEmbedder（满足 { embed(text): number[] } 接口）
+});
+```
+
+### `ImportPipelineOptions`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `epubPath` | string | 是 | EPUB 文件绝对路径 |
+| `worldGraphDir` | string | 否 | 存储目录（缺省 `<cwd>/.pi/world-graph-v3/`） |
+| `chapters` | number[] | 否 | 限定导入章节（1-based），缺省全部 |
+| `model` | string | 否 | LLM 模型名（缺省 `PI_MODEL` 环境变量） |
+| `apiKey` | string | 否 | LLM API key（缺省 `DEEPSEEK_API_KEY` 或 `PI_API_KEY`） |
+| `concurrency` | number | 否 | 章节并行限流（缺省 3） |
+| `resumeFromStage` | number | 否 | 从阶段 N 恢复（1-8） |
+| `cwd` | string | 否 | 用于解析默认 worldGraphDir |
+| `embedder` | `TextEmbedder` | 否 | 注入嵌入器（缺省阶段 8 跳过 reembedAll） |
+
+### `ImportPipelineResult`
+
+```typescript
+interface ImportPipelineResult {
+  entityCount: number;
+  eventCount: number;
+  relationCount: number;
+  visibilityCount: number;
+  worldGraphDir: string;
+  dumpPath: string;  // _v3_dump.json 路径
+}
+```
+
+### 主要导出函数
+
+| 函数 | 来源文件 | 用途 |
+|------|----------|------|
+| `runImportPipeline` | pipeline.ts | 主入口，编排 8 阶段 |
+| `readChaptersFromEpub` | epub.ts | EPUB 分章 |
+| `scanEntitiesGlobal` | stages.ts | 全书实体预扫描 |
+| `generateAllChapterEvents` | stages.ts | 章节事件流生成 |
+| `resolveEntities` | resolve.ts | 实体消解（三级策略） |
+| `extractAllRelations` | stages.ts | 关系抽取 |
+| `inferAllVisibilities` | stages.ts | 可见性推断 |
+| `buildCausedByChain` | write.ts | causedBy 拓扑序构建 |
+| `writeToGraph` | write.ts | 写入 world-graph |
+| `validateGraph` | validate.ts | P0/P1 校验 |
+| `makeEmbedder` | validate.ts | 从 TextEmbedder 构造 WorldGraph embedder |
+| `reembedAll` | validate.ts | 批量重新嵌入 |
+
+### 实体消解三级策略
+
+1. **精确匹配**：别名完全相等（含全角/半角归一化）
+2. **字符串相似度**：Jaro-Winkler 相似度 ≥ `DEFAULT_SIMILARITY_THRESHOLD`（0.85）自动合并
+3. **LLM 判断**：相似度在 `[SUSPICIOUS_LOWER_BOUND, DEFAULT_SIMILARITY_THRESHOLD)`（即 `[0.6, 0.85)`）区间，由 LLM 判断是否同一实体
+
+### P0 校验项（失败抛错退出）
+
+- 实体引用完整性（所有 entityId 在 Entity 节点存在）
+- 事件因果链无环
+- birth 事件不重复
+- state 字段必须为 `"known"`
+
+### P1 校验项（警告继续）
+
+- 重复 birth 已被 write.ts 去重
+- 属性命名建议（建议使用点分路径）
+
+---
+
+## 7. `Search` 类 API
 
 ```typescript
 import { Search } from "narrative-engine/src/search.ts";
@@ -649,7 +857,7 @@ interface EntitySearchResult {
 
 ---
 
-## 7. `Embedder` 类 API
+## 8. `Embedder` 类 API
 
 ```typescript
 import { Embedder } from "narrative-engine/src/embedder.ts";
@@ -693,7 +901,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 ---
 
-## 8. 类型定义
+## 9. 类型定义
 
 ### `EntityType`
 
@@ -801,7 +1009,7 @@ interface VisibilityDeclaration {
 
 ---
 
-## 9. SDK 检索能力
+## 10. SDK 检索能力
 
 `@pi/world-graph` 包启用 `@nicia-ai/typegraph@0.40.0` 的内置检索能力。
 
@@ -886,13 +1094,13 @@ type HybridSearchHit<N> = {
 
 ---
 
-## 10. 可视化服务（Visualizer）
+## 11. 可视化服务（Visualizer）
 
 图画布为主的世界图可视化前端：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角模式、历史审计。
 
-### 10.1 启动方式（双入口，共用 `src/visualizer/server.ts` 的 `startVisualizer`）
+### 11.1 启动方式（双入口，共用 `src/visualizer/server.ts` 的 `startVisualizer`）
 
-**pi 会话内**：调用 `open_visualizer` 工具（第 19 个注册工具，非 `world_*` 前缀）。
+**pi 会话内**：调用 `open_visualizer` 工具（非 `world_*` 前缀，见 [4.8](#48-可视化工具)）。
 
 **参数**：
 | 字段 | 类型 | 必填 | 说明 |
@@ -908,7 +1116,7 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 - `--db` 默认 `../novel/.pi/world-graph-v2/`（需含 `world.db` / `events.jsonl`）
 - 默认检索为 fulltext；`--embed` 时加载 Embedder 支持 vector/hybrid
 
-### 10.2 HTTP JSON API（`/api` 前缀，统一 envelope）
+### 11.2 HTTP JSON API（`/api` 前缀，统一 envelope）
 
 成功 `{ ok: true, data, error: null }`；失败 `{ ok: false, data: null, error: { code, message } }`。
 
@@ -934,9 +1142,16 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 
 错误码：`STORY_TIME_REQUIRED` / `MISSING_FIELD` / `INVALID_BODY` / `VALIDATION_ERROR` / `BUSINESS_ERROR`（400）、`ENTITY_NOT_FOUND` / `NOT_FOUND`（404）、`SEARCH_UNAVAILABLE`（501）、`INTERNAL_ERROR`（500）。
 
-### 10.3 前端（`visualizer-ui/`，无构建、无框架）
+### 11.3 前端（`visualizer-ui/`，Vue 3 + Element Plus）
 
-LiteGraph.js 画布（vendored 于 `visualizer-ui/vendor/`）：实体卡片节点（四类类型色）、关系自绘边（两点模式新建、右键闭合）、storyTime 快照选择器、类型过滤、搜索高亮、角色视角置灰、五页签详情抽屉（基本/属性/关系/可见性/历史）、事件链 Tab。节点位置存浏览器 localStorage，不污染存储层。
+V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件库 + 3D 力导向图（three.js + 3d-force-graph）。主要组件：
+- `app.js` — Vue 应用根（状态管理 + 路由切换）
+- `components/` — Element Plus 组件（entity-list / detail-editor / relation-form / event-timeline / graph-3d / snapshot-table / timeline-bar / help-tour）
+- `graph-view.js` — 3D 力导向图视图（litegraph.js vendor 保留供 V2 legacy 模式）
+- `v2-legacy-*` — V2 遗留页面（兼容旧入口）
+- `detail-panel.js` — 五页签详情抽屉（基本/属性/关系/可见性/历史）
+
+功能：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角置灰、历史审计。节点位置存浏览器 localStorage，不污染存储层。
 
 同步：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录。
 
@@ -955,5 +1170,12 @@ LiteGraph.js 画布（vendored 于 `visualizer-ui/vendor/`）：实体卡片节�
 | `drizzle-orm` | latest | ORM |
 | `zod` | `^4.0.0` | Schema 校验 |
 | `typebox` | latest | PI 工具参数 schema |
+| `@mariozechner/pi-ai` | latest | LLM 调用（novel-importer 阶段 2/3/5/6） |
+| `epub2` / `xml2js` | latest | EPUB 解析（novel-importer 阶段 1） |
 
 **Graph Schema 初始化**：通过 `createStoreWithSchema`（异步 factory），自动建表/初始化 schema/迁移。默认 `systemIndexes: "materialize"`，无需手动调用 `materializeIndexes()` 或 `rebuildFulltext()`。
+
+**workspace 子包结构**：
+- `packages/world-graph/` — `@pi/world-graph`（WorldGraph 类 + 类型）
+- `packages/novel-importer/` — `@pi/novel-importer`（V3 导入管道）
+- `src/` — narrative-engine 扩展入口（工具注册 + Embedder + Search + Visualizer）
