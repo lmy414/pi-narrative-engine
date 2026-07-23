@@ -1096,66 +1096,162 @@ type HybridSearchHit<N> = {
 
 ## 11. 可视化服务（Visualizer）
 
-图画布为主的世界图可视化前端：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角模式、历史审计。
+世界图可视化前端：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角模式、历史审计。
 
 ### 11.1 启动方式（双入口，共用 `src/visualizer/server.ts` 的 `startVisualizer`）
 
-**pi 会话内**：调用 `open_visualizer` 工具（非 `world_*` 前缀，见 [4.8](#48-可视化工具)）。
+#### 11.1.1 pi 会话内
+
+调用 `open_visualizer` 工具（非 `world_*` 前缀，见 [4.8](#48-可视化工具)）。
 
 **参数**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `port` | number | 否 | 端口，默认 7421 |
 
-幂等：已启动时直接返回现有 URL。注入 session 的 `WorldGraph` 与 `Search` 实例；`session_shutdown` 时自动关闭。
+**行为**：
+- 幂等：已启动时直接返回现有 URL（`alreadyRunning: true`）
+- 注入 session 的 `WorldGraph` 与 `Search` 实例（含 Embedder，支持 vector/hybrid 检索）
+- `session_shutdown` 时自动关闭服务
+- `forceFulltext = false`（前端传 `mode=vector`/`hybrid` 正常生效）
 
-**standalone（脱离 pi）**：
+#### 11.1.2 standalone（脱离 pi）
+
 ```bash
 node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 ```
-- `--db` 默认 `../novel/.pi/world-graph-v2/`（需含 `world.db` / `events.jsonl`）
-- 默认检索为 fulltext；`--embed` 时加载 Embedder 支持 vector/hybrid
+
+**参数**：
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--db <dir>` | `../novel/.pi/world-graph-v2/`（相对仓库根） | 世界图数据目录，需含 `world.db` / `events.jsonl` |
+| `--port <n>` | 7421 | 监听端口（0-65535） |
+| `--embed` | 关闭 | 加载 Xenova/bge-small-zh-v1.5 向量模型（首次下载较慢），启用 vector/hybrid 检索 |
+
+**检索模式行为**：
+- 不带 `--embed`：`forceFulltext = true`，即使前端传 `mode=vector`/`hybrid` 也会被服务端强制降级为 `fulltext`（因 `Search.fulltext` 不依赖 embedder，传 null 占位即可）
+- 带 `--embed`：`forceFulltext = false`，三种模式正常生效
+
+**进程信号**：`SIGINT` / `SIGTERM` 触发优雅关闭（`server.close()` + `wg.close()` + `process.exit(0)`）。
+
+**脚本链路**：`scripts/visualizer.mjs`（薄壳）→ spawn `tsx` 运行 `src/visualizer/standalone.ts`（实际启动逻辑）。薄壳存在的原因是源码用 TypeScript + `.ts` import specifier，node 无法直接加载。
+
+#### 11.1.3 静态文件服务
+
+- `uiDir` 默认探测顺序（`resolveDefaultUiDir`）：
+  1. `<__dirname>/../../visualizer-ui`（开发态：`src/visualizer/` 上两级 = 仓库根；构建态：`dist/visualizer/` 上两级 = 仓库根）
+  2. `<__dirname>/../visualizer-ui`（同步态：扩展目录下 `visualizer/server.js` 上一级 = 扩展目录根，`sync.mjs` 将 `visualizer-ui` 复制到此）
+- 路径穿越防护：`filePath` 必须以 `normalize(uiDir)` 开头，否则 403
+- 未知文件 404；`/` 映射到 `index.html`
+- 支持的 Content-Type：`.html`/`.js`/`.mjs`/`.css`/`.json`/`.map`/`.svg`/`.png`/`.jpg`/`.jpeg`/`.gif`/`.ico`/`.woff`/`.woff2`/`.ttf`/`.txt`，其余按 `application/octet-stream`
 
 ### 11.2 HTTP JSON API（`/api` 前缀，统一 envelope）
 
 成功 `{ ok: true, data, error: null }`；失败 `{ ok: false, data: null, error: { code, message } }`。
 
-**查询**：
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/status` | entityCount / eventCount / storyTimes |
-| GET | `/api/graph?storyTime=&includeClosed=` | 指定时刻实体+关系快照；`includeClosed=1` 含已闭合关系 |
-| GET | `/api/entities/:id?storyTime=` | 单实体快照 |
-| GET | `/api/entities/:id/history` | 实体全版本历史（含已闭合 Fact 与关系） |
-| GET | `/api/declarations/:declId/visibility?storyTime=` | 该声明的可见性记录（反向查询） |
-| GET | `/api/search?q=&storyTime=&type=&mode=` | 检索（standalone 默认 fulltext） |
-| GET | `/api/events` / `/api/events/:id/chain` | 事件列表 / 因果链 |
-| GET | `/api/character-view?characterId=&storyTime=` | 角色视角可见声明 |
+所有响应带 `access-control-allow-origin: *`。`OPTIONS` 方法统一返回 204 + CORS 预检头（`GET, POST, OPTIONS` / `content-type`）。非 GET/POST/OPTIONS 方法返回 404 `NOT_FOUND`。
 
-**写入**（全部来自前端，`source` 被服务端强制为 `"user"`）：
-| Method | Path | 说明 |
-|---|---|---|
-| POST | `/api/events` | 应用事件（birth 含 entityType/summary；change = invalidated+newFacts，即"编辑字段"） |
-| POST | `/api/entities/:id/summary` | 更新实体摘要 |
-| POST | `/api/relations` / `/api/relations/close` | 新建 / 闭合关系 |
-| POST | `/api/visibility` / `/api/visibility/close` | 设置 / 撤销可见性 |
+#### 11.2.1 查询端点（GET）
 
-错误码：`STORY_TIME_REQUIRED` / `MISSING_FIELD` / `INVALID_BODY` / `VALIDATION_ERROR` / `BUSINESS_ERROR`（400）、`ENTITY_NOT_FOUND` / `NOT_FOUND`（404）、`SEARCH_UNAVAILABLE`（501）、`INTERNAL_ERROR`（500）。
+| Path | 必填参数 | 返回 data 结构 | 说明 |
+|---|---|---|---|
+| `/api/status` | — | `{ entityCount, eventCount, storyTimes }` | entityCount 基于 latest storyTime；storyTimes 升序 |
+| `/api/graph` | `storyTime` | `{ entities, relations }` | `includeClosed=1` 时 relations 来自 `getRelationHistory()`（全量），否则 `getAllRelationsAt(storyTime)`（仅有效） |
+| `/api/entities/:id` | `storyTime` | `EntitySnapshot` | 404 `ENTITY_NOT_FOUND` 若该时刻不存在 |
+| `/api/entities/:id/history` | — | `{ ...entityHistory, relations }` | 实体全版本历史 + 该实体的全量关系历史（含已闭合） |
+| `/api/declarations/:declId/visibility` | —（`storyTime` 可选） | `{ declarationId, visibility }` | 该声明的可见性记录（反向查询），`storyTime` 缺省返回全部 |
+| `/api/search` | `q`, `storyTime` | `{ results: EntitySearchResult[] }` | `mode`：`fulltext`/`vector`/`hybrid`（缺省 `hybrid`，`forceFulltext` 时强制 `fulltext`）；`type`：`character`/`location`/`item`/`concept` 可选过滤 |
+| `/api/events` | — | `{ events: EventRecord[] }` | 全量事件日志 |
+| `/api/events/:id/chain` | — | `{ events: EventRecord[] }` | 因果链（`traceCauses` 回溯到根） |
+| `/api/character-view` | `characterId`, `storyTime` | `{ view }` | 角色视角可见声明 |
+
+#### 11.2.2 写入端点（POST）
+
+所有写入端点的 `source` 字段被服务端强制为 `"user"`（前端无法伪造 `engine` 来源）。
+
+| Path | 必填 body 字段 | 行为 |
+|---|---|---|
+| `/api/events` | `eventId`, `type`, `storyTime`, `entityId` | 应用事件（`EventRecordInput`）；birth 可含 `entityType`/`summary`，change = invalidated+newFacts（即"编辑字段"） |
+| `/api/entities/:id/summary` | `summary` | 更新实体摘要（`updateEntitySummary`） |
+| `/api/relations` | `sourceId`, `targetId`, `label`, `storyTime` | 新建关系（`addRelation`） |
+| `/api/relations/close` | `sourceId`, `targetId`, `label`, `storyTime` | 闭合关系（`closeRelation`） |
+| `/api/visibility` | `characterId`, `declarationId`, `confidence`, `source`, `storyTime` | 设置可见性（`setVisibility`，服务端强制 `state: "known"` + `isExplicit: true`） |
+| `/api/visibility/close` | `characterId`, `declarationId`, `storyTime` | 撤销可见性（`closeVisibility`） |
+
+#### 11.2.3 错误码
+
+| HTTP | code | 触发场景 |
+|------|------|----------|
+| 400 | `INVALID_JSON` | POST 请求体 JSON 解析失败 |
+| 400 | `INVALID_BODY` | 请求体不是 JSON 对象 |
+| 400 | `MISSING_FIELD` | 缺少必填字段（query 或 body） |
+| 400 | `STORY_TIME_REQUIRED` | 缺少必填参数 `storyTime` |
+| 400 | `VALIDATION_ERROR` | 写入路径 zod 校验失败（`ZodError`） |
+| 400 | `BUSINESS_ERROR` | 写入路径业务错误（实体不存在/已闭合等 WorldGraph 方法抛出） |
+| 404 | `ENTITY_NOT_FOUND` | `GET /api/entities/:id` 该时刻无快照 |
+| 404 | `NOT_FOUND` | 未知路由 / 不支持的 method |
+| 405 | —（纯文本 `Method Not Allowed`） | 非 GET/POST/OPTIONS 且非 `/api` 路径 |
+| 500 | `INTERNAL_ERROR` | GET 路径未捕获异常 |
+| 500 | `INTERNAL_ERROR` | 兜底：任何未捕获异常（保证连接不悬挂） |
+| 501 | `SEARCH_UNAVAILABLE` | `GET /api/search` 未注入 Search 实例 |
 
 ### 11.3 前端（`visualizer-ui/`，Vue 3 + Element Plus）
 
-V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件库 + 3D 力导向图（three.js + 3d-force-graph）。主要组件：
-- `app.js` — Vue 应用根（状态管理 + 路由切换）
-- `components/` — Element Plus 组件（entity-list / detail-editor / relation-form / event-timeline / graph-3d / snapshot-table / timeline-bar / help-tour）
-- `graph-view.js` — 3D 力导向图视图（litegraph.js vendor 保留供 V2 legacy 模式）
-- `v2-legacy-*` — V2 遗留页面（兼容旧入口）
-- `detail-panel.js` — 五页签详情抽屉（基本/属性/关系/可见性/历史）
+V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件库 + 双图视图（2D LiteGraph 画布 + 3D 力导向图）。
 
-功能：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角置灰、历史审计。节点位置存浏览器 localStorage，不污染存储层。
+#### 11.3.1 入口与脚本加载
 
-同步：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录。
+- **主入口**：`index.html`（V3 workbench UI，`<html class="dark">` 暗色主题）
+- **V2 遗留入口**：`v2-legacy.html`（旧版 LiteGraph 画布，兼容旧书签）
+- **脚本加载顺序**（`index.html`）：
+  1. vendor：`vue.global.prod.js` → `element-plus.full.min.js` → `element-plus.locale.zh-cn.min.js` → `three.min.js` → `three-spritetext.min.js` → `3d-force-graph.min.js`
+  2. `api.js`（HTTP 客户端封装）
+  3. components：`timeline-bar` → `entity-list` → `graph-3d` → `snapshot-table` → `relation-form` → `detail-editor` → `entity-form` → `event-timeline` → `help-tour`
+  4. `app.js`（Vue 应用根，最后加载）
 
-测试：`tests/visualizer-server.test.ts`（14 个集成测试，`npx tsx --test tests/visualizer-server.test.ts`）。
+#### 11.3.2 主要文件
+
+| 文件 | 职责 |
+|------|------|
+| `app.js` | Vue 应用根（状态管理 + 路由切换 + 主布局） |
+| `api.js` | HTTP 客户端封装（统一调用 `/api/*`） |
+| `detail-panel.js` | 五页签详情抽屉（基本/属性/关系/可见性/历史） |
+| `graph-view.js` | **2D LiteGraph 画布**：实体卡片节点（四类类型色）+ 自绘关系边（两点模式新建、右键闭合）+ 节点位置 localStorage 持久化 |
+| `events-view.js` | 事件链视图 |
+| `components/graph-3d.js` | **3D 力导向图**（3d-force-graph 隔离层，邻域图/全景图共用） |
+| `components/entity-list.js` | 左栏实体列表（类型过滤、搜索） |
+| `components/detail-editor.js` | 字段编辑器（全部走 API，编辑产生 `source: "user"` 事件） |
+| `components/relation-form.js` | 关系新建/闭合表单 |
+| `components/event-timeline.js` | 事件时间线 |
+| `components/snapshot-table.js` | storyTime 快照选择器表格 |
+| `components/timeline-bar.js` | 顶部 storyTime 时间轴 |
+| `components/entity-form.js` | 实体新建/编辑表单 |
+| `components/help-tour.js` | 新手引导 |
+| `v2-legacy-app.js` / `v2-legacy.css` / `v2-legacy.html` | V2 遗留页面（兼容旧入口） |
+
+#### 11.3.3 vendor 依赖
+
+| 文件 | 用途 |
+|------|------|
+| `vue.global.prod.js` | Vue 3 全局构建 |
+| `element-plus.full.min.js` + `element-plus.index.css` + `element-plus.dark.css-vars.css` + `element-plus.locale.zh-cn.min.js` | Element Plus 组件库（暗色主题 + 中文） |
+| `three.min.js` + `three-spritetext.min.js` + `3d-force-graph.min.js` | 3D 力导向图 |
+| `litegraph.js` + `litegraph.css` | 2D 节点画布（V2 遗留，V3 主入口已改用 3D，但 `graph-view.js` 仍保留 LiteGraph 实现） |
+
+#### 11.3.4 功能
+
+按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角置灰、历史审计。节点位置存浏览器 localStorage，不污染存储层。
+
+### 11.4 同步与测试
+
+**同步**：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录（`novel/.pi/extensions/narrative-engine/visualizer-ui/`）。
+
+**测试**：`tests/visualizer-server.test.ts`（14 个集成测试）
+```bash
+npx tsx --test tests/visualizer-server.test.ts
+```
+
+覆盖：静态文件服务、API envelope、所有 GET/POST 端点、错误码、CORS、路径穿越防护、端口分配（传 0 由系统分配）。
 
 ---
 
