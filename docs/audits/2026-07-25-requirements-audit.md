@@ -16,7 +16,7 @@
 | 4 | 角色输出回写世界图机制 | ✅ 已核对 | 写回链路一致；发现 1 个严重断链 + 2 个小问题 |
 | 5 | 渲染器输入输出契约 | ✅ 已核对 | 契约清晰一致；1 个字段未使用 + 设计特点确认 |
 | 6 | 细粒度：真实数据下的注入内容 | ✅ 已核对 | 🔴 实证暴露 7 个问题（含垃圾数据入图） |
-| 7 | （待核对） | — | — |
+| 7 | 小说工程定义与初始化 | ✅ 已核对 | 定位为 cwd 隐式约定；无初始化机制；storyTime 格式分裂 |
 
 ---
 
@@ -342,6 +342,83 @@ property 分布：name×25 / summary×25 / current_action×13 / mood×4 / person
 | P7 | section 标题"你的当前状态"名不副实（67 条中约 50 条是其他实体的） | 实样 | ⚠️ 中 |
 
 ---
+
+## 核对项 7：小说工程定义与初始化（2026-07-25）
+
+**需求描述**（用户提问）：怎么定义一个小说工程？项目怎么初始化？pi 怎么定位每次的小说目录？世界图数据怎么存储，运行时数据在哪里？
+
+### ① pi 如何定位小说目录：cwd 隐式约定（无注册表）
+
+机制链：
+1. pi 的项目级扩展自动发现：`<cwd>/.pi/extensions/*/index.ts`（pi docs extensions.md §Placement）
+2. narrative-engine 的 `session_start` 以 `ctx.cwd` 为锚：`resolveWorldGraphDir(cwd) → <cwd>/.pi/world-graph-v3/`
+3. 规则集三个 .md 也从 `<cwd>/` 根目录读；章节路径 `<cwd>/正文/第<N>章-未命名.md`
+
+**结论**：小说目录 = **pi 启动时的工作目录**。没有全局注册表、没有项目清单、没有 `--project` 参数。多小说 = 多目录各自 `cd` 启动。
+
+### ② 运行时数据全景（实测 + 源码核实）
+
+| 数据 | 路径（相对 novel 根） | git 跟踪 | 现状 |
+|------|---------------------|---------|------|
+| 世界图 db | `.pi/world-graph-v3/world.db`（SQLite+WAL） | ✓（有意，AGENTS.md"创作与运行时数据同仓库"） | 7.8MB，301 节点 |
+| 事件日志 | `.pi/world-graph-v3/events.jsonl` | ✓ | 37 事件 |
+| 导入中间产物 | `.pi/world-graph-v3/_v3_dump.json` / `chapter-index.json` / `alias-index.json` | ✓ | 存在 |
+| plan 缓存 | `.pi/scheduler-plans/<planId>.json`（TTL 1h） | ⚠️ **未被 gitignore** | 暂未产生 |
+| WAL/SHM | `.pi/world-graph-v3/world.db-wal` / `-shm` | ⚠️ **未被 gitignore** | 存在（应忽略） |
+| 扩展运行时 | `.pi/extensions/narrative-engine/` | ✗（已 gitignore，sync 同步） | 正常 |
+| 章节文件 | `正文/第<N>章-<title>.md` | ✓ | ❌ **目录不存在** |
+| 规则集 ×3 | `规则集.md` / `planner 规则集.md` / `角色规则集.md` | ✓ | ❌ **全部缺失** |
+| 向量模型缓存 | `~/.cache/huggingface/`（全局，非项目级） | — | ❌ 空 |
+
+### ③ 当前"小说工程"的隐式定义
+
+一个目录，内含：`.pi/extensions/narrative-engine/`（同步产物）+ `.pi/world-graph-v3/`（世界图）+ `正文/`（章节）+ 三个规则集 .md + 可选 git 仓库。**其中只有前两项目前存在**。
+
+### ④ 发现的问题
+
+| # | 问题 | 证据 | 严重度 |
+|---|------|------|-------|
+| Q1 | **无项目初始化机制**：新项目要手工 5 步（建目录→sync 扩展→（可选）import_novel→写规则集→口述）。无 scaffold/init 命令 | grep 无 init 相关代码 | ⚠️ 中 |
+| Q2 | **无项目清单**：没有任何文件声明"这是一个小说工程"（名称/世界图目录/storyTime 格式/章节目录均硬编码散布） | — | ⚠️ 中 |
+| Q3 | 🔴 **storyTime 格式分裂**：导入器 P0 校验 `^ch\d{3}\.ev\d{3}$`（如 ch009.ev003）；调度器 chapter-resolver 用 `/^ch-(\d+)$/`（如 ch-2）匹配，**对导入数据的 storyTime 完全失配→兜底第 1 章**。在导入小说上续写时章节定位必错 | chapter-resolver.ts:28 vs api.md P0 校验 | 🔴 高 |
+| Q4 | .gitignore 缺 `scheduler-plans/` 与 `world.db-wal/-shm` | novel/.gitignore 实测 | ⚠️ 低 |
+| Q5 | 向量模型缓存在用户全局目录而非项目内，多项目共享（预期行为但需知晓） | — | ℹ️ |
+
+### ⑤ 初始化方案要素（待用户决策）
+
+```
+novel init <dir>（或 pi 命令 /novel-init）应做的事：
+  1. 创建目录骨架：正文/、.pi/
+  2. 同步扩展（或提示先跑 narrative-engine sync）
+  3. 生成规则集三件套模板（规则集.md / planner 规则集.md / 角色规则集.md）
+  4. 生成项目清单（如 novel.json：name / worldGraphDir / storyTime 格式约定）
+  5. 生成 .gitignore（含 scheduler-plans、WAL/SHM）
+  6. 可选：引导 import_novel 或口述建档
+```
+
+**关联决策**：Q3 需要先统一 storyTime 格式（`ch-N` vs `chNNN.evNNN`），这影响 chapter-resolver、main-session.md 示例、导入器 P0 校验三处。
+
+---
+
+## 全量问题汇总（核对项 1-7）
+
+### 🔴 高危（阻断连续叙事正确性）
+
+1. **角色自盲**：commit 写 state_changes 不写 Visibility → 下一场角色看不见自己的新状态（项 4）
+2. **动态层无归属**：formatFact 不渲染 entityId，67 条混排（项 3/6）
+3. **历史/当前不分**：知识持续语义下已闭合旧 Fact 与当前 Fact 同样渲染（项 6-P2）
+4. **垃圾数据入图**：空章节占位 Fact（"本章无内容"）（项 6-P4）
+5. **storyTime 格式分裂**：chapter-resolver 对导入数据失配（项 7-Q3）
+
+### ⚠️ 中低危
+
+- 导入管道 current_action 未闭合（项 6-P3）；modality/property 无说明（P5/P6）；检索 label 丢失（项 3）；静态卡注释误导（项 3）；knowledge_gained 不落图（项 4）；invalidated 假设唯一（项 4）；renderer storyTime 未注入（项 5）；无 init 机制/项目清单（项 7-Q1/Q2）；gitignore 缺项（项 7-Q4）
+
+### 待需求决策（设计空白）
+
+- 空白 1：口述大纲拆解粒度；空白 2：大纲讨论中间态；空白 3：冷启动建档引导（项 1）
+- D1：常驻子代理 vs 同步工具；D2：意图理解归属；D3：角色跨事件对话历史（项 2）
+- 运行时 v2/v3 已暂定 v3（基线 commit 记录）
 
 ## 附：基线环境状态（2026-07-25）
 
