@@ -15,7 +15,8 @@
 | 3 | 角色代理数据注入（酒馆卡 + 动态内容） | ✅ 已核对 | 双层结构与设计一致；发现 3 处实现偏差 |
 | 4 | 角色输出回写世界图机制 | ✅ 已核对 | 写回链路一致；发现 1 个严重断链 + 2 个小问题 |
 | 5 | 渲染器输入输出契约 | ✅ 已核对 | 契约清晰一致；1 个字段未使用 + 设计特点确认 |
-| 6 | （待核对） | — | — |
+| 6 | 细粒度：真实数据下的注入内容 | ✅ 已核对 | 🔴 实证暴露 7 个问题（含垃圾数据入图） |
+| 7 | （待核对） | — | — |
 
 ---
 
@@ -283,6 +284,62 @@ User:
 
 **小偏差**：
 - ⚠️ `storyTime` 字段在 `RenderTextCommand` 中定义且必填，但 `buildUserMessage` **未注入 prompt**（渲染 LLM 看不到故事时间）
+
+---
+
+## 核对项 6：细粒度实证——真实数据下的注入内容（2026-07-25）
+
+**需求描述**（用户提问）：数据库内有没有事实数据？调度器检索到条目后注入给角色子代理的内容是什么样的？有没有对对应内容的说明？
+
+### ① 数据库事实数据：存在且结构完整 ✓
+
+v3 db 实测：93 条 Fact + 25 Entity + 21 Relation + 162 Visibility。Fact 样本（含 512 维 embedding）：
+
+```json
+{"declarationId":"decl-ent_char_f5faee40-mood-ch001.ev021","property":"mood",
+ "value":"满足","valueText":"满足","modality":"...","validFrom":"ch001.ev021","validTo":"Infinity"}
+```
+
+property 分布：name×25 / summary×25 / current_action×13 / mood×4 / personality×3 / `belief.about_X.*`×3 / location×2 等。彩叶 mood 时态链闭合完好（放松→愉快→开心→满足，逐段 validTo 闭合）。
+
+### ② 注入内容实样（真实代码路径模拟：staticCardLoader + getCharacterView + buildUserMessage）
+
+以彩叶 @ `ch009.ev003` 为例，**动态层实际注入 67 条声明**，渲染为扁平列表：
+
+```
+─── 你的当前状态（动态层）───
+- relationship: 酒寄朝日的伴侣（fact）      ← 乃依君的，无归属标注
+- name: 雷先生（fact）                       ← 谁的？只能猜
+- summary: 辉夜使用的厨刀（fact）             ← 物品的
+- mood: 满足（fact）                         ← 彩叶当前 mood
+- mood: 放松（fact）                         ← 彩叶 ch001.ev004 的旧 mood（已闭合）！
+- belief.about_辉夜.印象: 游戏中的对手或伙伴（belief）
+- location: BAMBOOcafe（fact）               ← 店长的还是彩叶的？两条同名并存
+...（共 67 条）
+```
+
+### ③ "有没有对对应内容的说明"——几乎没有
+
+| 说明维度 | 现状 |
+|---------|------|
+| Fact 归属（是谁的） | ❌ 无（entityId 不渲染） |
+| 当前状态 vs 历史知识 | ❌ 无（知识持续语义下已闭合旧 Fact 与当前 Fact 同样渲染） |
+| modality 含义（fact/belief/hypothesis） | ❌ 无解释（LLM 自己猜；仅输出侧 schema 有 description） |
+| property 命名约定（`belief.about_X.关系` 点分层级） | ❌ 无 schema 说明 |
+| 信息来源（检索 label） | ❌ 丢失（核对项 3 偏差 2） |
+| 唯一的说明 | system prompt"静态/动态冲突时以动态为准"一句 |
+
+### 🔴 实证暴露的问题清单
+
+| # | 问题 | 证据 | 严重度 |
+|---|------|------|-------|
+| P1 | 动态层 67 条混排无归属，他人的 name/summary 与自己的 mood 同格式 | 实样注样 | 🔴 高（核对项 3 偏差 1 实证放大） |
+| P2 | **历史知识与当前状态无区分**：已闭合的旧 mood（放松）因知识持续语义仍注入，与当前 mood（满足）并列，LLM 无法判断"现在是什么心情" | mood 时态链 + character-view.ts 步骤 4 | 🔴 高 |
+| P3 | **导入管道对 `current_action` 未做 invalidated 闭合**：13 条版本中 4 条 validTo=Infinity 并存（mood 却闭合完好——同管道行为不一致）；`entity_snapshot` 检索会拿到多个冲突"当前行动"，commit.ts invalidated"假设唯一"踩坑 | current_action 全版本查询 | 🔴 高 |
+| P4 | **垃圾数据入图**：空章节（ch008/010/011 contentLength=0）被写入 `"本章无内容，无事件发生"` 等占位 Fact | current_action 末尾 3 条 | 🔴 高（导入器 P0 校验未拦截） |
+| P5 | modality 标注无解释 | 实样 | ⚠️ 中 |
+| P6 | 静态/动态重复冗余（summary/personality 三处重复，token 浪费） | 实样 | ⚠️ 低 |
+| P7 | section 标题"你的当前状态"名不副实（67 条中约 50 条是其他实体的） | 实样 | ⚠️ 中 |
 
 ---
 
