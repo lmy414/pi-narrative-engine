@@ -12,7 +12,8 @@
 |---|--------|------|------|
 | 1 | 使用方式：口述 → 意图判断 → 引擎启动 | ✅ 已核对 | 链路成立，发现 3 个设计空白 |
 | 2 | 调度器工作模式 | ✅ 已核对 | 功能闭环等价，运行形态 3 处偏离 + 1 项 V2 愿景未实现 |
-| 3 | （待核对） | — | — |
+| 3 | 角色代理数据注入（酒馆卡 + 动态内容） | ✅ 已核对 | 双层结构与设计一致；发现 3 处实现偏差 |
+| 4 | （待核对） | — | — |
 
 ---
 
@@ -108,6 +109,70 @@
 - [ ] **D1**：是否接受"同步工具 + plan/commit"形态？（还是要向 V2 愿景的常驻循环演进）
 - [ ] **D2**：是否接受意图理解归主会话？（当前实现下调度器更"笨"但更可控）
 - [ ] **D3**：角色跨事件对话历史是否需要补？（涉及 role-pool 状态化改造，成本高）
+
+---
+
+## 核对项 3：角色代理数据注入（2026-07-25）
+
+**需求描述**（用户提问）：角色代理得到的数据是什么样的？酒馆角色卡格式的提示词 + 动态的内容注入？注入的内容包括世界图内的什么字段？
+
+### 结论：确认是「酒馆角色卡（静态层）+ 动态事实（动态层）」双层注入
+
+设计文档 `2026-07-24-role-pool-design.md` 决策 #6（静态层格式：酒馆角色卡 JSON 直接复用 SillyTavern V2 卡）与源码完全一致。
+
+### 完整注入结构（每次角色 LLM 调用）
+
+**System Prompt**（`role-pool/src/prompts.ts` buildSystemPrompt）：
+1. `角色规则集.md` 全文（⚠️ 文件当前缺失，静默为空）
+2. 静态/动态冲突提醒（"以动态层为准"）
+3. `executionHints` 用户特殊要求（可选，独立段落）
+
+**User Message**（buildUserMessage，角色信息在前、事件指令在末尾）：
+
+| 段 | 内容 | 世界图字段来源 |
+|---|------|--------------|
+| 0 | `[你的 entityId]` + `[本场角色名单]`（characterId→name 映射） | cast 全员的 characterId + staticCard.name |
+| 1 | `─── 你的角色卡（静态层）───` SillyTavernCard JSON | 见下方映射表 |
+| 2 | `─── 你的当前状态（动态层）───` 逐行 `- property: valueText（modality）` | 见下方映射表 |
+| 3 | `[故事时间]` | StructuredEvent.storyTime |
+| 4 | `[先动者行动]`（如有） | PriorAction：仅 actor/action/target **公开字段**（thought/emotion 不可见） |
+| 5 | `[事件指令]` + tool call 要求 + characterId 填写规则 | StructuredEvent.instruction |
+
+### 静态层 ← 世界图字段映射（`scheduler/src/static-card-loader.ts`）
+
+| 酒馆卡字段 | 来源 |
+|-----------|------|
+| `name` | Fact `property="name"` 的 value；缺省用 entityId |
+| `description` | **Entity.summary**（实体无状态客观事实描述，独立字段，不进 Fact） |
+| `personality` / `scenario` / `first_mes` / `mes_example` / `creator_notes` / `tags` | 同名 Fact property 的 value |
+
+实体不存在/已消亡 → 返回最小卡 `{ name: characterId, description: "" }`，不崩。
+
+### 动态层 ← 世界图字段映射（`plan.ts` 步骤 4-6）
+
+**组装机制**：planner LLM 输出 RetrievalPlan（每项含 `assignTo` 信息差分配）→ 逐项检索 → 结果按 assignTo 并入各角色 dynamicFacts 池；兜底每人至少 1 条 `character_view`（wg.getCharacterView 五步过滤后的可见声明）。
+
+**FactSnapshot 携带字段**（`role-pool/src/types.ts:29`）：`declarationId` / `entityId` / `property` / `value` / `valueText` / `modality` / `validFrom`（**无 validTo**——动态层均为 storyTime 时刻有效的声明，知识持续语义）。
+
+**实际渲染**（formatFact）：仅 `property` + `valueText ?? value` + `modality` 三样。
+
+### 发现的实现偏差
+
+#### 偏差 1：动态层不显示 Fact 归属（entityId 丢失）⚠️
+
+`formatFact` 只渲染 `- property: value（modality）`，**不渲染 entityId**。而 dynamicFacts 池可包含**其他实体**的 Fact（character_view 返回"该角色可见的所有声明"，search_* 结果同理）。LLM 看到 `- plan: 火烧草料场（fact）` 时无法区分这是谁的 plan——自己的状态与"我知道的别人的事"混在一起。
+
+#### 偏差 2：检索项 label 未注入（schema 承诺未兑现）⚠️
+
+planner schema 中 `label` 的描述是"检索项语义标签（**注入角色提示词时用作小标题**）"，`plan.ts` 注释也写"检索结果按 label 分组追加"——但实现是 `facts.push(...result)` 扁平追加，**label 在传递链中丢失**（FactSnapshot 无 label 字段，formatFact 不渲染）。"我是怎么知道这件事的"这一来源信息没有进入 prompt。
+
+#### 偏差 3：静态卡注释与代码不符（小）
+
+`static-card-loader.ts` 头注释称"其他字段：按 property 名透传到 card"，但代码只透传 `KNOWN_FIELDS` 8 个字段，非白名单 Fact（如 `mood`/`health`）不会进入静态卡（它们只能走动态层）。行为本身合理，注释误导。
+
+### 关联已知问题
+
+- `角色规则集.md` 缺失 → system prompt 第 1 段为空，角色扮演无行为约束（见附录"已知未决"）
 
 ---
 
