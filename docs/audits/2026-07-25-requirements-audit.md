@@ -13,7 +13,8 @@
 | 1 | 使用方式：口述 → 意图判断 → 引擎启动 | ✅ 已核对 | 链路成立，发现 3 个设计空白 |
 | 2 | 调度器工作模式 | ✅ 已核对 | 功能闭环等价，运行形态 3 处偏离 + 1 项 V2 愿景未实现 |
 | 3 | 角色代理数据注入（酒馆卡 + 动态内容） | ✅ 已核对 | 双层结构与设计一致；发现 3 处实现偏差 |
-| 4 | （待核对） | — | — |
+| 4 | 角色输出回写世界图机制 | ✅ 已核对 | 写回链路一致；发现 1 个严重断链 + 2 个小问题 |
+| 5 | （待核对） | — | — |
 
 ---
 
@@ -173,6 +174,58 @@ planner schema 中 `label` 的描述是"检索项语义标签（**注入角色�
 ### 关联已知问题
 
 - `角色规则集.md` 缺失 → system prompt 第 1 段为空，角色扮演无行为约束（见附录"已知未决"）
+
+---
+
+## 核对项 4：角色输出回写世界图（2026-07-25）
+
+**需求描述**（用户提问）：角色子代理扮演完成后的内容是怎么写回到世界图内的？调用工具？
+
+### 回答：两层机制——LLM 侧是 tool call；写图侧是直接 import 函数（不是 pi 工具）
+
+**第一层：角色 LLM 输出 = tool call** ✓
+- `character_action` 工具（`src/role-pool-llm.ts` characterActionSchema，9 字段）
+- pi-ai `validateToolCall` 校验；LLM 偶发返回纯文本时重试 ≤3 次；单角色失败跳过记 errors
+
+**第二层：写世界图 = 直接 import 子包函数**（决策 #14："不绕道 pi.tools.execute 是为了性能和类型安全"；效果等价于 `world_event_apply`/`world_relation_add` 工具）
+
+### commit.ts 写回链路（8 步中与写图相关的 2-5 步）
+
+```
+RoleAgentOutput[]
+  ├─ extractStateChanges → StateChange[]（entityId/property/value/modality）
+  │    └─ 按 entityId 分组（决策 #7：每组一个 change 事件）
+  │         ├─ getEntityAt 查同 property 未闭合旧 Fact → invalidated[]
+  │         └─ wg.processEvent({ type:"change", source:"engine",
+  │              invalidated, newFacts })  ← 先写 events.jsonl 再改图
+  └─ extractRelations → 逐条 wg.addRelation(source=characterId,
+       target=characterId, label, storyTime)  ← Pending Gap #2 已解决，无需消解
+```
+
+**不进世界图的字段**：`action`/`emotion`/`thought`/`target`（行动描述）只经 `toRoleOutputs` 投影给渲染器。
+
+### 🔴 严重断链：state_changes 的新 Fact 无可见性记录（角色"自盲"）
+
+**问题链**：
+1. commit 用 `processEvent` 写入新 Fact（如林冲 mood=绝望）——**但不写任何 Visibility 记录**
+2. 下一场戏 plan 阶段，兕底检索项 `character_view` 走五步过滤（`character-view.ts:31`：`visDecls.find(v => v.declarationId === decl.declarationId)`，无记录即不可见）
+3. 结果：**角色在下一场戏看不见自己上一场的状态变化**——"我自残了但我不记得"
+
+**为什么导入数据没这问题**：导入管道阶段 6 用 LLM 显式推断可见性并经 `write.ts` 调 `setVisibility` 落图（v3 db 有 162 条 Visibility 记录）；运行时 commit 路径缺了对应环节。
+
+**临时绕行**：planner LLM 若恰好派发 `entity_snapshot`（不查可见性，`retrieve.ts:108`）则可见——但不可控，靠 LLM 心情。
+
+**修法选项**：
+- a) commit 写 state_changes 时同步 `setVisibility(characterId=entityId 属主, declarationId=新 Fact)`（自产自知）
+- b) character_view 五步过滤加"自己的声明自动可见"规则（改 world-graph 内核语义）
+- c) knowledge_gained 驱动可见性（见下，但需自然语言→declarationId 映射，成本高）
+
+### 其他发现
+
+| # | 问题 | 位置 | 严重度 |
+|---|------|------|-------|
+| 1 | `knowledge_gained` 不落图：transforms.ts 注释"由调度器处理"，但 commit.ts 未处理——只随 RoleOutput 进渲染器 | commit.ts | ⚠️ 中（与断链同源） |
+| 2 | invalidated 只取"第一个同 property 未闭合 Fact，假设唯一"（代码注释自承），重复 property 时漏闭合 | commit.ts:88 | ⚠️ 低 |
 
 ---
 
