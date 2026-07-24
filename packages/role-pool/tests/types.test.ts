@@ -11,8 +11,9 @@ import type {
   FactSnapshot,
 } from "../src/types.ts";
 
-test("RoleAgentOutput: 必填字段 actor + action", () => {
-  const output: RoleAgentOutput = { actor: "林冲", action: "举杯" };
+test("RoleAgentOutput: 必填字段 characterId + actor + action", () => {
+  const output: RoleAgentOutput = { characterId: "linchong", actor: "林冲", action: "举杯" };
+  assert.equal(output.characterId, "linchong");
   assert.equal(output.actor, "林冲");
   assert.equal(output.action, "举杯");
   assert.equal(output.target, undefined);
@@ -21,11 +22,12 @@ test("RoleAgentOutput: 必填字段 actor + action", () => {
 
 test("RoleAgentOutput: 全字段填充", () => {
   const output: RoleAgentOutput = {
+    characterId: "linchong",
     actor: "林冲",
     action: "向师父行礼",
     target: "师父",
     emotion: "敬意",
-    relation_update: [{ target: "师父", label: "师徒" }],
+    relation_update: [{ target: "master", label: "师徒" }],
     thought: "多年未见",
     knowledge_gained: ["师父老了"],
     state_changes: [{

@@ -36,7 +36,8 @@ export async function interact(
 
   for (const member of cmd.cast) {
     try {
-      const systemPrompt = buildSystemPrompt(member, ctx.ruleSet);
+      // 透传 executionHints 到 system prompt（让角色也遵守用户特殊要求）
+      const systemPrompt = buildSystemPrompt(member, ctx.ruleSet, cmd.executionHints);
       const userMessage = buildUserMessage(cmd, member, priorActions);
       const output = await ctx.llm(systemPrompt, userMessage);
       outputs.push(output);

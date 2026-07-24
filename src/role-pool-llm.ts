@@ -1,7 +1,7 @@
 /**
  * role-pool-llm.ts — RoleLlmCaller 的 pi-ai 实现
  *
- * 包装 @mariozechner/pi-ai 的 complete + validateToolCall，适配角色池的 tool call 接口。
+ * 包装 @earendil-works/pi-ai 的 complete + validateToolCall，适配角色池的 tool call 接口。
  * 与 novel-importer 的 makeLlmCaller 模式一致：
  *   - 定义 character_action 工具 schema（TypeBox）
  *   - complete 发起 LLM 请求，要求调用工具
@@ -9,8 +9,8 @@
  *   - 内置重试：LLM 偶发返回纯文本，在 caller 层重试
  */
 
-import { complete, getModel, validateToolCall, Type, StringEnum } from "@mariozechner/pi-ai";
-import type { Tool } from "@mariozechner/pi-ai";
+import { complete, getModel, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 import type { RoleLlmCaller, RoleAgentOutput } from "@pi/role-pool";
 
 const MAX_NO_TOOL_RETRIES = 3;
@@ -19,16 +19,22 @@ const RETRY_DELAY_MS = 1000;
 /**
  * character_action 工具 schema — 强制 LLM 通过 tool call 返回 RoleAgentOutput
  *
- * 8 字段（去掉 foreshadowings，待伏笔存储设计时加回）：
- * actor / action / target / emotion / relation_update / thought / knowledge_gained / state_changes
+ * 9 字段（去掉 foreshadowings，待伏笔存储设计时加回）：
+ * characterId / actor / action / target / emotion / relation_update / thought / knowledge_gained / state_changes
+ *
+ * 2026-07-25 解决 Pending Gap #2：
+ * - 加 characterId 必填字段（LLM 填自己的 entityId）
+ * - relation_update.target description 改为"对方 characterId（不是名字）"
+ * 这样调度器 commit 时直接拿 source/target 调 wg.addRelation，无需"消解"
  */
 export const characterActionSchema = Type.Object({
-  actor: Type.String({ description: "行动者名字" }),
+  characterId: Type.String({ description: "你自己的 entityId（即 prompt 中的[你的 entityId]，如 e_lin_chong）" }),
+  actor: Type.String({ description: "行动者名字（角色卡中的 name）" }),
   action: Type.String({ description: "可观察的行动描述" }),
   target: Type.Optional(Type.String({ description: "行动对象" })),
   emotion: Type.Optional(Type.String({ description: "角色情绪" })),
   relation_update: Type.Optional(Type.Array(Type.Object({
-    target: Type.String({ description: "关系对象" }),
+    target: Type.String({ description: "对方角色的 characterId（不是名字，如 e_lu_qian）" }),
     label: Type.String({ description: "关系标签" }),
   }))),
   thought: Type.Optional(Type.String({ description: "内心独白（其他角色不可见）" })),
@@ -54,7 +60,7 @@ export const characterActionTool: Tool = {
 /**
  * 创建基于 pi-ai 的角色池 LLM 调用器
  *
- * @param model 模型名（如 "deepseek-chat"）
+ * @param model 模型名（如 "deepseek-v4-flash"）
  * @param apiKey API key
  * @param provider 提供商（默认 deepseek）
  */
@@ -107,9 +113,13 @@ export function makeRoleLlmCaller(
 /**
  * 将 validateToolCall 返回的参数解析为 RoleAgentOutput
  * 处理可选数组字段的 undefined（项目记忆教训：用 ?? [] 兜底）
+ *
+ * 2026-07-25：characterId 是必填字段，LLM 应填入 prompt 提供的"你的 entityId"。
+ * 若 LLM 偶发漏填，用空字符串兜底（下游调度器可检测并跳过该角色的关系写入）。
  */
 function parseRoleAgentOutput(params: Record<string, unknown>): RoleAgentOutput {
   const output: RoleAgentOutput = {
+    characterId: String(params.characterId ?? ""),
     actor: String(params.actor ?? ""),
     action: String(params.action ?? ""),
   };

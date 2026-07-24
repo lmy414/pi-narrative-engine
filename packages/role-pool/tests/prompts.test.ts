@@ -37,6 +37,39 @@ test("buildSystemPrompt: 规则集为空时不报错", () => {
   assert.ok(prompt.length > 0);
 });
 
+// ============================================================================
+// executionHints 透传（Pending Gap #14 已完成）
+// ============================================================================
+
+test("buildSystemPrompt: executionHints 注入到末尾独立段落", () => {
+  const prompt = buildSystemPrompt(mockMember, "规则集内容", "林冲要显得绝望");
+  assert.ok(prompt.includes("用户特殊要求"), "应包含用户特殊要求段落标题");
+  assert.ok(prompt.includes("林冲要显得绝望"), "应包含 executionHints 内容");
+});
+
+test("buildSystemPrompt: 无 executionHints 时不显示段落", () => {
+  const prompt = buildSystemPrompt(mockMember, "规则集");
+  assert.ok(!prompt.includes("用户特殊要求"), "无 executionHints 时不应有该段落");
+});
+
+test("buildSystemPrompt: executionHints 为空字符串时不显示段落", () => {
+  const prompt = buildSystemPrompt(mockMember, "规则集", "");
+  assert.ok(!prompt.includes("用户特殊要求"), "空字符串时不应有该段落");
+});
+
+test("buildSystemPrompt: executionHints 为纯空白时不显示段落", () => {
+  const prompt = buildSystemPrompt(mockMember, "规则集", "   \n   ");
+  assert.ok(!prompt.includes("用户特殊要求"), "纯空白时不应有该段落");
+});
+
+test("buildSystemPrompt: executionHints 在静态/动态提醒之后", () => {
+  const prompt = buildSystemPrompt(mockMember, "规则集", "特殊要求");
+  const conflictIdx = prompt.indexOf("以动态层为准");
+  const hintsIdx = prompt.indexOf("特殊要求");
+  assert.ok(conflictIdx > 0, "应包含静态/动态提醒");
+  assert.ok(hintsIdx > conflictIdx, "executionHints 应在静态/动态提醒之后");
+});
+
 test("buildUserMessage: 角色信息在前，事件指令在末尾", () => {
   const cmd: InteractCommand = {
     eventInstruction: "林冲走进山神庙",

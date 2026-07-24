@@ -57,17 +57,37 @@ export interface InteractCommand {
   storyTime: string;
   /** 演员表，按出场顺序排列 */
   cast: CastMember[];
+  /**
+   * 执行建议（用户特殊要求，可选）
+   *
+   * 由调度器从主会话传入，透传到角色池 system prompt（让角色也遵守用户特殊要求）
+   * 例如："林冲要显得绝望"、"避免直接描写暴力"、"这场戏节奏要快"
+   *
+   * 注入位置：buildSystemPrompt 末尾"用户特殊要求"段落（详见 prompts.ts）
+   * 设计依据：docs/plans/2026-07-25-scheduler-design.md §2.1
+   */
+  executionHints?: string;
 }
 
 /**
- * 角色代理完整输出（8 字段）
+ * 角色代理完整输出（8 字段 + characterId）
  * 去掉 foreshadowings，待伏笔存储设计时加回
+ *
+ * characterId 字段说明（2026-07-25 解决 Pending Gap #2）：
+ * - LLM 必须在输出中填入自己的 entityId（由 prompt 提供的"你的 entityId"）
+ * - relation_update.target 也必须填对方 characterId（不是名字）
+ * - 这样调度器 commit 时可直接调 wg.addRelation(sourceId, targetId, label, storyTime)
+ *   无需做名字 → entityId 的"消解"
  */
 export interface RoleAgentOutput {
+  /** 行动者名字（人类可读，渲染器用） */
   actor: string;
+  /** 行动者 entityId（world-graph 的稳定唯一标识，调度器用） */
+  characterId: string;
   action: string;
   target?: string;
   emotion?: string;
+  /** target 字段填对方 characterId（不是名字） */
   relation_update?: { target: string; label: string }[];
   thought?: string;
   knowledge_gained?: string[];
