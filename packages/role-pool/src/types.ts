@@ -1,0 +1,122 @@
+/**
+ * @pi/role-pool 子包类型定义
+ *
+ * 角色池无状态：所有状态由调用方持有（LLM 实例、规则集、演员表）。
+ * 类型不跨包导入——SillyTavernCard 和 FactSnapshot 在本包内重新声明为 interface。
+ */
+
+/**
+ * SillyTavern V2 角色卡（结构子集）
+ * 子包内重新声明为 interface，不依赖外部包
+ * 原样注入 prompt（JSON 字符串）
+ */
+export interface SillyTavernCard {
+  name: string;
+  description: string;
+  personality?: string;
+  scenario?: string;
+  first_mes?: string;
+  mes_example?: string;
+  creator_notes?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * 状态声明快照（Fact 节点的结构子集）
+ * 调度器通过 wg.getCharacterView(characterId, storyTime) 预取
+ */
+export interface FactSnapshot {
+  declarationId: string;
+  entityId: string;
+  property: string;
+  value: unknown;
+  valueText?: string;
+  modality: "fact" | "belief" | "hypothesis";
+  validFrom: string;
+}
+
+/**
+ * 单个演员的输入
+ */
+export interface CastMember {
+  characterId: string;
+  /** 静态层：酒馆角色卡 JSON */
+  staticCard: SillyTavernCard;
+  /** 动态层：角色当前可见的状态声明 */
+  dynamicFacts: FactSnapshot[];
+}
+
+/**
+ * 角色池调用命令
+ */
+export interface InteractCommand {
+  /** 事件指令（自然语言，调度器从用户输入解析） */
+  eventInstruction: string;
+  /** 故事时间（如 ch-2） */
+  storyTime: string;
+  /** 演员表，按出场顺序排列 */
+  cast: CastMember[];
+}
+
+/**
+ * 角色代理完整输出（8 字段）
+ * 去掉 foreshadowings，待伏笔存储设计时加回
+ */
+export interface RoleAgentOutput {
+  actor: string;
+  action: string;
+  target?: string;
+  emotion?: string;
+  relation_update?: { target: string; label: string }[];
+  thought?: string;
+  knowledge_gained?: string[];
+  state_changes?: StateChange[];
+}
+
+/**
+ * 状态变更提议
+ * 调度器将其转换为 newFacts，通过 world_event_apply 写入世界图
+ */
+export interface StateChange {
+  entityId: string;
+  property: string;
+  value: unknown;
+  modality: "fact" | "belief" | "hypothesis";
+}
+
+/**
+ * 先动者行动摘要（传给后动者，信息隔离）
+ * 只含公开信息，不含 thought/emotion/state_changes/knowledge_gained
+ */
+export interface PriorAction {
+  actor: string;
+  action: string;
+  target?: string;
+}
+
+/**
+ * 角色池返回结果
+ */
+export interface InteractResult {
+  outputs: RoleAgentOutput[];
+  errors: { characterId: string; error: string }[];
+}
+
+/**
+ * LLM 调用器（注入式，便于单测 mock）
+ * tool call 模式：返回已解析的 RoleAgentOutput
+ */
+export type RoleLlmCaller = (
+  systemPrompt: string,
+  userMessage: string,
+) => Promise<RoleAgentOutput>;
+
+/**
+ * 角色池调用上下文
+ */
+export interface RoleCtx {
+  llm: RoleLlmCaller;
+  /** 角色规则集.md 全文 */
+  ruleSet: string;
+}
