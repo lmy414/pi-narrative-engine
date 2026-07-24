@@ -3,11 +3,11 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 25 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_*）供主会话/scheduler/前端调用
+ * - 注册 27 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_* + 2 个 role_*）供主会话/scheduler/前端调用
  * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *
- * 工具集（V2，25 个，含 import_novel）：
+ * 工具集（V2，27 个，含 role_*）：
  *   生命周期：session_start / session_shutdown（pi.on，非 registerTool）
  *   查询类：world_status / world_query / world_entity_get / world_entity_history / world_relations / world_relation_history / world_event_chain / world_character_view / world_story_times
  *   写入类：world_entity_create / world_entity_kill / world_entity_update_summary / world_relation_add / world_relation_close / world_event_apply
@@ -15,6 +15,7 @@
  *   可视化：open_visualizer
  *   导入：import_novel
  *   渲染：render_append / render_modify / render_preview / render_check / render_rule_set
+ *   角色池：role_interact / role_rule_set
  *
  * 存储路径：<cwd>/.pi/world-graph-v2/
  *
@@ -44,6 +45,8 @@ import {
 } from "@pi/renderer";
 import { makeRendererLlmCaller } from "./renderer-llm.ts";
 import { checkNarrative } from "./checker.ts";
+import { interact as roleInteract, loadRoleRuleSet } from "@pi/role-pool";
+import { makeRoleLlmCaller } from "./role-pool-llm.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -63,6 +66,16 @@ function getRendererLlmConfig(): { model: string; apiKey: string } {
   const apiKey = process.env.PI_RENDERER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
   if (!apiKey) {
     throw new Error("渲染器 LLM apiKey 未配置（设置 PI_RENDERER_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
+  }
+  return { model, apiKey };
+}
+
+/** 角色池 LLM 配置（从环境变量读取） */
+function getRoleLlmConfig(): { model: string; apiKey: string } {
+  const model = process.env.PI_ROLE_MODEL ?? process.env.PI_MODEL ?? "deepseek-chat";
+  const apiKey = process.env.PI_ROLE_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
+  if (!apiKey) {
+    throw new Error("角色池 LLM apiKey 未配置（设置 PI_ROLE_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
   }
   return { model, apiKey };
 }
@@ -934,6 +947,78 @@ export default function (pi: ExtensionAPI) {
       const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
       return {
         content: [{ type: "text", text: ruleSet || "（规则集.md 不存在或为空）" }],
+        details: { ok: true, length: ruleSet.length, exists: ruleSet.length > 0 },
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 角色池工具（2 个）
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "role_interact",
+    label: "Role Interact",
+    description:
+      "角色池串行演绎：按 cast 顺序逐个调用角色代理 LLM，后动者可见先动者的公开 action（不含 thought/emotion/state_changes）。返回 RoleAgentOutput[]（8 字段）+ 失败记录。调度器据此提取 state_changes 写扩散、投影为 RoleOutput[] 传渲染器。",
+    promptSnippet: "角色池演出（串行可见行动，返回结构化输出）",
+    parameters: Type.Object({
+      eventInstruction: Type.String({ description: "事件指令（自然语言）" }),
+      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      cast: Type.Array(Type.Object({
+        characterId: Type.String({ description: "角色实体 ID" }),
+        staticCard: Type.Record(Type.String(), Type.Unknown(), {
+          description: "静态层：酒馆角色卡 JSON（name/description/personality 等）",
+        }),
+        dynamicFacts: Type.Array(Type.Object({
+          declarationId: Type.String(),
+          entityId: Type.String(),
+          property: Type.String(),
+          value: Type.Unknown(),
+          valueText: Type.Optional(Type.String()),
+          modality: Type.Union([
+            Type.Literal("fact"),
+            Type.Literal("belief"),
+            Type.Literal("hypothesis"),
+          ]),
+          validFrom: Type.String(),
+        }), { description: "动态层：角色当前可见的状态声明（调度器通过 world_character_view 预取）" }),
+      }), { description: "演员表，按出场顺序排列" }),
+    }),
+    async execute(_id, params) {
+      const { model, apiKey } = getRoleLlmConfig();
+      const llm = makeRoleLlmCaller(model, apiKey);
+      const ruleSet = await loadRoleRuleSet(sessionCwd ?? process.cwd());
+
+      const result = await roleInteract(
+        {
+          eventInstruction: params.eventInstruction,
+          storyTime: params.storyTime,
+          cast: params.cast as Parameters<typeof roleInteract>[0]["cast"],
+        },
+        { llm, ruleSet },
+      );
+
+      const text = result.errors.length > 0
+        ? `角色池演出完成：${result.outputs.length} 成功，${result.errors.length} 失败`
+        : `角色池演出完成：${result.outputs.length} 个角色输出`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "role_rule_set",
+    label: "Role Rule Set",
+    description: "查看当前角色规则集.md 内容。无需参数。",
+    promptSnippet: "查看角色规则集内容",
+    parameters: Type.Object({}),
+    async execute() {
+      const ruleSet = await loadRoleRuleSet(sessionCwd ?? process.cwd());
+      return {
+        content: [{ type: "text", text: ruleSet || "（角色规则集.md 不存在或为空）" }],
         details: { ok: true, length: ruleSet.length, exists: ruleSet.length > 0 },
       };
     },
