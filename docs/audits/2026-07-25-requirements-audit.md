@@ -378,8 +378,8 @@ property 分布：name×25 / summary×25 / current_action×13 / mood×4 / person
 
 | # | 问题 | 证据 | 严重度 |
 |---|------|------|-------|
-| Q1 | **无项目初始化机制**：新项目要手工 5 步（建目录→sync 扩展→（可选）import_novel→写规则集→口述）。无 scaffold/init 命令 | grep 无 init 相关代码 | ⚠️ 中 |
-| Q2 | **无项目清单**：没有任何文件声明"这是一个小说工程"（名称/世界图目录/storyTime 格式/章节目录均硬编码散布） | — | ⚠️ 中 |
+| Q1 | ~~无项目初始化机制~~ → **已解决**（`scripts/init-novel.mjs` 脚手架 + `templates/novel/` 模板，幂等，实测通过） | 2026-07-25 修复 | ✅ |
+| Q2 | ~~无项目清单~~ → **已解决**（`novel.json` 清单 + `docs/novel-project-structure.md` 结构定义 v1；引擎代码读清单留待后续迭代） | 2026-07-25 修复 | ✅ |
 | Q3 | 🔴 **storyTime 格式分裂**：导入器 P0 校验 `^ch\d{3}\.ev\d{3}$`（如 ch009.ev003）；调度器 chapter-resolver 用 `/^ch-(\d+)$/`（如 ch-2）匹配，**对导入数据的 storyTime 完全失配→兜底第 1 章**。在导入小说上续写时章节定位必错 | chapter-resolver.ts:28 vs api.md P0 校验 | 🔴 高 |
 | Q4 | .gitignore 缺 `scheduler-plans/` 与 `world.db-wal/-shm` | novel/.gitignore 实测 | ⚠️ 低 |
 | Q5 | 向量模型缓存在用户全局目录而非项目内，多项目共享（预期行为但需知晓） | — | ℹ️ |

@@ -1,0 +1,9 @@
+{
+  "name": "{{name}}",
+  "engine": "narrative-engine",
+  "engineVersion": "0.1.0",
+  "worldGraphDir": ".pi/world-graph-v3",
+  "chaptersDir": "正文",
+  "storyTimeFormat": "ch-{N}",
+  "createdAt": "{{date}}"
+}

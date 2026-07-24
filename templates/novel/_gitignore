@@ -1,0 +1,20 @@
+# 依赖
+node_modules/
+
+# 引擎扩展运行时（由 narrative-engine 仓库 npm run sync 同步，不纳入版本控制）
+.pi/extensions/*
+!.pi/extensions/.gitkeep
+
+# SQLite 瞬态文件（每次会话重建）
+*.db-shm
+*.db-wal
+
+# 调度器 plan 缓存（临时态，TTL 1h）
+.pi/scheduler-plans/
+
+# 日志
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
