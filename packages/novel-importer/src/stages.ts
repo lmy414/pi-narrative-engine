@@ -10,7 +10,7 @@
  * - 阶段函数返回类型化数据，不返回原始 LLM 响应
  */
 
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 import type {
   EntityHint,
   EventHint,

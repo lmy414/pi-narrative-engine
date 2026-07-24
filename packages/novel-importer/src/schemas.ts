@@ -8,8 +8,8 @@
  * （Zod 用于内核校验，TypeBox 用于 LLM tool schema 传输）。
  */
 
-import { Type, StringEnum } from "@mariozechner/pi-ai";
-import type { Tool } from "@mariozechner/pi-ai";
+import { Type, StringEnum } from "@earendil-works/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 
 // ============================================================================
 // 阶段 2：全书实体预扫描

@@ -12,7 +12,7 @@
  */
 
 import crypto from "node:crypto";
-import { complete, getModel, validateToolCall } from "@mariozechner/pi-ai";
+import { complete, getModel, validateToolCall } from "@earendil-works/pi-ai";
 import type { EntityType } from "@pi/world-graph";
 import type {
   AliasEntry,

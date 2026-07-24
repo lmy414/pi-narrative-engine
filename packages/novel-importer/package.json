@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@pi/world-graph": "*",
-    "@mariozechner/pi-ai": "^0.73.0",
+    "@earendil-works/pi-ai": "^0.77.0",
     "epub2": "^3.0.2",
     "typebox": "^1.1.24",
     "zod": "^4.0.0"

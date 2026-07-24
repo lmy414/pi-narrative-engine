@@ -2,20 +2,20 @@
 /**
  * renderer-llm.ts — RenderLlmCaller 的 pi-ai 实现
  *
- * 包装 @mariozechner/pi-ai 的 complete 函数，适配渲染器的纯文本生成接口。
+ * 包装 @earendil-works/pi-ai 的 complete 函数，适配渲染器的纯文本生成接口。
  * 与 novel-importer 的 makeLlmCaller 区别：
  *   - novel-importer 用 LlmToolCaller（tool call 场景，返回结构化 JSON）
  *   - renderer 用 RenderLlmCaller（文本生成场景，返回纯文本）
  */
 
-import { complete, getModel } from "@mariozechner/pi-ai";
+import { complete, getModel } from "@earendil-works/pi-ai";
 import type { RenderLlmCaller } from "@pi/renderer";
-import type { TextContent } from "@mariozechner/pi-ai";
+import type { TextContent } from "@earendil-works/pi-ai";
 
 /**
  * 创建基于 pi-ai 的渲染器 LLM 调用器
  *
- * @param model 模型名（如 "deepseek-chat"）
+ * @param model 模型名（如 "deepseek-v4-flash"）
  * @param apiKey API key
  * @param provider 提供商（默认 deepseek）
  */

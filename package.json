@@ -17,8 +17,8 @@
     "epub2": "^3.0.2"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.73.0",
-    "@mariozechner/pi-coding-agent": "^0.73.0",
+    "@earendil-works/pi-ai": "^0.77.0",
+    "@earendil-works/pi-coding-agent": "^0.77.0",
     "@types/node": "^20.14.0",
     "litegraph.js": "^0.7.18",
     "typebox": "^1.1.24",

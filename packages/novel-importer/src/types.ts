@@ -12,7 +12,7 @@ import type {
   Modality,
   EventType,
 } from "@pi/world-graph";
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 
 /**
  * EntityHint — 阶段 2 LLM 输出的实体提示（待阶段 4 消解为 canonical entityId）
