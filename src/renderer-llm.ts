@@ -10,6 +10,7 @@
 
 import { complete, getModel } from "@mariozechner/pi-ai";
 import type { RenderLlmCaller } from "@pi/renderer";
+import type { TextContent } from "@mariozechner/pi-ai";
 
 /**
  * 创建基于 pi-ai 的渲染器 LLM 调用器
@@ -38,16 +39,16 @@ export function makeRendererLlmCaller(
       },
     );
 
-    if (msg.stopReason === "error" || msg.errorMessage) {
-      throw new Error(`渲染器 LLM 调用失败: ${msg.errorMessage ?? "unknown"}`);
+    if (msg.stopReason === "error" || msg.stopReason === "aborted" || msg.errorMessage) {
+      throw new Error(`渲染器 LLM 调用失败: ${msg.errorMessage ?? msg.stopReason}`);
     }
 
     // 提取文本块
-    const textBlocks = msg.content.filter((b) => b.type === "text");
+    const textBlocks = msg.content.filter((b): b is TextContent => b.type === "text");
     if (textBlocks.length === 0) {
       throw new Error("渲染器 LLM 未返回文本内容");
     }
 
-    return textBlocks.map((b) => (b as { type: "text"; text: string }).text).join("");
+    return textBlocks.map((b) => b.text).join("");
   };
 }
