@@ -14,7 +14,8 @@
 | 2 | 调度器工作模式 | ✅ 已核对 | 功能闭环等价，运行形态 3 处偏离 + 1 项 V2 愿景未实现 |
 | 3 | 角色代理数据注入（酒馆卡 + 动态内容） | ✅ 已核对 | 双层结构与设计一致；发现 3 处实现偏差 |
 | 4 | 角色输出回写世界图机制 | ✅ 已核对 | 写回链路一致；发现 1 个严重断链 + 2 个小问题 |
-| 5 | （待核对） | — | — |
+| 5 | 渲染器输入输出契约 | ✅ 已核对 | 契约清晰一致；1 个字段未使用 + 设计特点确认 |
+| 6 | （待核对） | — | — |
 
 ---
 
@@ -226,6 +227,62 @@ RoleAgentOutput[]
 |---|------|------|-------|
 | 1 | `knowledge_gained` 不落图：transforms.ts 注释"由调度器处理"，但 commit.ts 未处理——只随 RoleOutput 进渲染器 | commit.ts | ⚠️ 中（与断链同源） |
 | 2 | invalidated 只取"第一个同 property 未闭合 Fact，假设唯一"（代码注释自承），重复 property 时漏闭合 | commit.ts:88 | ⚠️ 低 |
+
+---
+
+## 核对项 5：渲染器输入输出契约（2026-07-25）
+
+**需求描述**（用户提问）：渲染器接收什么样的输入，产生什么样的输出？
+
+### 输入（两个入口，渲染器无状态）
+
+| 入口 | 用途 | 命令字段 |
+|------|------|---------|
+| `renderText(cmd, ctx)` | 纯文本生成（预览/调用方自写盘） | `mode`(append/modify) + `eventId` + `storyTime` + `instruction` + `payload: RoleOutput[]` + **`context`（调用方喂入）** + `modifyAnchorEventId?` |
+| `renderToFile(cmd, ctx)` | 生成+写章节文件 | 同上但 `context` 换成 `chapterPath`（渲染器自读文件） |
+
+**`ctx: RenderCtx`**：`llm`（注入式 RenderLlmCaller，纯文本接口，区别于 role-pool 的 tool call 接口）+ `ruleSet`（规则集.md 全文，**每次重读不缓存**）。
+
+**`RoleOutput`**（角色池→渲染器契约，调度器 commit 第 6 步投影时剥掉 `characterId`/`state_changes`）：
+
+| 字段 | 必填 | 渲染规则（system prompt 明文） |
+|------|------|------------------------------|
+| `actor` / `action` | ✓ | — |
+| `target` / `emotion` / `relation_update` / `thought` / `knowledge_gained` | 可选 | **缺失 = 该维度不渲染，坚决不脑补**（thought 用动作暗示不直引；emotion 用细节体现不写"他感到XX"） |
+
+### Prompt 组装（注意力从弱到强）
+
+```
+System: RENDERER_SYSTEM_PROMPT（固定模板）
+  - 职责："你不决定发生了什么，你只决定怎么写"
+  - 7 字段渲染规则表 + 输出协议 + 章节格式约定
+User:
+  [已有上下文]        ← 最弱
+  [叙事指令]（含模式说明：续写/重写事件 xxx 保持衔接）
+  [角色池结构化数据]   ← formatPayload 逐字段缩进文本
+  ─── 规则集 ───      ← 末尾，注意力最强
+```
+
+### 输出
+
+| 层 | 产物 |
+|---|------|
+| LLM 层 | 纯正文文本。协议：无前后缀、无 event ID、无 markdown 标题、无元注释。pi-ai `complete`，maxTokens 4000，temperature 0.7 |
+| `renderText` | `Promise<string>`（正文） |
+| `renderToFile` | `RenderResult { ok, chapterPath, mode, eventId, writtenText, error? }` |
+| 写盘格式 | 首行固定 `<!-- engine v0.01 -->`；append = `<!-- event: <eventId> -->` 锚点 + 空行 + 正文追加末尾；modify = **锚点保留**，替换锚点后到下一锚点/文件末尾的区间 |
+
+### 核对结论
+
+✅ 契约与设计（`2026-07-24-renderer.md` + api.md §6.5）一致：无状态、注入式 LLM、规则集末尾注入、锚点写盘。
+
+**设计特点确认**：
+- 渲染器**不做 tool call**（与 role-pool 刻意区分：文本生成 vs 结构化输出）
+- **insert 模式不在 renderer**（调度器内嵌 `insertChapterSection`：`renderText` 生成 + 锚点后插入）——有意设计
+- `render_check` 校验是独立 LLM 环节（checker），不在渲染主链路
+
+**小偏差**：
+- ⚠️ `storyTime` 字段在 `RenderTextCommand` 中定义且必填，但 `buildUserMessage` **未注入 prompt**（渲染 LLM 看不到故事时间）
 
 ---
 
