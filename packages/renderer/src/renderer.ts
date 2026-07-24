@@ -40,7 +40,7 @@ export async function renderText(
  * 生成文本并写入章节文件
  *
  * - append 模式：读全文做上下文 → LLM 生成 → 追加到文件末尾
- * - modify 模式：读锚点区间+前后段落做上下文 → LLM 生成 → 重写锚点区间
+ * - modify 模式：读全文做上下文 → LLM 生成 → 重写锚点区间
  */
 export async function renderToFile(
   cmd: RenderFileCommand,
