@@ -4,15 +4,20 @@
  *
  * 为什么不用 tsc：源码使用 `.ts` 后缀的 import specifier（配合
  * allowImportingTsExtensions），tsc 在该选项下禁止 emit（TS5096）。
- * 运行时由 pi 扩展加载器 / tsx 解析 `.ts` specifier（@pi/world-graph 的
- * exports 也直接指向 src/index.ts），因此构建只需 transpile-only、
- * 保持 specifier 原样 —— 这正是 esbuild transform 的行为。
+ * 因此构建用 esbuild transform-only。
+ *
+ * 关键：把 `.ts` specifier 重写为 `.js`，让产物可被标准 Node ESM resolver
+ * 直接加载（pi 扩展加载器不一定走 jiti，保持 specifier 原样会导致
+ * `Cannot find module './foo.ts'` 错误）。
+ *
+ * 注意：bare specifier（如 `@pi/world-graph`、`@earendil-works/pi-ai`）
+ * 不重写，由 Node 标准解析 + 包的 exports 字段处理。
  *
  * 用法：node scripts/build.mjs [--watch]
  */
 
 import { transform } from "esbuild";
-import { readdir, readFile, writeFile, mkdir, rm, watch } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, rm, watch, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, relative, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +37,21 @@ async function listTsFiles(dir) {
   return out;
 }
 
+/**
+ * 把相对路径 import specifier 中的 .ts 重写为 .js
+ * - `from "./foo.ts"` → `from "./foo.js"`
+ * - `from "./foo"` 不变（让 resolver 自己加扩展）
+ * - `from "@pi/world-graph"` 等 bare specifier 不变
+ */
+function rewriteTsSpecifiers(code) {
+  // 匹配 import ... from "..." / export ... from "..."
+  // 仅处理以 ./ 或 ../ 开头的相对路径，且以 .ts 结尾的
+  return code.replace(
+    /((?:import|export)[^"]*from\s+["'])(\.{1,2}\/[^"']*\.ts)(["'])/g,
+    (full, prefix, spec, quote) => `${prefix}${spec.replace(/\.ts$/, ".js")}${quote}`,
+  );
+}
+
 async function compileFile(file) {
   const code = await readFile(file, "utf-8");
   const result = await transform(code, {
@@ -39,10 +59,11 @@ async function compileFile(file) {
     format: "esm",
     target: "es2022",
   });
+  const rewritten = rewriteTsSpecifiers(result.code);
   const rel = relative(srcDir, file).replace(/\.ts$/, ".js");
   const dest = join(outDir, rel);
   await mkdir(dirname(dest), { recursive: true });
-  await writeFile(dest, result.code, "utf-8");
+  await writeFile(dest, rewritten, "utf-8");
   return rel;
 }
 
@@ -53,6 +74,13 @@ async function build() {
   for (const f of files) {
     const rel = await compileFile(f);
     console.log(`[build] ${rel}`);
+  }
+  // 复制非 TS 资产（如 prompts/*.md 纯文本 prompt 资源）
+  // 运行时通过 import.meta.url 相对 dist/index.js 定位，必须随产物一起输出
+  const srcPromptsDir = join(srcDir, "prompts");
+  if (existsSync(srcPromptsDir)) {
+    await cp(srcPromptsDir, join(outDir, "prompts"), { recursive: true });
+    console.log(`[build] prompts/ 资产已复制`);
   }
   console.log(`[build] 完成：${files.length} 个文件 → ${relative(repoRoot, outDir)}/`);
 }

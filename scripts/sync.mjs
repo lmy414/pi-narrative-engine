@@ -11,9 +11,14 @@
  * （相对于扩展仓库根目录，可通过 --target 覆盖）
  *
  * 同步策略：
- * - 清空目标目录，然后递归复制 dist/ 下所有文件
- * - 复制 package.json（含 pi.extensions 声明 + 运行时依赖）
- * - 不同步 node_modules；目标目录首次需手动 `npm install`
+ * - 增量同步：只清空目标的 dist/ 和 packages/，重新复制
+ * - 保留目标的 node_modules/（首次需手动 npm install，后续无需）
+ * - 复制 dist/ 产物、package.json、visualizer-ui/、packages/
+ *
+ * 设计依据：
+ * - dist/index.js 用 bare specifier import @pi/world-graph 等子包
+ * - 子包 package.json 的 exports 指向 ./src/index.ts，由 pi 扩展加载器的 jiti 解析
+ * - 因此 packages/ 必须随 dist/ 一起同步到目标，node_modules/@pi/* 由 workspace 自动建链
  */
 
 import { cp, mkdir, rm, readdir, watch, copyFile } from "node:fs/promises";
@@ -25,6 +30,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const srcDir = resolve(repoRoot, "dist");
 const srcPackageJson = resolve(repoRoot, "package.json");
+const srcPackagesDir = resolve(repoRoot, "packages");
+const srcUiDir = resolve(repoRoot, "visualizer-ui");
 
 const defaultTarget = resolve(repoRoot, "..", "novel", ".pi", "extensions", "narrative-engine");
 
@@ -38,6 +45,54 @@ function getTarget() {
 
 function shouldWatch() {
 	return process.argv.includes("--watch");
+}
+
+/**
+ * 安全清空并重建子目录（保留父目录其他内容）
+ */
+async function freshCopyDir(src, dest) {
+	if (existsSync(dest)) {
+		await rm(dest, { recursive: true, force: true });
+	}
+	await mkdir(dest, { recursive: true });
+	await cp(src, dest, { recursive: true });
+}
+
+/**
+ * 列出源目录下所有相对路径（用于精准清理目标根目录的同名条目）
+ */
+async function listRelativePaths(dir, base = dir) {
+	const out = [];
+	for (const entry of await readdir(dir, { withFileTypes: true })) {
+		const full = resolve(dir, entry.name);
+		const rel = relative(base, full);
+		if (entry.isDirectory()) {
+			out.push(rel, ...(await listRelativePaths(full, base)));
+		} else {
+			out.push(rel);
+		}
+	}
+	return out;
+}
+
+/**
+ * 把 srcDir 的内容复制到 target 根目录，覆盖同名文件
+ * 但不删除 target 下未在 srcDir 出现的条目（保留 node_modules/ 等）
+ *
+ * 设计：dist 的 .js 文件铺在 target 根目录（与 pi.extensions 入口约定一致），
+ * 因此不能 rm -rf 整个 target，否则会清掉 node_modules。
+ */
+async function replaceDistAtRoot(src, target) {
+	// 先清掉旧的 dist 条目（基于 srcDir 当前列表）
+	const relPaths = await listRelativePaths(src);
+	for (const rel of relPaths) {
+		const dest = resolve(target, rel);
+		if (existsSync(dest)) {
+			await rm(dest, { recursive: true, force: true });
+		}
+	}
+	// 复制新内容
+	await cp(src, target, { recursive: true });
 }
 
 async function sync(target) {
@@ -54,28 +109,36 @@ async function sync(target) {
 		process.exit(1);
 	}
 
-	// 清空目标目录后重新复制，避免残留旧文件
-	if (existsSync(target)) {
-		await rm(target, { recursive: true, force: true });
-	}
+	// 创建目标根目录（若不存在）
 	await mkdir(target, { recursive: true });
 
-	// 复制 dist/ 产物
-	await cp(srcDir, target, { recursive: true });
+	// 1. 复制 dist/ 到 target 根（保留 node_modules/，只覆盖 dist 条目）
+	await replaceDistAtRoot(srcDir, target);
+	console.log(`[sync] 已同步 ${relative(repoRoot, srcDir)}/ → ${relative(repoRoot, target)}`);
 
-	// 复制 package.json（含 pi.extensions 声明）
+	// 2. 复制 package.json（含 pi.extensions 声明 + workspaces）
 	await copyFile(srcPackageJson, resolve(target, "package.json"));
+	console.log(`[sync] 已复制 package.json`);
 
-	// 若仓库根存在 visualizer-ui/（可视化前端静态资源），一并复制
-	const uiDir = resolve(repoRoot, "visualizer-ui");
-	if (existsSync(uiDir)) {
-		await cp(uiDir, resolve(target, "visualizer-ui"), { recursive: true });
+	// 3. 复制 packages/（@pi/* 子包源码，由 jiti 加载）
+	if (existsSync(srcPackagesDir)) {
+		await freshCopyDir(srcPackagesDir, resolve(target, "packages"));
+		console.log(`[sync] 已复制 packages/ → ${relative(repoRoot, resolve(target, "packages"))}`);
+	}
+
+	// 4. 复制 visualizer-ui/（可视化前端静态资源）
+	if (existsSync(srcUiDir)) {
+		await freshCopyDir(srcUiDir, resolve(target, "visualizer-ui"));
 		console.log(`[sync] 已复制 visualizer-ui/ → ${relative(repoRoot, resolve(target, "visualizer-ui"))}`);
 	}
 
-	console.log(`[sync] 已同步 ${relative(repoRoot, srcDir)}/ → ${relative(repoRoot, target)}`);
-	console.log(`[sync] 已复制 package.json`);
-	console.log(`[sync] 提示：首次同步后请在目标目录运行 \`npm install\` 安装运行时依赖`);
+	// 5. 检查 node_modules 是否已存在
+	const targetNodeModules = resolve(target, "node_modules");
+	if (!existsSync(targetNodeModules)) {
+		console.log(`[sync] 提示：首次同步后请在目标目录运行 \`npm install\` 安装运行时依赖`);
+	} else {
+		console.log(`[sync] 已保留 node_modules/（如需重装请手动删除后 npm install）`);
+	}
 }
 
 async function watchMode(target) {

@@ -23,6 +23,11 @@ import type { EntitySnapshot, StateDeclaration } from "@pi/world-graph";
 // 配置
 // ============================================================================
 
+// 禁用 transformers.js 的 sharp 依赖（仅图像模型需要，本项目只用文本 embedding）
+// 必须在 import 时立即执行，避免 sharp 加载失败导致整个扩展加载失败
+// （sharp 0.35 在 Windows 上原生二进制路径解析有问题）
+(env as any).sharp = false;
+
 /** 默认向量模型 */
 const DEFAULT_MODEL = "Xenova/bge-small-zh-v1.5";
 
