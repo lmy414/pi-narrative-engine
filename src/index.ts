@@ -3,11 +3,11 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 27 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_* + 2 个 role_*）供主会话/scheduler/前端调用
+ * - 注册 30 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_* + 2 个 role_* + 3 个 scheduler_*）供主会话/前端调用
  * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *
- * 工具集（V2，27 个，含 role_*）：
+ * 工具集（V2，30 个，含 scheduler_*）：
  *   生命周期：session_start / session_shutdown（pi.on，非 registerTool）
  *   查询类：world_status / world_query / world_entity_get / world_entity_history / world_relations / world_relation_history / world_event_chain / world_character_view / world_story_times
  *   写入类：world_entity_create / world_entity_kill / world_entity_update_summary / world_relation_add / world_relation_close / world_event_apply
@@ -16,17 +16,19 @@
  *   导入：import_novel
  *   渲染：render_append / render_modify / render_preview / render_check / render_rule_set
  *   角色池：role_interact / role_rule_set
+ *   调度器：scheduler_dispatch / scheduler_commit / scheduler_discard
  *
- * 存储路径：<cwd>/.pi/world-graph-v2/
+ * 存储路径：<cwd>/.pi/world-graph-v3/
  *
  * 主会话不参与叙事原则：
  * - 这些工具只暴露世界图 CRUD 与检索，不内置剧情生成逻辑
- * - 剧情推进由 scheduler 通过 world_event_apply 调用
+ * - 剧情推进由 scheduler 通过 scheduler_dispatch 调用（内嵌 planner LLM 推导检索计划）
  */
 
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import url from "node:url";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { WorldGraph } from "@pi/world-graph";
 import { Embedder } from "./embedder.ts";
@@ -47,6 +49,14 @@ import { makeRendererLlmCaller } from "./renderer-llm.ts";
 import { checkNarrative } from "./checker.ts";
 import { interact as roleInteract, loadRoleRuleSet } from "@pi/role-pool";
 import { makeRoleLlmCaller } from "./role-pool-llm.ts";
+import {
+  plan as schedulerPlan,
+  commit as schedulerCommit,
+  discard as schedulerDiscard,
+  loadAllPlans as schedulerLoadAllPlans,
+  type StructuredEvent,
+} from "@pi/scheduler";
+import { makeSchedulerCtx } from "./scheduler-llm.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -57,12 +67,47 @@ let embedder: Embedder | null = null;
 let search: Search | null = null;
 let currentStoryTime: string | null = null;
 let visualizerServer: VisualizerServer | null = null;
+
+/**
+ * 主会话 system prompt 资源文件路径（Pending Gap #5）
+ *
+ * 设计：
+ * - main-session.md 是纯自由文本 prompt 资源（与 role-ruleSet / render-ruleSet 约定一致）
+ * - session_start 时一次性加载到内存，before_agent_start 时追加到 systemPrompt 末尾
+ * - 不缓存到磁盘：每次 session_start 重读，便于热更新
+ */
+const MAIN_SESSION_PROMPT_PATH = path.join(
+  path.dirname(url.fileURLToPath(import.meta.url)),
+  "prompts",
+  "main-session.md",
+);
+
+/** 主会话 prompt 缓存（session_start 时加载，session_shutdown 时清空） */
+let mainSessionPrompt: string | null = null;
+
+/**
+ * 加载主会话 prompt
+ *
+ * 失败时不抛错（避免阻塞 session_start），仅打印警告并返回空字符串
+ * 理由：prompt 加载失败不应影响 world-graph 等其他初始化
+ */
+async function loadMainSessionPrompt(): Promise<string> {
+  try {
+    return await fs.readFile(MAIN_SESSION_PROMPT_PATH, "utf8");
+  } catch (err) {
+    console.warn(
+      `[narrative-engine] 主会话 prompt 加载失败 (${MAIN_SESSION_PROMPT_PATH}):`,
+      err,
+    );
+    return "";
+  }
+}
 /** session_start 时记录 cwd，供 import_novel 等工具默认 worldGraphDir 使用 */
 let sessionCwd: string | null = null;
 
 /** 渲染器 LLM 配置（从环境变量读取） */
 function getRendererLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_RENDERER_MODEL ?? process.env.PI_MODEL ?? "deepseek-chat";
+  const model = process.env.PI_RENDERER_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
   const apiKey = process.env.PI_RENDERER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
   if (!apiKey) {
     throw new Error("渲染器 LLM apiKey 未配置（设置 PI_RENDERER_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
@@ -72,7 +117,7 @@ function getRendererLlmConfig(): { model: string; apiKey: string } {
 
 /** 角色池 LLM 配置（从环境变量读取） */
 function getRoleLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_ROLE_MODEL ?? process.env.PI_MODEL ?? "deepseek-chat";
+  const model = process.env.PI_ROLE_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
   const apiKey = process.env.PI_ROLE_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
   if (!apiKey) {
     throw new Error("角色池 LLM apiKey 未配置（设置 PI_ROLE_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
@@ -122,9 +167,9 @@ function resolveStoryTime(explicit?: string): string {
   throw new Error("storyTime required (call world_event_apply first or pass storyTime explicitly)");
 }
 
-/** 默认存储路径：<cwd>/.pi/world-graph-v2/ */
+/** 默认存储路径：<cwd>/.pi/world-graph-v3/（与 novel-importer 导入目录一致） */
 function resolveWorldGraphDir(cwd: string): string {
-  return path.join(cwd, ".pi", "world-graph-v2");
+  return path.join(cwd, ".pi", "world-graph-v3");
 }
 
 // ============================================================================
@@ -148,6 +193,50 @@ export default function (pi: ExtensionAPI) {
     search = new Search(wg, embedder);
     currentStoryTime = null;
     ctx.ui.notify(`[narrative-engine] 已初始化世界图: ${dir}`, "info");
+
+    // 恢复未 commit 的 plan（Pending Gap #6 持久化）
+    // 同时执行 TTL 清理：1 小时前的 plan 自动删除
+    try {
+      const loaded = await schedulerLoadAllPlans(ctx.cwd);
+      if (loaded > 0) {
+        ctx.ui.notify(`[narrative-engine] 已恢复 ${loaded} 个未提交的 plan`, "info");
+      }
+    } catch (err) {
+      ctx.ui.notify(`[narrative-engine] 加载 plan 缓存失败: ${err}`, "warning");
+    }
+
+    // 加载主会话 prompt（Pending Gap #5）
+    // 失败不阻塞 session_start，仅警告（详见 loadMainSessionPrompt 注释）
+    mainSessionPrompt = await loadMainSessionPrompt();
+    if (mainSessionPrompt) {
+      ctx.ui.notify(
+        `[narrative-engine] 已加载主会话 prompt (${mainSessionPrompt.length} 字符)`,
+        "info",
+      );
+    } else {
+      ctx.ui.notify(`[narrative-engine] 主会话 prompt 未加载（文件缺失或读取失败）`, "warning");
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 主会话 prompt 注入（Pending Gap #5）
+  // --------------------------------------------------------------------------
+  //
+  // 通过 before_agent_start 事件把 main-session.md 追加到 systemPrompt 末尾。
+  // 设计依据：
+  // - 主会话是引擎入口，需要明确职责边界（不参与叙事、不脑补业务）
+  // - mode/意图分类/角色消解规则必须由 system prompt 注入，避免用户被迫用工程语言
+  // - 末尾注入（注意力最强）：与 renderer ruleSet 注入位置约定一致
+  //
+  // 注意：
+  // - before_agent_start 在每次用户提交 prompt 时触发，但 mainSessionPrompt
+  //   是 session_start 时一次性加载的，避免每轮读盘
+  // - 若 mainSessionPrompt 为空（加载失败），不修改 systemPrompt，主会话仍可工作
+  pi.on("before_agent_start", async (event) => {
+    if (!mainSessionPrompt) return;
+    return {
+      systemPrompt: event.systemPrompt + "\n\n" + mainSessionPrompt,
+    };
   });
 
   pi.on("session_shutdown", async () => {
@@ -171,6 +260,7 @@ export default function (pi: ExtensionAPI) {
     search = null;
     currentStoryTime = null;
     sessionCwd = null;
+    mainSessionPrompt = null;
   });
 
   // --------------------------------------------------------------------------
@@ -1020,6 +1110,131 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: ruleSet || "（角色规则集.md 不存在或为空）" }],
         details: { ok: true, length: ruleSet.length, exists: ruleSet.length > 0 },
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 调度器工具（3 个）— 串联 world-graph / role-pool / renderer
+  //
+  // 设计依据：docs/plans/2026-07-25-scheduler-design.md §5
+  // - scheduler_dispatch：派发事件（plan 模式跑到角色输出即返回；yolo 模式自动 commit）
+  // - scheduler_commit：提交 plan 结果（写扩散到世界图 + 渲染章节文件）
+  // - scheduler_discard：丢弃 plan（不写世界图、不渲染）
+  //
+  // 主会话作为"任务外包方"，把 StructuredEvent 传入 scheduler_dispatch，
+  // 调度器内嵌 planner LLM 推导检索计划，调 role-pool 演绎，plan 模式下
+  // 等主会话审阅后再调 scheduler_commit 提交扩散和渲染。
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "scheduler_dispatch",
+    label: "Scheduler Dispatch",
+    description:
+      "调度器派发事件：planner LLM 推导检索计划→检索世界图→role-pool 演绎→（plan 模式返回；yolo 模式自动 commit 写扩散+渲染）。plan 模式下返回 planId 供 scheduler_commit/scheduler_discard 使用。",
+    promptSnippet: "派发事件到调度器（plan/yolo 双模式）",
+    parameters: Type.Object({
+      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      instruction: Type.String({ description: "事件指令（自然语言，主会话已加工）" }),
+      characterIds: Type.Array(Type.String(), {
+        description: "参与角色 ID 列表（主会话已识别）",
+      }),
+      executionHints: Type.Optional(Type.String({
+        description: "执行建议（用户特殊要求，如\"林冲要显得绝望\"）",
+      })),
+      mode: Type.Optional(Type.Union([
+        Type.Literal("plan"),
+        Type.Literal("yolo"),
+      ])),
+      chapterPath: Type.Optional(Type.String({
+        description: "章节文件路径（缺省时调度器从 storyTime 推断）",
+      })),
+      locationId: Type.Optional(Type.String({
+        description: "地点 ID（可选，用于可见性推断）",
+      })),
+      intent: Type.Optional(Type.Union([
+        Type.Literal("add"),
+        Type.Literal("modify"),
+        Type.Literal("insert"),
+      ])),
+      targetEventId: Type.Optional(Type.String({
+        description: "modify/insert 模式必填：目标事件 ID（modify 重写该锚点区间，insert 在该锚点后插入）",
+      })),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const emb = requireEmbedder();
+      const cwd = sessionCwd ?? process.cwd();
+      const ctx = await makeSchedulerCtx(g, emb, cwd);
+
+      const event: StructuredEvent = {
+        storyTime: params.storyTime,
+        instruction: params.instruction,
+        characterIds: params.characterIds,
+        executionHints: params.executionHints,
+        mode: params.mode,
+        chapterPath: params.chapterPath,
+        locationId: params.locationId,
+        intent: params.intent,
+        targetEventId: params.targetEventId,
+      };
+
+      const result = await schedulerPlan(event, ctx);
+
+      const text = result.mode === "yolo"
+        ? `调度器 yolo 模式完成：planId=${result.planId}，已 commit（${result.commitResult.appliedEventIds.length} 个 change 事件，已渲染到 ${result.commitResult.chapterPath}）`
+        : `调度器 plan 模式完成：planId=${result.planId}（${result.outputs.length} 个角色输出，等 commit/discard）`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "scheduler_commit",
+    label: "Scheduler Commit",
+    description:
+      "提交 plan 结果：写扩散到世界图（按 entityId 分组生成 change 事件）+ 渲染章节文件（append 模式）。commit 后 planId 失效，不可重复提交。",
+    promptSnippet: "提交调度器 plan（写扩散+渲染）",
+    parameters: Type.Object({
+      planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const emb = requireEmbedder();
+      const cwd = sessionCwd ?? process.cwd();
+      const ctx = await makeSchedulerCtx(g, emb, cwd);
+
+      const result = await schedulerCommit(params.planId, ctx);
+
+      const text = result.ok
+        ? `已提交 plan ${params.planId}：${result.appliedEventIds.length} 个 change 事件，渲染到 ${result.chapterPath}`
+        : `提交失败：${result.error}`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "scheduler_discard",
+    label: "Scheduler Discard",
+    description:
+      "丢弃 plan：不写世界图、不渲染。主会话检查 RoleAgentOutput[] 后觉得不对劲时调用。",
+    promptSnippet: "丢弃调度器 plan（不写不渲染）",
+    parameters: Type.Object({
+      planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
+    }),
+    async execute(_id, params) {
+      const ok = schedulerDiscard(params.planId);
+      const text = ok
+        ? `已丢弃 plan ${params.planId}`
+        : `plan ${params.planId} 不存在（已过期或已被 commit/discard）`;
+      return {
+        content: [{ type: "text", text }],
+        details: { ok, planId: params.planId },
       };
     },
   });
