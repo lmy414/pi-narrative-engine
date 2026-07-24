@@ -3,7 +3,7 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 19 个 world_* 工具供主会话/scheduler/前端调用
+ * - 注册 20 个工具（18 个 world_* + open_visualizer + import_novel）供主会话/scheduler/前端调用
  * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *

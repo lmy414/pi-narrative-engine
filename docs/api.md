@@ -186,7 +186,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 > **注**：本工具不支持设置 `summary`。如需设置实体描述，使用 `world_entity_update_summary`。birth 事件（`world_event_apply` 带 `type: "birth"`）才支持 `summary` 参数。
 
-> **summary 字段语义**：实体的**无状态客观事实描述**（独立数据字段，不进 Fact/属性）。与 Fact 节点的区别——summary 存不变的客观事实（如"林冲，八十万禁军教头，豹头环眼"），Fact 存随事件变化的状态（如 mood/location/health）。角色扮演注入上下文时 = summary + 当前 properties 拼接。参与向量检索（`embedEntity` 文本拼接）。
+> **summary 字段语义**：实体的**无状态客观事实描述**（独立数据字段，不进 Fact/属性）。与 Fact 节点的区别——summary 存不变的客观事实（如"林冲，八十万禁军教头，豹头环眼"），Fact 存随事件变化的状态（如 mood/location/health）。参与向量检索（限导入管道的 embedder；运行时 `Embedder.embedEntity` 不拼接 summary）。下游消费约定：角色池注入时建议 summary + 当前 properties 拼接为完整角色描述（角色池本身尚未在本仓库实现）。
 
 **示例**：
 ```json
@@ -251,7 +251,6 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
       "entityId": "macbeth",
       "property": "name",
       "value": "Macbeth",
-      "valueText": "Macbeth",
       "modality": "fact",
       "validFrom": "act1-scene1",
       "validTo": "Infinity"
@@ -259,6 +258,8 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
   ]
 }
 ```
+
+> 注：`properties[]` 不含 `valueText`——`valueText` 仅 `getEntityHistory` / `world_entity_history` 返回。
 
 **bi-temporal 查询规则**：返回 `validFrom <= storyTime < validTo` 的 Entity 及其所有匹配的 Fact。`validTo = "Infinity"` 表示未闭合。
 
@@ -384,11 +385,11 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 **返回**：`StateDeclaration[]` — 该角色在 `storyTime` 时刻可见的所有声明。
 
 **五步过滤**（由 `@pi/world-graph` 的 `character-view.ts` 实现，2026-07-22 语义修订：知识持续）：
-1. 候选声明：全部 StateDeclaration（含已闭合——知识不因声明闭合/实体死亡而消失）
-2. 可见性来源：`setVisibility` 显式设置 + `inferVisibility` 从 `located_in` 推断写入的记录
-3. 时间过滤：可见性需覆盖 storyTime（`validFrom <= storyTime < validTo`），且有效起点取 `max(visibility.validFrom, declaration.validFrom)`（不能先于声明存在而知晓）；**有效终点只看可见性的 `validTo`**——知识一旦获得就持续持有，直到可见性被显式撤销（`world_visibility_close`）
-4. 模态过滤（可选，通过 `modalityFilter` 参数）
-5. 去重
+1. 候选声明：全部 StateDeclaration（含已闭合——知识持续语义：知识不因声明闭合/实体死亡而消失）
+2. 可见性记录：`setVisibility` 显式设置 + `inferVisibility` 从 `located_in` 推断写入的记录；需覆盖 storyTime（`validFrom <= storyTime < validTo`）且 `state === "known"`
+3. 有效起点 = `max(visibility.validFrom, declaration.validFrom)`，需 `<= storyTime`（不能先于声明存在而知晓）
+4. 有效终点只看可见性的 `validTo`（不再与 `declaration.validTo` 取交）——知识一旦获得就持续持有，直到可见性被显式撤销（`world_visibility_close`）
+5. 模态过滤（可选，`modalityFilter`）：**仅包级 API `getCharacterView(characterId, storyTime, opts)` 支持，PI 工具 `world_character_view` 不暴露此参数**；代码无去重步骤
 
 ---
 
@@ -419,7 +420,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 |------|------|------|------|
 | `storyTime` | string | 否 | 不传用 `currentStoryTime` |
 
-**推断规则**：遍历所有 `located_in` 关系，位于同一 location 的角色互相可见该 location 内的声明。
+**推断规则**：遍历 storyTime 时刻所有 `located_in` 关系，对每条关系，把 target（location）实体在该时刻的所有有效声明标记为 source 角色可见（单向推断，非互相可见；`validFrom` 取角色进入时间与声明时间中较晚者）。
 
 ---
 
@@ -482,7 +483,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 #### `world_entity_update_summary`
 
-更新实体摘要（作者可见元信息，纯展示字段）。
+更新实体的无状态客观事实描述（summary）。
 
 **参数**：
 | 字段 | 类型 | 必填 | 说明 |
@@ -490,7 +491,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `entityId` | string | 是 | 实体 ID |
 | `summary` | string | 是 | 新无状态描述 |
 
-**特性**：`summary` 为实体无状态客观事实描述（独立数据字段，不进 Fact）。参与向量检索（`embedEntity` 文本拼接）。不参与时态/可见性，直接覆盖。旧描述不保留历史。
+**特性**：`summary` 为实体无状态客观事实描述（独立数据字段，不进 Fact）。不参与时态/可见性，直接覆盖，旧描述不保留历史。参与向量检索（限导入管道的 embedder；运行时 `Embedder.embedEntity` 不拼接 summary）。
 
 ---
 
@@ -592,7 +593,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `epubPath` | string | 是 | EPUB 文件绝对路径 |
 | `worldGraphDir` | string | 否 | world-graph 存储目录（缺省 `<cwd>/.pi/world-graph-v3/`） |
 | `chapters` | number[] | 否 | 限定导入章节（1-based），缺省全部 |
-| `model` | string | 否 | LLM 模型名（缺省用 pi 配置或环境变量 `PI_MODEL`） |
+| `model` | string | 否 | LLM 模型名（缺省读 `PI_MODEL` 环境变量，否则 `deepseek-chat`） |
 | `apiKey` | string | 否 | LLM API key（缺省读 `DEEPSEEK_API_KEY` 或 `PI_API_KEY`） |
 | `concurrency` | number | 否 | 章节并行限流（缺省 3，范围 1-10） |
 | `resumeFromStage` | number | 否 | 从指定阶段恢复（1-8，缺省从 1 开始） |
@@ -675,7 +676,7 @@ const wg = await WorldGraph.create({
 | `async killEntity(entityId, storyTime): Promise<void>` | 消亡实体 |
 | `async getEntityAt(entityId, storyTime): Promise<EntitySnapshot \| null>` | bi-temporal 查询 |
 | `async getAllEntities(storyTime): Promise<EntitySnapshot[]>` | 列出所有有效实体 |
-| `async updateEntitySummary(entityId, summary): Promise<void>` | 更新实体无状态描述（独立字段，参与向量检索） |
+| `async updateEntitySummary(entityId, summary): Promise<void>` | 更新实体无状态描述（独立字段；参与向量检索限导入管道 embedder 路径，运行时 `Embedder.embedEntity` 不拼接 summary） |
 | `async getEntityHistory(entityId): Promise<{entities, facts}>` | 实体全部版本（含已闭合） |
 
 **关系**：
@@ -690,7 +691,7 @@ const wg = await WorldGraph.create({
 **事件**：
 | 方法 | 说明 |
 |------|------|
-| `async processEvent(event: EventRecord): Promise<void>` | 应用事件 |
+| `async processEvent(input: EventRecordInput): Promise<void>` | 应用事件（`EventRecordInput` 与 `EventRecord` 的差别是 `source` 可省略，parse 时默认 `"engine"`） |
 | `async traceCauses(eventId): Promise<EventRecord[]>` | 因果回溯 |
 | `async getAllEvents(): Promise<EventRecord[]>` | 全部事件（按 storyTime 升序） |
 
@@ -720,7 +721,7 @@ const wg = await WorldGraph.create({
 
 ## 6. `@pi/novel-importer` 包 API
 
-V3 小说导入器子包，通过 `import_novel` 工具暴露。详见 spec: `.trae/specs/import-novel-v3/spec.md`。
+V3 小说导入器子包，通过 `import_novel` 工具暴露。详见 spec: `d:\claude\pi-ex\.trae\specs\import-novel-v3\spec.md`（仓库外）。
 
 ### 主入口
 
@@ -792,15 +793,18 @@ interface ImportPipelineResult {
 
 ### P0 校验项（失败抛错退出）
 
-- 实体引用完整性（所有 entityId 在 Entity 节点存在）
-- 事件因果链无环
-- birth 事件不重复
-- state 字段必须为 `"known"`
+- 实体引用完整性（change 事件 `new_facts` 的 entityId 在 Entity 表中存在；`entity_hint` 必须命中 canonicalMap）
+- 事件因果链无环且完整（`causedBy` 必须指向链内 eventId；首事件 `causedBy = undefined`）
+- 章节完整性（每章至少有事件覆盖）
+- 每个 canonical 实体 ≥1 个 birth 事件
+- birth 事件 `entityType` 必填
+- storyTime 格式校验（`^ch\d{3}\.ev\d{3}$`）
+- entityId 唯一性（aliasIndex 中 canonical entityId 无重复）
 
 ### P1 校验项（警告继续）
 
-- 重复 birth 已被 write.ts 去重
-- 属性命名建议（建议使用点分路径）
+- 重复 birth（write.ts 写入时已去重，此处显式降级为 P1，仅通过 `skippedEvents` 统计报告）
+- 属性名建议白名单（`knownProps` 平名表；`belief.` / `hypothesis.` 前缀豁免）
 
 ---
 
@@ -962,7 +966,7 @@ interface StateDeclaration {
 interface EntitySnapshot {
   entityId: string;
   type: EntityType;
-  summary: string;          // 实体无状态客观事实描述（独立数据字段，参与向量检索，注入角色扮演上下文）
+  summary: string;          // 实体无状态客观事实描述（独立数据字段；参与向量检索限导入管道 embedder 路径）
   validFrom: string;
   validTo: string;
   properties: StateDeclaration[];
@@ -993,6 +997,15 @@ interface EventRecord {
   causedBy?: string;        // 因果链前驱事件 ID
 }
 ```
+
+### `EventRecordInput`
+
+```typescript
+// z.input<typeof EventRecord> 推导：source 可选（parse 时默认 "engine"），其余字段同 EventRecord
+type EventRecordInput = Omit<EventRecord, "source"> & { source?: EventSource };
+```
+
+`EventLog.append` 与 `WorldGraph.processEvent` 入口均接受 `EventRecordInput`，内部 `EventRecord.parse(input)` 应用默认值（`source` 缺省 `"engine"`），事件日志中始终落完整 `EventRecord`。
 
 ### `VisibilityDeclaration`
 
@@ -1248,7 +1261,7 @@ V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件�
 
 **同步**：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录（`novel/.pi/extensions/narrative-engine/visualizer-ui/`）。
 
-**测试**：`tests/visualizer-server.test.ts`（14 个集成测试）
+**测试**：`tests/visualizer-server.test.ts`（15 个集成测试）
 ```bash
 npx tsx --test tests/visualizer-server.test.ts
 ```
