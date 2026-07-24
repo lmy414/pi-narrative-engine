@@ -9,7 +9,7 @@
 - [1. 架构概览](#1-架构概览)
 - [2. 存储路径](#2-存储路径)
 - [3. storyTime 管理约定](#3-storytime-管理约定)
-- [4. PI 扩展工具 API（20 个）](#4-pi-扩展工具-api20-个)
+- [4. PI 扩展工具 API（25 个）](#4-pi-扩展工具-api25-个)
   - [4.1 状态查询](#41-状态查询)
   - [4.2 实体工具](#42-实体工具)
   - [4.3 关系工具](#43-关系工具)
@@ -19,8 +19,10 @@
   - [4.7 历史与元信息工具](#47-历史与元信息工具)
   - [4.8 可视化工具](#48-可视化工具)
   - [4.9 导入工具](#49-导入工具)
+  - [4.10 渲染工具](#410-渲染工具)
 - [5. `@pi/world-graph` 包 API](#5-piworld-graph-包-api)
 - [6. `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
+- [6.5 `@pi/renderer` 包 API](#65-pirenderer-包-api)
 - [7. `Search` 类 API](#7-search-类-api)
 - [8. `Embedder` 类 API](#8-embedder-类-api)
 - [9. 类型定义](#9-类型定义)
@@ -126,7 +128,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
-## 4. PI 扩展工具 API（20 个）
+## 4. PI 扩展工具 API（25 个）
 
 所有工具通过 `pi.registerTool` 注册，遵循 PI ExtensionAPI 约定：
 - `name` — 工具唯一标识（`world_*` 前缀 / `open_visualizer` / `import_novel`）
@@ -135,7 +137,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - `parameters` — TypeBox schema 定义参数
 - `async execute(_id, params)` — 执行体，返回 `{ content: [{type, text}], details }`
 
-**工具分类**（20 个）：
+**工具分类**（25 个）：
 - **状态查询**（1 个）：`world_status`
 - **实体工具**（3 个）：`world_entity_create` / `world_entity_kill` / `world_entity_get`
 - **关系工具**（3 个）：`world_relation_add` / `world_relation_close` / `world_relations`
@@ -145,6 +147,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - **历史与元信息**（4 个）：`world_entity_update_summary` / `world_entity_history` / `world_relation_history` / `world_story_times`
 - **可视化**（1 个）：`open_visualizer`
 - **导入**（1 个）：`import_novel`
+- **渲染**（5 个）：`render_append` / `render_modify` / `render_preview` / `render_check` / `render_rule_set`
 
 ### 4.1 状态查询
 
@@ -636,6 +639,170 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
+### 4.10 渲染工具
+
+渲染工具将叙事指令 + 角色池结构化数据（`RoleOutput[]`）渲染为符合规则集.md 约定的正文文本，并按锚点写入章节文件。底层由 `@pi/renderer` 子包提供能力，详见 [第 6.5 节](#65-pirenderer-包-api)。
+
+#### `render_append`
+
+渲染叙事事件并追加到章节文件（append 模式）。读取已有章节全文做上下文，LLM 生成正文后追加到文件末尾。
+
+**参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `chapterPath` | string | 是 | 目标章节文件绝对路径 |
+| `eventId` | string | 是 | 本次渲染对应的事件 ID |
+| `storyTime` | string | 是 | 故事时间（如 `ch-2`） |
+| `instruction` | string | 是 | 叙事指令（自然语言） |
+| `payload` | `RoleOutput[]` | 是 | 角色池结构化输出 |
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "已渲染事件 evt_001 到 /path/第1章.md（append）" }],
+  "details": {
+    "ok": true,
+    "chapterPath": "/path/第1章.md",
+    "mode": "append",
+    "eventId": "evt_001",
+    "writtenText": "林墨推开酒馆的门..."
+  }
+}
+```
+
+**行为**：
+- 读取 `chapterPath` 全文作为上下文（首行版本标记 `<!-- engine v0.01 -->` 之后的全部内容）
+- 注入规则集.md（每次重读，不缓存）到用户消息末尾
+- LLM 生成正文后，写入 `<!-- event: <eventId> -->` 锚点 + 空行 + 正文，追加到文件末尾
+- 文件不存在时自动创建（首行写入版本标记）
+
+#### `render_modify`
+
+重写章节文件中指定事件锚点区间的文本（modify 模式）。
+
+**参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `chapterPath` | string | 是 | 目标章节文件绝对路径 |
+| `eventId` | string | 是 | 本次渲染对应的事件 ID（用于记录） |
+| `modifyAnchorEventId` | string | 是 | 要重写的目标事件 ID |
+| `storyTime` | string | 是 | 故事时间 |
+| `instruction` | string | 是 | 叙事指令（描述重写方向） |
+| `payload` | `RoleOutput[]` | 是 | 角色池结构化输出 |
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "已重写事件 evt_002 区间到 /path/第1章.md（modify）" }],
+  "details": {
+    "ok": true,
+    "chapterPath": "/path/第1章.md",
+    "mode": "modify",
+    "eventId": "evt_001",
+    "modifyAnchorEventId": "evt_002",
+    "writtenText": "「师弟，许久不见。」"
+  }
+}
+```
+
+**行为**：
+- 读取 `chapterPath` 全文作为上下文
+- 按 `modifyAnchorEventId` 锚点定位重写区间（从该锚点到下一个锚点或文件末尾）
+- LLM 生成新正文，替换该区间内容
+- 锚点本身保留，仅替换锚点之后的正文
+
+#### `render_preview`
+
+预览渲染结果（不写入文件）。
+
+**参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `chapterPath` | string | 否 | 章节文件路径（用于读取上下文，不写文件） |
+| `eventId` | string | 是 | 事件 ID |
+| `storyTime` | string | 是 | 故事时间 |
+| `instruction` | string | 是 | 叙事指令 |
+| `payload` | `RoleOutput[]` | 是 | 角色池结构化输出 |
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "林墨推开酒馆的门..." }],
+  "details": {
+    "ok": true,
+    "eventId": "evt_001",
+    "preview": true,
+    "contextWarning": undefined
+  }
+}
+```
+
+**行为**：
+- 若提供 `chapterPath`，读取全文作为上下文；否则 `contextWarning` 字段提示无上下文
+- 调用 LLM 生成文本，直接返回到 `content[0].text`
+- 不触碰文件系统
+
+#### `render_check`
+
+检验章节文本是否符合规则集.md。
+
+**参数**：
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `target` | `"latest"` / `"chapter"` / `"range"` / `"full"` | 是 | 检验范围 |
+| `chapterPath` | string | 否 | 章节文件路径（`target != "full"` 时必填） |
+| `startEventId` | string | 否 | `target="range"` 时起点 |
+| `endEventId` | string | 否 | `target="range"` 时终点（不包含） |
+
+**target 说明**：
+- `latest`：只检查最新事件（最后锚点到末尾）
+- `chapter`：检查整章
+- `range`：检查 `[startEventId, endEventId)` 区间
+- `full`：需要 `chapterPath`，或由主会话拆分后多次调用
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "发现 2 处违规" }],
+  "details": {
+    "violations": [
+      { "location": "evt_002", "rule": "禁止词：手机", "text": "他拿出手机", "severity": "error" }
+    ],
+    "suggestions": [
+      { "location": "evt_002", "issue": "包含禁止词", "suggestion": "改为「他抽出信筒」" }
+    ],
+    "error": undefined
+  }
+}
+```
+
+**注**：若 LLM 返回非 JSON，`error` 字段会记录错误信息，`violations`/`suggestions` 为空数组。
+
+#### `render_rule_set`
+
+查看当前规则集.md 内容。无需参数。
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "文风：白描为主\n禁止词：手机、电脑" }],
+  "details": {
+    "ok": true,
+    "length": 25,
+    "exists": true
+  }
+}
+```
+
+**行为**：
+- 读取 `<novelCwd>/规则集.md` 全文
+- 文件不存在时 `exists: false`、`length: 0`、`content[0].text` 为空字符串
+- 不缓存，每次重读
+
+**详见**：[第 6.5 节 `@pi/renderer` 包 API](#65-pirenderer-包-api)
+
+---
+
 ## 5. `@pi/world-graph` 包 API
 
 ### `WorldGraph` 类
@@ -805,6 +972,123 @@ interface ImportPipelineResult {
 
 - 重复 birth（write.ts 写入时已去重，此处显式降级为 P1，仅通过 `skippedEvents` 统计报告）
 - 属性名建议白名单（`knownProps` 平名表；`belief.` / `hypothesis.` 前缀豁免）
+
+---
+
+## 6.5 `@pi/renderer` 包 API
+
+### 概述
+
+`@pi/renderer` 是渲染器子包，将叙事指令 + 角色池结构化数据渲染为符合规则集.md 文风格的文本。
+
+**架构定位**：
+- workspace 子包（`private: true`，独立开发）
+- 通过 narrative-engine 扩展暴露 5 个 pi 工具（`render_*`）
+- 不独立成为 pi 扩展，随 narrative-engine 一起 build + sync
+
+**核心理念**：
+- 渲染器无状态：LLM 调用器和规则集由调用方传入
+- 规则集.md 是渲染器的 `AGENTS.md`：纯自由文本，原样注入用户消息末尾（注意力最强），每次渲染重读不缓存
+
+### 子包导出
+
+```typescript
+// 类型
+export type { RoleOutput, RenderTextCommand, RenderFileCommand, RenderResult, RenderLlmCaller, RenderCtx } from "./types.ts";
+
+// 规则集加载
+export { loadRuleSet } from "./rule-loader.ts";
+
+// 章节文件读写
+export { readChapter, readChapterSection, appendToChapter, modifyChapterSection, ensureChapterFile, CHAPTER_VERSION_MARKER, EVENT_ANCHOR_PREFIX } from "./chapter-io.ts";
+
+// 提示词模板
+export { RENDERER_SYSTEM_PROMPT, buildUserMessage } from "./prompts.ts";
+
+// 核心渲染函数
+export { renderText, renderToFile } from "./renderer.ts";
+```
+
+### `loadRuleSet(novelCwd: string): Promise<string>`
+
+读取 `<novelCwd>/规则集.md` 全文。文件不存在时返回空字符串（不报错）。不缓存，每次重读。
+
+### `renderText(cmd: RenderTextCommand, ctx: RenderCtx): Promise<string>`
+
+仅生成文本，不写文件。调用方需自行传入 context（已有章节文本或上下文摘要）。适合预览。
+
+### `renderToFile(cmd: RenderFileCommand, ctx: RenderCtx): Promise<RenderResult>`
+
+生成文本并写入章节文件。
+
+- **append 模式**：读全文做上下文 → LLM 生成 → 追加到文件末尾
+- **modify 模式**：读全文做上下文 → LLM 生成 → 重写锚点区间
+
+### `readChapterSection(chapterPath, startEventId?, endEventId?): Promise<string>`
+
+读取章节文件中指定锚点区间的文本。`[start, end)` 语义（包含 start，不包含 end）。
+
+### `RenderLlmCaller`
+
+注入式 LLM 调用器接口：`(systemPrompt: string, userMessage: string) => Promise<string>`。便于单测时注入 mock，生产环境用 pi-ai 的 complete 实现（见 `src/renderer-llm.ts` 的 `makeRendererLlmCaller`）。
+
+### 规则集.md 格式说明
+
+规则集.md 是渲染器的 `AGENTS.md`，纯自由文本 Markdown，无固定模块名要求。
+
+**示例**：
+```markdown
+# 规则集
+
+## 文风
+白描为主，少用形容词。
+对话简洁，不铺垫情绪。
+
+## 禁止词
+- 手机、电脑、电话等现代词汇
+- "突然"、"忽然"等副词
+
+## 格式
+- 段落间空一行
+- 对话用「」包裹
+```
+
+**注入位置**：用户消息末尾（注意力最强），由 `buildUserMessage` 拼接：
+
+```
+[已有上下文]
+...
+
+[叙事指令]
+（续写模式：在已有上下文之后续写新段落）
+...
+
+[角色池结构化数据]
+...
+
+─── 规则集（严格遵守以下规则）───
+<规则集全文>
+─── 以上为本次渲染规则 ───
+```
+
+### 章节文件格式约定
+
+```
+<!-- engine v0.01 -->
+
+<!-- event: evt_001 -->
+
+林墨推开酒馆的门，雨丝落在肩上。
+
+<!-- event: evt_002 -->
+
+「师弟，许久不见。」
+```
+
+- 首行固定 `<!-- engine v0.01 -->`（版本标记）
+- 每个事件渲染产物前插入 `<!-- event: <eventId> -->` 锚点
+- 锚点后空一行，接正文
+- modify 模式按锚点定位重写区间
 
 ---
 
@@ -1289,4 +1573,5 @@ npx tsx --test tests/visualizer-server.test.ts
 **workspace 子包结构**：
 - `packages/world-graph/` — `@pi/world-graph`（WorldGraph 类 + 类型）
 - `packages/novel-importer/` — `@pi/novel-importer`（V3 导入管道）
+- `packages/renderer/` — `@pi/renderer`（渲染器子包）
 - `src/` — narrative-engine 扩展入口（工具注册 + Embedder + Search + Visualizer）
