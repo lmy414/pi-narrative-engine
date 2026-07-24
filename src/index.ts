@@ -3,16 +3,17 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 20 个工具（18 个 world_* + open_visualizer + import_novel）供主会话/scheduler/前端调用
+ * - 注册 25 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_*）供主会话/scheduler/前端调用
  * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *
- * 工具集（V2，19 个）：
+ * 工具集（V2，24 个）：
  *   生命周期：session_start / session_shutdown（pi.on，非 registerTool）
  *   查询类：world_status / world_query / world_entity_get / world_entity_history / world_relations / world_relation_history / world_event_chain / world_character_view / world_story_times
  *   写入类：world_entity_create / world_entity_kill / world_entity_update_summary / world_relation_add / world_relation_close / world_event_apply
  *   可见性：world_visibility_set / world_visibility_close / world_visibility_infer
  *   可视化：open_visualizer
+ *   渲染：render_append / render_modify / render_preview / render_check / render_rule_set
  *
  * 存储路径：<cwd>/.pi/world-graph-v2/
  *
@@ -31,6 +32,18 @@ import { Search } from "./search.ts";
 import { startVisualizer } from "./visualizer/server.ts";
 import type { VisualizerServer } from "./visualizer/server.ts";
 import { runImportPipeline } from "@pi/novel-importer";
+import {
+  loadRuleSet,
+  renderToFile,
+  renderText,
+  readChapterSection,
+  readChapter,
+  type RenderFileCommand,
+  type RenderTextCommand,
+  type RoleOutput,
+} from "@pi/renderer";
+import { makeRendererLlmCaller } from "./renderer-llm.ts";
+import { checkNarrative } from "./checker.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -43,6 +56,16 @@ let currentStoryTime: string | null = null;
 let visualizerServer: VisualizerServer | null = null;
 /** session_start 时记录 cwd，供 import_novel 等工具默认 worldGraphDir 使用 */
 let sessionCwd: string | null = null;
+
+/** 渲染器 LLM 配置（从环境变量读取） */
+function getRendererLlmConfig(): { model: string; apiKey: string } {
+  const model = process.env.PI_RENDERER_MODEL ?? process.env.PI_MODEL ?? "deepseek-chat";
+  const apiKey = process.env.PI_RENDERER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
+  if (!apiKey) {
+    throw new Error("渲染器 LLM apiKey 未配置（设置 PI_API_KEY 或 DEEPSEEK_API_KEY 环境变量）");
+  }
+  return { model, apiKey };
+}
 
 /** 测试辅助：获取内部状态 */
 export function getState() {
@@ -709,6 +732,225 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text }],
         details: result,
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 渲染器工具（5 个）
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "render_append",
+    label: "Render Append",
+    description:
+      "渲染叙事事件并追加到章节文件（append 模式）。读取已有章节全文做上下文，LLM 生成正文后追加到文件末尾。",
+    promptSnippet: "渲染事件并追加到章节",
+    parameters: Type.Object({
+      chapterPath: Type.String({ description: "目标章节文件绝对路径" }),
+      eventId: Type.String({ description: "本次渲染对应的事件 ID" }),
+      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      instruction: Type.String({ description: "叙事指令（自然语言）" }),
+      payload: Type.Array(Type.Object({
+        actor: Type.String(),
+        action: Type.String(),
+        target: Type.Optional(Type.String()),
+        emotion: Type.Optional(Type.String()),
+        relation_update: Type.Optional(Type.Array(Type.Object({
+          target: Type.String(),
+          label: Type.String(),
+        }))),
+        thought: Type.Optional(Type.String()),
+        knowledge_gained: Type.Optional(Type.Array(Type.String())),
+      })),
+    }),
+    async execute(_id, params) {
+      const { model, apiKey } = getRendererLlmConfig();
+      const llm = makeRendererLlmCaller(model, apiKey);
+      const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
+
+      const cmd: RenderFileCommand = {
+        mode: "append",
+        chapterPath: params.chapterPath,
+        eventId: params.eventId,
+        storyTime: params.storyTime,
+        instruction: params.instruction,
+        payload: params.payload as RoleOutput[],
+      };
+
+      const result = await renderToFile(cmd, { llm, ruleSet });
+
+      const text = result.ok
+        ? `已渲染事件 ${params.eventId} 到 ${params.chapterPath}（append）`
+        : `渲染失败：${result.error}`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "render_modify",
+    label: "Render Modify",
+    description:
+      "重写章节文件中指定事件锚点区间的文本（modify 模式）。读取锚点区间+上下文，LLM 重新生成后替换原内容。",
+    promptSnippet: "重写章节中指定事件的文本",
+    parameters: Type.Object({
+      chapterPath: Type.String({ description: "目标章节文件绝对路径" }),
+      eventId: Type.String({ description: "本次渲染对应的事件 ID（用于记录）" }),
+      modifyAnchorEventId: Type.String({ description: "要重写的目标事件 ID" }),
+      storyTime: Type.String({ description: "故事时间" }),
+      instruction: Type.String({ description: "叙事指令（描述重写方向）" }),
+      payload: Type.Array(Type.Object({
+        actor: Type.String(),
+        action: Type.String(),
+        target: Type.Optional(Type.String()),
+        emotion: Type.Optional(Type.String()),
+        relation_update: Type.Optional(Type.Array(Type.Object({
+          target: Type.String(),
+          label: Type.String(),
+        }))),
+        thought: Type.Optional(Type.String()),
+        knowledge_gained: Type.Optional(Type.Array(Type.String())),
+      })),
+    }),
+    async execute(_id, params) {
+      const { model, apiKey } = getRendererLlmConfig();
+      const llm = makeRendererLlmCaller(model, apiKey);
+      const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
+
+      const cmd: RenderFileCommand = {
+        mode: "modify",
+        chapterPath: params.chapterPath,
+        eventId: params.eventId,
+        storyTime: params.storyTime,
+        instruction: params.instruction,
+        payload: params.payload as RoleOutput[],
+        modifyAnchorEventId: params.modifyAnchorEventId,
+      };
+
+      const result = await renderToFile(cmd, { llm, ruleSet });
+
+      const text = result.ok
+        ? `已重写事件 ${params.modifyAnchorEventId} 的文本（modify）`
+        : `重写失败：${result.error}`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "render_preview",
+    label: "Render Preview",
+    description:
+      "预览渲染结果（不写入文件）。传入叙事指令和角色池数据，返回 LLM 生成的文本。可传 chapterPath 读取已有章节做上下文。",
+    promptSnippet: "预览渲染结果（不写文件）",
+    parameters: Type.Object({
+      chapterPath: Type.Optional(Type.String({ description: "章节文件路径（用于读取上下文，不写文件）" })),
+      eventId: Type.String(),
+      storyTime: Type.String(),
+      instruction: Type.String(),
+      payload: Type.Array(Type.Object({
+        actor: Type.String(),
+        action: Type.String(),
+        target: Type.Optional(Type.String()),
+        emotion: Type.Optional(Type.String()),
+        relation_update: Type.Optional(Type.Array(Type.Object({
+          target: Type.String(),
+          label: Type.String(),
+        }))),
+        thought: Type.Optional(Type.String()),
+        knowledge_gained: Type.Optional(Type.Array(Type.String())),
+      })),
+    }),
+    async execute(_id, params) {
+      const { model, apiKey } = getRendererLlmConfig();
+      const llm = makeRendererLlmCaller(model, apiKey);
+      const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
+
+      let context = "";
+      if (params.chapterPath) {
+        try {
+          context = await readChapter(params.chapterPath);
+        } catch {
+          context = "";
+        }
+      }
+
+      const cmd: RenderTextCommand = {
+        mode: "append",
+        eventId: params.eventId,
+        storyTime: params.storyTime,
+        instruction: params.instruction,
+        payload: params.payload as RoleOutput[],
+        context,
+      };
+
+      const text = await renderText(cmd, { llm, ruleSet });
+
+      return {
+        content: [{ type: "text", text }],
+        details: { ok: true, eventId: params.eventId, preview: true },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "render_check",
+    label: "Render Check",
+    description:
+      "检验章节文本是否符合规则集。支持 latest（最新事件）/chapter（整章）/range（区间）/full（全文，需 chapterPath）。返回违规清单和修改建议。文本量过大时由主会话拆分多次调用。",
+    promptSnippet: "检查章节文本是否符合规则集",
+    parameters: Type.Object({
+      target: Type.Union([
+        Type.Literal("latest"),
+        Type.Literal("chapter"),
+        Type.Literal("range"),
+        Type.Literal("full"),
+      ]),
+      chapterPath: Type.Optional(Type.String({ description: "章节文件路径" })),
+      startEventId: Type.Optional(Type.String({ description: "target=range 时起点" })),
+      endEventId: Type.Optional(Type.String({ description: "target=range 时终点（不包含）" })),
+    }),
+    async execute(_id, params) {
+      const { model, apiKey } = getRendererLlmConfig();
+      const llm = makeRendererLlmCaller(model, apiKey);
+      const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
+
+      const result = await checkNarrative(
+        {
+          target: params.target,
+          chapterPath: params.chapterPath,
+          startEventId: params.startEventId,
+          endEventId: params.endEventId,
+        },
+        { llm, ruleSet },
+      );
+
+      const text = result.violations.length > 0
+        ? `发现 ${result.violations.length} 处违规`
+        : "检查通过，无违规";
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "render_rule_set",
+    label: "Render Rule Set",
+    description: "查看当前规则集.md 内容。无需参数。",
+    promptSnippet: "查看规则集内容",
+    parameters: Type.Object({}),
+    async execute() {
+      const ruleSet = await loadRuleSet(sessionCwd ?? process.cwd());
+      return {
+        content: [{ type: "text", text: ruleSet || "（规则集.md 不存在或为空）" }],
+        details: { ok: true, length: ruleSet.length, exists: ruleSet.length > 0 },
       };
     },
   });
