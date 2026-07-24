@@ -36,3 +36,11 @@ export { buildSystemPrompt, buildUserMessage } from "./prompts.ts";
 
 // Re-export 核心编排函数
 export { interact } from "./role-pool.ts";
+
+// Re-export 调度器转换函数（对上统一 API）
+export {
+  toRoleOutputs,
+  extractStateChanges,
+  extractRelations,
+  type RelationUpdate,
+} from "./transforms.ts";
