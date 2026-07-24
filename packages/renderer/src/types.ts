@@ -7,8 +7,15 @@
 /**
  * RoleOutput — 角色池结构化输出（与 role-pool 约定一致）
  *
- * 字段对齐 V2 设计笔记的子代理结构化输出规范：
- * actor / action / target / emotion / relation_update / thought / knowledge_gained
+ * 基于 V2 设计笔记的子代理结构化输出规范，但有以下调整（plan 决策）：
+ * - 在 V2 的 6 字段（actor / action / target / emotion / relation_update / thought）
+ *   基础上新增 `knowledge_gained` 字段（V2 无此字段）
+ * - `relation_update` 形状从 V2 的 `{ target, delta }`（数值增量，如 +0.3）
+ *   改为 `{ target, label }[]`（字符串标签数组）
+ * - `target / emotion / relation_update / thought / knowledge_gained` 均为可选
+ *   （V2 中以平铺结构列出，未标可选）
+ *
+ * 详见 docs/plans/2026-07-24-renderer.md 与 docs/legacy/v2-design-notes.md
  */
 export interface RoleOutput {
   actor: string;
