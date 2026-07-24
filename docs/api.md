@@ -36,13 +36,14 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  PI 主会话 / Scheduler / 前端                             │
-│  （通过 pi.registerTool 注册的 20 个工具调用）             │
+│  （通过 pi.registerTool 注册的 25 个工具调用）             │
 └──────────────────┬───────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────┐
 │  narrative-engine/src/index.ts                            │
 │  - session_start: 初始化 WorldGraph/Embedder/Search      │
 │  - 注册 18 个 world_* + open_visualizer + import_novel   │
+│  - 注册 5 个 render_*（append/modify/preview/check/rule_set）│
 │  - 管理 session 级 currentStoryTime                      │
 └────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │
