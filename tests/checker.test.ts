@@ -35,8 +35,6 @@ test("checkNarrative: 返回结构化检查结果", async () => {
     ].join("\n");
     await writeFile(chapterPath, content, "utf8");
 
-    await writeFile(path.join(dir, "规则集.md"), "禁止词：手机", "utf8");
-
     const mockLlm = makeMockLlm(JSON.stringify({
       violations: [
         { location: "evt_002", rule: "禁止词：手机", text: "他拿出手机打电话", severity: "error" },
@@ -48,13 +46,18 @@ test("checkNarrative: 返回结构化检查结果", async () => {
 
     const result = await checkNarrative(
       { target: "chapter", chapterPath },
-      { llm: mockLlm, novelCwd: dir },
+      { llm: mockLlm, ruleSet: "禁止词：手机" },
     );
 
     assert.ok(result.violations);
     assert.ok(result.suggestions);
     assert.equal(result.violations.length, 1);
     assert.equal(result.violations[0].rule, "禁止词：手机");
+    assert.equal(result.violations[0].severity, "error");
+    assert.equal(result.violations[0].location, "evt_002");
+    assert.equal(result.violations[0].text, "他拿出手机打电话");
+    assert.equal(result.suggestions.length, 1);
+    assert.equal(result.suggestions[0].suggestion, "改为「他抽出信筒」");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -80,7 +83,6 @@ test("checkNarrative: target=latest 只检查最新事件", async () => {
       "",
     ].join("\n");
     await writeFile(chapterPath, content, "utf8");
-    await writeFile(path.join(dir, "规则集.md"), "无特殊规则", "utf8");
 
     const calls: string[] = [];
     const mockLlm: RenderLlmCaller = async (_sys, user) => {
@@ -90,7 +92,7 @@ test("checkNarrative: target=latest 只检查最新事件", async () => {
 
     await checkNarrative(
       { target: "latest", chapterPath },
-      { llm: mockLlm, novelCwd: dir },
+      { llm: mockLlm, ruleSet: "无特殊规则" },
     );
 
     assert.equal(calls.length, 1);
@@ -125,7 +127,6 @@ test("checkNarrative: target=range 检查区间", async () => {
       "",
     ].join("\n");
     await writeFile(chapterPath, content, "utf8");
-    await writeFile(path.join(dir, "规则集.md"), "无特殊规则", "utf8");
 
     const calls: string[] = [];
     const mockLlm: RenderLlmCaller = async (_sys, user) => {
@@ -135,13 +136,125 @@ test("checkNarrative: target=range 检查区间", async () => {
 
     await checkNarrative(
       { target: "range", chapterPath, startEventId: "evt_001", endEventId: "evt_003" },
-      { llm: mockLlm, novelCwd: dir },
+      { llm: mockLlm, ruleSet: "无特殊规则" },
     );
 
     assert.equal(calls.length, 1);
     assert.ok(calls[0].includes("第一段"));
     assert.ok(calls[0].includes("第二段"));
     assert.ok(!calls[0].includes("第三段"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkNarrative: target=full 无 chapterPath 时抛错", async () => {
+  const mockLlm = makeMockLlm(JSON.stringify({ violations: [], suggestions: [] }));
+  await assert.rejects(
+    checkNarrative(
+      { target: "full" },
+      { llm: mockLlm, ruleSet: "" },
+    ),
+    /target=full 时需要 chapterPath/,
+  );
+});
+
+test("checkNarrative: target=range 缺 startEventId 时抛错", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const 正文Dir = path.join(dir, "正文");
+    await mkdir(正文Dir, { recursive: true });
+    const chapterPath = path.join(正文Dir, "第1章-测试.md");
+    await writeFile(chapterPath, [
+      CHAPTER_VERSION_MARKER,
+      "",
+      "<!-- event: evt_001 -->",
+      "",
+      "第一段。",
+      "",
+    ].join("\n"), "utf8");
+
+    const mockLlm = makeMockLlm(JSON.stringify({ violations: [], suggestions: [] }));
+
+    await assert.rejects(
+      checkNarrative(
+        { target: "range", chapterPath },
+        { llm: mockLlm, ruleSet: "" },
+      ),
+      /target=range 时需要 startEventId/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkNarrative: LLM 返回非 JSON 时返回空结果带 error 字段", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const 正文Dir = path.join(dir, "正文");
+    await mkdir(正文Dir, { recursive: true });
+    const chapterPath = path.join(正文Dir, "第1章-测试.md");
+    await writeFile(chapterPath, [
+      CHAPTER_VERSION_MARKER,
+      "",
+      "<!-- event: evt_001 -->",
+      "",
+      "林墨推开门。",
+      "",
+    ].join("\n"), "utf8");
+
+    const nonJsonResponse = "这不是 JSON，只是一段自然语言。";
+    const mockLlm = makeMockLlm(nonJsonResponse);
+
+    const result = await checkNarrative(
+      { target: "chapter", chapterPath },
+      { llm: mockLlm, ruleSet: "无特殊规则" },
+    );
+
+    assert.deepEqual(result.violations, []);
+    assert.deepEqual(result.suggestions, []);
+    assert.ok(result.error, "应有 error 字段");
+    assert.ok(result.error!.includes("LLM 返回非 JSON"), "error 应包含说明");
+    assert.ok(result.error!.includes("这不是 JSON"), "error 应包含响应片段前 100 字符");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkNarrative: target=latest 文件无锚点时返回全文", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const 正文Dir = path.join(dir, "正文");
+    await mkdir(正文Dir, { recursive: true });
+    const chapterPath = path.join(正文Dir, "第1章-测试.md");
+
+    const content = [
+      CHAPTER_VERSION_MARKER,
+      "",
+      "这是第一段。",
+      "",
+      "这是第二段。",
+      "",
+      "这是第三段。",
+      "",
+    ].join("\n");
+    await writeFile(chapterPath, content, "utf8");
+
+    const calls: string[] = [];
+    const mockLlm: RenderLlmCaller = async (_sys, user) => {
+      calls.push(user);
+      return JSON.stringify({ violations: [], suggestions: [] });
+    };
+
+    await checkNarrative(
+      { target: "latest", chapterPath },
+      { llm: mockLlm, ruleSet: "无特殊规则" },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].includes("这是第一段"), "无锚点时应返回全文（含第一段）");
+    assert.ok(calls[0].includes("这是第二段"), "无锚点时应返回全文（含第二段）");
+    assert.ok(calls[0].includes("这是第三段"), "无锚点时应返回全文（含第三段）");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

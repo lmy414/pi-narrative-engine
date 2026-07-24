@@ -4,16 +4,15 @@
  *
  * 检验流程：
  * 1. 按 target 读取目标文本（latest/chapter/range/full）
- * 2. 读取规则集.md 全文
+ * 2. 使用调用方传入的规则集全文（与 renderer 对齐，不在内部读取）
  * 3. 构建 LLM 调用：检验员系统提示词 + 文本片段 + 规则集（末尾）
  * 4. 单次 LLM 调用，返回结构化违规清单+修改建议
  *
  * 注意：文本量过大时的拆分调度由主会话决策，本工具不内置。
- * 工具只做"取文本 + 取规则集 + 调一次 LLM + 返回结构化结果"。
+ * 工具只做"取文本 + 用规则集 + 调一次 LLM + 返回结构化结果"。
  */
 
 import {
-  loadRuleSet,
   readChapter,
   readChapterSection,
   EVENT_ANCHOR_PREFIX,
@@ -50,16 +49,19 @@ export interface Suggestion {
 export interface CheckResult {
   violations: Violation[];
   suggestions: Suggestion[];
+  /** 错误信息（如 LLM 返回非 JSON 时记录，便于调用方区分"无违规"与"解析失败"） */
+  error?: string;
 }
 
-/** 检验上下文 */
+/** 检验上下文（与 RenderCtx 对齐：规则集由调用方读取后传入） */
 export interface CheckCtx {
   llm: RenderLlmCaller;
-  novelCwd: string;
+  /** 规则集.md 全文（由调用方通过 loadRuleSet 读取后传入） */
+  ruleSet: string;
 }
 
 /** 检验员系统提示词 */
-const CHECKER_SYSTEM_PROMPT = `你是叙事引擎的文本检验员。
+export const CHECKER_SYSTEM_PROMPT = `你是叙事引擎的文本检验员。
 
 # 你的职责
 检查给定的叙事文本是否符合规则集的要求，给出违规清单和修改建议。
@@ -97,8 +99,8 @@ export async function checkNarrative(
   // 1. 读取目标文本
   const text = await readCheckTarget(cmd);
 
-  // 2. 读取规则集
-  const ruleSet = await loadRuleSet(ctx.novelCwd);
+  // 2. 使用调用方传入的规则集
+  const ruleSet = ctx.ruleSet;
 
   // 3. 构建用户消息
   const userMessage = buildCheckUserMessage(text, ruleSet);
@@ -114,8 +116,13 @@ export async function checkNarrative(
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
     };
   } catch {
-    // LLM 返回非 JSON 时返回空结果（不抛错，避免阻塞流程）
-    return { violations: [], suggestions: [] };
+    // LLM 返回非 JSON 时返回空结果 + error 字段（不抛错，避免阻塞流程）
+    // 调用方可通过 error 字段区分"无违规"与"解析失败"
+    return {
+      violations: [],
+      suggestions: [],
+      error: `LLM 返回非 JSON: ${response.slice(0, 100)}`,
+    };
   }
 }
 
@@ -124,9 +131,8 @@ export async function checkNarrative(
  */
 async function readCheckTarget(cmd: CheckCommand): Promise<string> {
   if (cmd.target === "full") {
-    // 读取正文目录下所有章节
-    // 注意：full 模式由主会话决策拆分，这里只读取单个 chapterPath 或全部
-    // 简化实现：如果 chapterPath 指定，读该文件；否则抛错让主会话拆分
+    // full 模式由主会话拆分后逐章调用，本工具单次只处理一个 chapterPath；
+    // 无 chapterPath 时抛错让主会话决策。
     if (cmd.chapterPath) {
       return await readChapter(cmd.chapterPath);
     }
