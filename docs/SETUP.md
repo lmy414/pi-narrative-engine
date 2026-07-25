@@ -14,6 +14,9 @@
 
 ## 2. 快速开始
 
+> 💡 **推荐安装方式**：把本仓库链接丢给你已配置好的 pi，让它帮你完成安装与排错。
+> 以下手动步骤 pi 全部能代劳（自检、修绑定、配镜像），遇到问题让它跑 `npm run doctor` 即可。
+
 ```bash
 # 1. 克隆引擎
 git clone git@github.com:lmy414/pi-narrative-engine.git narrative-engine

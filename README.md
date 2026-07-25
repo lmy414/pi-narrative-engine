@@ -39,6 +39,9 @@ commit ─ 状态变化写回世界图（含可见性）→ 渲染器生成正�
 
 ## 快速开始
 
+> 💡 **推荐安装方式**：把本仓库链接丢给你已配置好的 pi，让它帮你完成安装与排错
+> （它能跑 `npm run doctor` 自检、修 better-sqlite3 绑定、配 HF 镜像——以下手动步骤它全会）。
+
 ```bash
 git clone git@github.com:lmy414/pi-narrative-engine.git
 cd narrative-engine
