@@ -14,6 +14,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node: [20, 22]
+    defaults:
+      run:
+        # 统一用 bash：Windows 的 pwsh/cmd 不展开 tests/*.test.ts 通配符
+        # （tsx --test 依赖 shell 展开 glob，win 下会报 Could not find）
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
