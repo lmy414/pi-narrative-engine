@@ -1,0 +1,51 @@
+name: test
+
+on:
+  push:
+    branches: [master, "feat/**"]
+  pull_request:
+
+jobs:
+  packages:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # better-sqlite3 原生绑定：prebuild 优先，失败则源码编译
+      # （runner 自带编译工具链，三平台均可）
+      - run: npm install
+
+      # 子包单测（全部 mock，无需 API key / 网络）
+      - name: world-graph
+        working-directory: packages/world-graph
+        run: npx tsx --test tests/*.test.ts
+
+      - name: role-pool
+        working-directory: packages/role-pool
+        run: npx tsx --test tests/*.test.ts
+
+      - name: scheduler
+        working-directory: packages/scheduler
+        run: npx tsx --test tests/*.test.ts
+
+      - name: renderer
+        working-directory: packages/renderer
+        run: npx tsx --test tests/*.test.ts
+
+      - name: novel-importer
+        working-directory: packages/novel-importer
+        run: npx tsx --test tests/*.test.ts
+
+      - name: import-card（根 tests）
+        run: npx tsx --test tests/import-card.test.ts

@@ -1,0 +1,154 @@
+#!/usr/bin/env node
+/**
+ * doctor.mjs — narrative-engine 环境自检
+ *
+ * 用法：npm run doctor [--novel <小说工程目录>]
+ *
+ * 检查项（每项 ✅/❌/⚠️ + 修复指引）：
+ *   1. Node.js 版本（>= 20）
+ *   2. better-sqlite3 原生绑定（历史上最频发的坑：绑定缺失导致世界图无法初始化）
+ *   3. dist/ 构建产物（是否跑过 npm run build）
+ *   4. templates/novel/ 模板目录
+ *   5. LLM API key（DEEPSEEK_API_KEY / PI_API_KEY）
+ *   6. 向量模型环境（HF 缓存 或 HF_ENDPOINT 镜像 或离线回退说明）
+ *   7. --novel 指定时：小说工程结构（novel.json / 规则集 / .pi/extensions / world-graph）
+ *
+ * 退出码：全部通过 0；有 ❌ 则 1（⚠️ 不阻断）
+ */
+
+import { existsSync } from "node:fs";
+import { readdirSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import os from "node:os";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "..");
+
+let failures = 0;
+let warnings = 0;
+
+function ok(msg) { console.log(`  ✅ ${msg}`); }
+function warn(msg, hint) {
+  warnings++;
+  console.log(`  ⚠️ ${msg}`);
+  if (hint) console.log(`     → ${hint}`);
+}
+function fail(msg, hint) {
+  failures++;
+  console.log(`  ❌ ${msg}`);
+  if (hint) console.log(`     → ${hint}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[1/7] Node.js 版本");
+const major = parseInt(process.version.slice(1), 10);
+if (major >= 20) ok(`${process.version}（>= 20）`);
+else fail(`${process.version} 过旧，需要 Node.js >= 20`, "https://nodejs.org/ 或 nvm 安装 LTS");
+
+// ---------------------------------------------------------------------------
+console.log("\n[2/7] better-sqlite3 原生绑定");
+try {
+  const { createRequire } = await import("node:module");
+  const req = createRequire(resolve(repoRoot, "package.json"));
+  const Database = req("better-sqlite3");
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE t(a)");
+  db.close();
+  ok("绑定可加载，内存库读写正常");
+} catch {
+  fail(
+    "原生绑定缺失或 ABI 不匹配（世界图将无法初始化，且错误会被静默吞掉）",
+    "运行 npm rebuild better-sqlite3；若网络受限需先配好 C++ 编译环境（Windows: VS Build Tools）",
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[3/7] dist/ 构建产物");
+const distIndex = resolve(repoRoot, "dist", "index.js");
+if (existsSync(distIndex)) ok("dist/index.js 存在");
+else fail("dist/ 不存在", "运行 npm run build");
+
+// ---------------------------------------------------------------------------
+console.log("\n[4/7] templates/novel/ 模板目录");
+const tplDir = resolve(repoRoot, "templates", "novel");
+if (existsSync(tplDir)) {
+  const files = readdirSync(tplDir);
+  ok(`存在（${files.length} 个模板文件）`);
+} else {
+  fail("templates/novel/ 不存在", "git 仓库不完整？重新 clone 或 checkout");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[5/7] LLM API key");
+const hasKey = !!(process.env.DEEPSEEK_API_KEY || process.env.PI_API_KEY);
+if (hasKey) {
+  ok(`已配置（${process.env.DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY" : "PI_API_KEY"}）`);
+  const model = process.env.PI_MODEL ?? "deepseek-v4-flash（默认）";
+  console.log(`     模型: ${model}（可用 PI_MODEL / PI_PLANNER_MODEL / PI_ROLE_MODEL / PI_RENDERER_MODEL 分别覆盖）`);
+} else {
+  fail("未配置 DEEPSEEK_API_KEY 或 PI_API_KEY", "export DEEPSEEK_API_KEY=sk-...（调度器/角色池/渲染器都需要 LLM）");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[6/7] 向量模型环境（Embedder）");
+// transformers.js v2 默认缓存路径是模块所在 node_modules 下的 .cache/（不是 ~/.cache/huggingface）
+function hasModelCache(base) {
+  const dir = join(base, "node_modules", "@xenova", "transformers", ".cache", "Xenova");
+  return existsSync(dir) && readdirSync(dir).length > 0;
+}
+const hfCache = join(os.homedir(), ".cache", "huggingface", "hub");
+const hfCacheExists = existsSync(hfCache) && readdirSync(hfCache).some((d) => d.startsWith("models--"));
+if (hasModelCache(repoRoot)) {
+  ok("模型已缓存（本仓库 node_modules，embedder 离线回退可用）");
+} else if (hfCacheExists) {
+  ok("HF 模型缓存存在（~/.cache/huggingface）");
+} else if (process.env.HF_ENDPOINT) {
+  ok(`未缓存但已配置镜像 HF_ENDPOINT=${process.env.HF_ENDPOINT}`);
+} else {
+  warn(
+    "模型未缓存且未配置镜像：首次向量检索需从 huggingface.co 下载 ~50MB",
+    "网络受限时：export HF_ENDPOINT=https://hf-mirror.com（embedder 也有离线回退，但前提是模型已缓存）",
+  );
+}
+
+// ---------------------------------------------------------------------------
+const novelIdx = process.argv.indexOf("--novel");
+if (novelIdx >= 0 && process.argv[novelIdx + 1]) {
+  const novelDir = resolve(process.argv[novelIdx + 1]);
+  console.log(`\n[7/7] 小说工程结构（${novelDir}）`);
+  const checks = [
+    ["novel.json", "项目清单（可选但推荐，npm run init 会生成）", "warn"],
+    ["规则集.md", "渲染规则集", "warn"],
+    ["planner 规则集.md", "planner 规则集", "warn"],
+    ["角色规则集.md", "角色规则集", "warn"],
+    ["正文", "章节目录", "warn"],
+    [join(".pi", "extensions", "narrative-engine", "index.js"), "引擎扩展（npm run sync 同步）", "fail"],
+    [join(".pi", "extensions", "narrative-engine", "node_modules"), "扩展依赖（cd 扩展目录 && npm install）", "fail"],
+    [join(".pi", "world-graph-v3", "world.db"), "世界图（首次运行自动创建）", "warn"],
+  ];
+  for (const [rel, desc, level] of checks) {
+    if (existsSync(join(novelDir, rel))) ok(`${desc}`);
+    else if (level === "fail") fail(`缺 ${rel}：${desc}`);
+    else warn(`缺 ${rel}：${desc}`, "可运行 npm run init -- <目录> 重新生成骨架");
+  }
+  // 扩展目录的向量模型缓存
+  const extDir = join(novelDir, ".pi", "extensions", "narrative-engine");
+  if (existsSync(extDir)) {
+    if (hasModelCache(extDir)) ok("扩展目录模型已缓存（向量检索离线可用）");
+    else warn("扩展目录模型未缓存：首次向量检索需下载（可用 HF_ENDPOINT 镜像）");
+  }
+} else {
+  console.log("\n[7/7] 小说工程结构（跳过，--novel <目录> 可检查）");
+}
+
+// ---------------------------------------------------------------------------
+console.log(`\n${"═".repeat(50)}`);
+if (failures === 0 && warnings === 0) {
+  console.log("🎉 全部通过，环境可用");
+} else if (failures === 0) {
+  console.log(`✅ 可用（${warnings} 个警告，不阻断）`);
+} else {
+  console.log(`💥 ${failures} 个失败项，${warnings} 个警告——按上方指引修复后重跑`);
+}
+process.exit(failures > 0 ? 1 : 0);
