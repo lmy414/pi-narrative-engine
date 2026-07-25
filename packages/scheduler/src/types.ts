@@ -57,6 +57,11 @@ export interface FactSnapshot {
    * role-pool 渲染为 `- [属主] property: value（modality）`，解决动态层无归属问题
    */
   ownerName?: string;
+  /**
+   * 检索项语义标签（planner RetrievalItem.label）
+   * 2026-07-25 新增（审计偏差 2）：role-pool 渲染为分组小标题，说明信息来源
+   */
+  label?: string;
 }
 
 // ---------------------------------------------------------------------------

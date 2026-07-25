@@ -5,7 +5,7 @@
  *   node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
  *
  * - --db    世界图数据目录（含 world.db / events.jsonl），
- *           默认 ../novel/.pi/world-graph-v2/（相对仓库根）
+ *           默认 ../novel/.pi/world-graph-v3/（相对仓库根）
  * - --port  监听端口，默认 7421
  * - --embed 加载向量模型（Xenova/bge-small-zh-v1.5，首次下载较慢），
  *           启用 vector/hybrid 检索；不加载时检索强制 fulltext
@@ -30,7 +30,7 @@ interface CliArgs {
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
-    dbDir: resolve(repoRoot, "..", "novel", ".pi", "world-graph-v2"),
+    dbDir: resolve(repoRoot, "..", "novel", ".pi", "world-graph-v3"),
     port: 7421,
     embed: false,
   };

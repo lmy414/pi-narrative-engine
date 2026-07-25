@@ -237,6 +237,16 @@ export async function generateAllChapterEvents(
     chapters,
     concurrency,
     async (ch) => {
+      // 空章节跳过（审计 P4）：空内容喂给 LLM 会生成"本章无内容"占位垃圾 Fact。
+      // 返回空事件数组仍计入 ChapterResult，不影响 P0 章节完整性（该校验只看章节有无结果条目）
+      if (!ch.content || !ch.content.trim()) {
+        if (onProgress) onProgress(0, chapters.length, ch.chapterId);
+        return {
+          chapterId: ch.chapterId,
+          title: ch.title,
+          events: [],
+        } satisfies ChapterResult;
+      }
       try {
         const events = await generateChapterEvents(ch, entityInventory, callLlm);
         if (onProgress) onProgress(0, chapters.length, ch.chapterId);

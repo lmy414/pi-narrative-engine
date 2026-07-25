@@ -27,6 +27,7 @@ test("buildUserMessage: 包含叙事指令", () => {
   const msg = buildUserMessage(cmd, ruleSet);
 
   assert.ok(msg.includes("林墨在酒馆遇见赵无极"), "应包含叙事指令");
+  assert.ok(msg.includes("（故事时间：ch-2）"), "应注入 storyTime（审计修复）");
 });
 
 test("buildUserMessage: 包含角色池数据", () => {

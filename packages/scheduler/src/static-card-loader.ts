@@ -10,7 +10,8 @@
  * - scenario:    Fact property="scenario" 的 value
  * - first_mes:   Fact property="first_mes" 的 value
  * - mes_example: Fact property="mes_example" 的 value
- * - 其他字段：按 property 名透传到 card
+ * - creator_notes / tags: 同名 Fact 透传
+ * - 其余 property（mood/location 等）不进静态卡——它们是时变状态，走动态层注入
  *
  * 设计依据：
  * - novel-importer 的 birth 事件把 character 的 name/personality 等作为 newFacts 写入 Fact 表

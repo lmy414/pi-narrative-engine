@@ -1,8 +1,8 @@
 # Narrative Engine API 文档
 
-> **版本**: V2（tool-adaptation 重写后 + V3 导入器）
-> **适用分支**: `master`（原 `feat/world-graph-rewrite` 已 FF merge）
-> **最后更新**: 2026-07-24
+> **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt）
+> **适用分支**: `feat/role-pool`（待 FF merge 回 `master`）
+> **最后更新**: 2026-07-25（30 工具时代，与需求审计 docs/audits/2026-07-25-requirements-audit.md 对齐）
 
 ## 目录
 
@@ -80,9 +80,9 @@
 
 ## 2. 存储路径
 
-### 2.1 运行时目录（world_* 工具）
+### 2.1 运行时目录（world_* / scheduler_* 工具）
 
-默认路径：`<cwd>/.pi/world-graph-v2/`
+默认路径：`<cwd>/.pi/world-graph-v3/`（2026-07-25 起与导入目录统一，原为 v2）
 
 | 文件 | 用途 |
 |------|------|
@@ -103,10 +103,10 @@
 
 ### 2.3 目录关系
 
-- `world-graph-v2/` 与 `world-graph-v3/` 是**两个独立的世界图实例**，互不干扰
-- `import_novel` 默认写入 `v3/`，导入完成后可用可视化工具指向 `v3/` 目录查看
-- `world_*` 工具运行时操作 `v2/`，如需切换可在 `session_start` 前修改 `resolveWorldGraphDir`（当前硬编码，未支持配置）
-- 旧路径 `<cwd>/.pi/world-graph/` 已废弃（V1 数据不迁移）
+- ~~`world-graph-v2/` 与 `world-graph-v3/` 是两个独立的世界图实例~~（2026-07-25 前）
+- **2026-07-25 起**：运行时与导入统一使用 `world-graph-v3/`（审计修复：此前运行时读 v2 空壳，导入数据运行时不可见）
+- `world-graph-v2/` 与 `world-graph/`（V1）均为历史遗留，不再使用，数据不迁移
+- 项目结构定义详见 `docs/novel-project-structure.md`
 
 ---
 
@@ -129,7 +129,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
-## 4. PI 扩展工具 API（25 个）
+## 4. PI 扩展工具 API（30 个）
 
 所有工具通过 `pi.registerTool` 注册，遵循 PI ExtensionAPI 约定：
 - `name` — 工具唯一标识（`world_*` 前缀 / `open_visualizer` / `import_novel`）
@@ -138,7 +138,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - `parameters` — TypeBox schema 定义参数
 - `async execute(_id, params)` — 执行体，返回 `{ content: [{type, text}], details }`
 
-**工具分类**（25 个）：
+**工具分类**（30 个）：
 - **状态查询**（1 个）：`world_status`
 - **实体工具**（3 个）：`world_entity_create` / `world_entity_kill` / `world_entity_get`
 - **关系工具**（3 个）：`world_relation_add` / `world_relation_close` / `world_relations`
@@ -149,6 +149,12 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - **可视化**（1 个）：`open_visualizer`
 - **导入**（1 个）：`import_novel`
 - **渲染**（5 个）：`render_append` / `render_modify` / `render_preview` / `render_check` / `render_rule_set`
+- **角色池**（2 个）：`role_interact` / `role_rule_set`（详见 `docs/plans/2026-07-24-role-pool-design.md`）
+- **调度器**（3 个）：`scheduler_dispatch` / `scheduler_commit` / `scheduler_discard`（详见 `docs/plans/2026-07-25-scheduler-design.md`）
+
+> **主会话 prompt**：`src/prompts/main-session.md` 在 `session_start` 加载、`before_agent_start`
+> 追加到 systemPrompt 末尾，定义意图分类 / mode 判断 / 五要素补全规则（不参与叙事，只做任务外包）。
+> 运行时数据详见 `docs/novel-project-structure.md`。
 
 ### 4.1 状态查询
 
@@ -161,7 +167,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 **返回**：
 ```json
 {
-  "content": [{ "type": "text", "text": "currentStoryTime: act2-scene1\n实体数: 5\n事件数: 3" }],
+  "content": [{ "type": "text", "text": "currentStoryTime: act2-scene1\n统计时刻: act2-scene1\n实体数: 5\n事件数: 3" }],
   "details": {
     "status": {
       "currentStoryTime": "act2-scene1",
@@ -171,6 +177,9 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
   }
 }
 ```
+
+> 注（2026-07-25 修复）：`currentStoryTime` 未设置时，统计时刻回退为最新 storyTime
+> （此前用 `"Infinity"`，字符串比较 `'I' < 'c'` 会导致全部实体被排除，显示 0）。
 
 ---
 
@@ -1424,7 +1433,7 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 **参数**：
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--db <dir>` | `../novel/.pi/world-graph-v2/`（相对仓库根） | 世界图数据目录，需含 `world.db` / `events.jsonl` |
+| `--db <dir>` | `../novel/.pi/world-graph-v3/`（相对仓库根） | 世界图数据目录，需含 `world.db` / `events.jsonl` |
 | `--port <n>` | 7421 | 监听端口（0-65535） |
 | `--embed` | 关闭 | 加载 Xenova/bge-small-zh-v1.5 向量模型（首次下载较慢），启用 vector/hybrid 检索 |
 

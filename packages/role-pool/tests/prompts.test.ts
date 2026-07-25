@@ -149,6 +149,26 @@ test("buildUserMessage: 已闭合声明标注（旧）（P2 历史/当前区分�
   assert.ok(msg.includes("- [林冲] mood: 愤怒（fact）"), "未闭合不应标注");
 });
 
+test("buildUserMessage: 检索 label 渲染为分组小标题（审计偏差 2）", () => {
+  const member: CastMember = {
+    characterId: "linchong",
+    staticCard: mockMember.staticCard,
+    dynamicFacts: [
+      { declarationId: "d1", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲", label: "林冲的可见状态" },
+      { declarationId: "d2", entityId: "luqian", property: "plan", value: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦", label: "陆谦的阴谋" },
+      { declarationId: "d3", entityId: "linchong", property: "location", value: "山神庙", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
+    ],
+  };
+  const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-1", cast: [member] };
+  const msg = buildUserMessage(cmd, member, []);
+  assert.ok(msg.includes("【林冲的可见状态】"), "应渲染第一个 label 小标题");
+  assert.ok(msg.includes("【陆谦的阴谋】"), "应渲染第二个 label 小标题");
+  const idx1 = msg.indexOf("【林冲的可见状态】");
+  const idx2 = msg.indexOf("【陆谦的阴谋】");
+  const idx3 = msg.indexOf("location: 山神庙");
+  assert.ok(idx1 < idx2 && idx2 < idx3, "小标题应按出现顺序分组，无 label 的排最后");
+});
+
 test("buildUserMessage: 先动者行动在事件指令之前", () => {
   const cmd: InteractCommand = {
     eventInstruction: "武松进场",

@@ -293,6 +293,37 @@ test("commit: 无 state_changes 时不调 setVisibility", async () => {
   assert.equal(setVisibilityCalls.length, 0, "无变更不应写可见性");
 });
 
+test("commit: 同 property 多条未闭合 Fact 全部 invalidated（不假设唯一）", async () => {
+  const { wg, processEventCalls, setVisibilityCalls: _v } = makeMockWg();
+  // mock getEntityAt 返回同 property 两条未闭合 Fact
+  (wg as any).getEntityAt = async () => ({
+    entityId: "e_lin",
+    type: "character",
+    summary: "",
+    validFrom: "ch-1",
+    validTo: "Infinity",
+    properties: [
+      { declarationId: "decl-1", entityId: "e_lin", property: "mood", value: "开心", modality: "fact", validFrom: "ch-1", validTo: "Infinity" },
+      { declarationId: "decl-2", entityId: "e_lin", property: "mood", value: "放松", modality: "fact", validFrom: "ch-1", validTo: "Infinity" },
+    ],
+  });
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "绝望", modality: "fact" },
+  ];
+  setPlan("plan_inv", plan);
+
+  const result = await commit("plan_inv", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(processEventCalls[0].invalidated.length, 2, "两条旧 Fact 都应闭合");
+  assert.deepEqual(
+    processEventCalls[0].invalidated.map((i: any) => i.declarationId).sort(),
+    ["decl-1", "decl-2"],
+  );
+});
+
 // ============================================================================
 // relation_update 写入测试（2026-07-25 解决 Pending Gap #2）
 // 验证 LLM 输出的 characterId 被直接透传给 wg.addRelation

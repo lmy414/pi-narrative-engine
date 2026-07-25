@@ -74,6 +74,8 @@ export function buildUserMessage(cmd: RenderTextCommand, ruleSet: string): strin
 
   // 2. 叙事指令
   parts.push(`[叙事指令]`);
+  // storyTime 注入（审计修复：此前字段必填但未进 prompt，渲染 LLM 看不到故事时间）
+  parts.push(`（故事时间：${cmd.storyTime}）`);
   if (cmd.mode === "modify") {
     parts.push(`（重写模式：请重写事件 ${cmd.modifyAnchorEventId} 的内容，保持前后衔接）`);
   } else {

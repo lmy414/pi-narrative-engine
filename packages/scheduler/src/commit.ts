@@ -105,11 +105,11 @@ export async function commit(
     const invalidated: { declarationId: string; property: string }[] = [];
     if (snapshot) {
       for (const change of changes) {
-        // 找到同 property 的未闭合 Fact（取第一个，假设唯一）
-        const existingFact = snapshot.properties.find(
+        // 同 property 的未闭合 Fact 可能有多条（如导入器遗留数据），全部闭合
+        const existingFacts = snapshot.properties.filter(
           (p) => p.property === change.property,
         );
-        if (existingFact) {
+        for (const existingFact of existingFacts) {
           invalidated.push({
             declarationId: existingFact.declarationId,
             property: change.property,

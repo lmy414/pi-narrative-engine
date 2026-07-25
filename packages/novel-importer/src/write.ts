@@ -242,6 +242,16 @@ export async function writeToGraph(
           });
         }
 
+        // 自动闭合同 property 未闭合声明（审计 P3：不依赖 LLM 声明 invalidated，
+        // 否则 LLM 漏报时旧值永远有效——current_action 多条未闭合并存事故）
+        // 与运行时 commit.ts 的语义一致：同 property 旧 Fact 全部闭合
+        for (const f of newFactsRaw) {
+          const declarationId = await findDeclarationId(wg, f.entityId, f.property, event.storyTime);
+          if (declarationId && !invalidated.some((i) => i.declarationId === declarationId)) {
+            invalidated.push({ declarationId, property: f.property });
+          }
+        }
+
         await wg.processEvent({
           eventId,
           type: "change",

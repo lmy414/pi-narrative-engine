@@ -38,6 +38,8 @@ export interface FactSnapshot {
   validTo?: string;
   /** 属主名称（调度器解析 entityId 后填入）；渲染为 `- [属主] property: value（modality）` */
   ownerName?: string;
+  /** 检索项语义标签（planner 提供）；渲染为分组小标题，说明信息来源/用途 */
+  label?: string;
 }
 
 /**

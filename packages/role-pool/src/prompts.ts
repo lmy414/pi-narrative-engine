@@ -112,7 +112,14 @@ export function buildUserMessage(
   if (member.dynamicFacts.length === 0) {
     parts.push("（无动态状态）");
   } else {
+    // 按检索 label 分组渲染小标题（审计偏差 2：说明信息来源/用途）
+    // 同一检索项的 Fact 连续排列（plan.ts 按 item 追加），label 变化时输出标题
+    let currentLabel: string | undefined = undefined;
     for (const fact of member.dynamicFacts) {
+      if (fact.label !== currentLabel) {
+        currentLabel = fact.label;
+        if (currentLabel) parts.push(`【${currentLabel}】`);
+      }
       parts.push(formatFact(fact));
     }
   }

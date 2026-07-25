@@ -276,7 +276,13 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute() {
       const g = requireWg();
-      const st = currentStoryTime ?? "Infinity";
+      // currentStoryTime 未设置时用最新 storyTime（审计修复："Infinity" 是 validTo
+      // 哨兵值不是真实时刻，字符串比较 'I' < 'c' 会导致 ch* 时刻的实体被全部排除）
+      let st = currentStoryTime;
+      if (!st) {
+        const times = await g.listStoryTimes();
+        st = times.length > 0 ? times[times.length - 1] : "Infinity";
+      }
       const entities = await g.getAllEntities(st);
       const events = await g.getAllEvents();
       const status = {
@@ -286,6 +292,7 @@ export default function (pi: ExtensionAPI) {
       };
       const text = [
         `currentStoryTime: ${currentStoryTime ?? "(未设置)"}`,
+        `统计时刻: ${st}`,
         `实体数: ${status.entityCount}`,
         `事件数: ${status.eventCount}`,
       ].join("\n");

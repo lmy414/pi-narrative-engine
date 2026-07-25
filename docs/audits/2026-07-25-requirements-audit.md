@@ -407,12 +407,25 @@ novel init <dir>（或 pi 命令 /novel-init）应做的事：
 1. ~~**角色自盲**~~ → **已修复**（commit.ts 步骤 4.3：state_changes 新 Fact 为作者角色写 Visibility（自产自知），declarationId 按 `decl-{entityId}-{property}-{storyTime}` 重建；+2 回归测试）
 2. ~~**动态层无归属**~~ → **已修复**（FactSnapshot +ownerName/validTo；plan.ts 步骤 5.5 解析属主名；formatFact 渲染 `- [属主] property: value（modality）`，已闭合标注 `（fact·旧）`；+3 测试；真实数据模拟验证）
 3. ~~**历史/当前不分**~~ → **已修复**（同 #2 的 `（fact·旧）` 标注）
-4. **垃圾数据入图**：空章节占位 Fact（"本章无内容"）（项 6-P4）——待修（导入器校验 + 数据清理）
+4. ~~**垃圾数据入图**~~ → **已修复**（导入器空章节跳过 + write.ts 同 property 自动闭合 + novel db 清理：删 3 条占位 Fact，current_action 恢复唯一未闭合）
 5. ~~**storyTime 格式分裂**~~ → **已修复**（chapter-resolver 正则改 `/^ch-?(\d+)(?:\.ev\d+)?$/` 双格式兼容，取章节号；+2 测试）
 
-### ⚠️ 中低危
+### ⚠️ 中低危（2026-07-25 批量清零）
 
-- 导入管道 current_action 未闭合（项 6-P3）；modality/property 无说明（P5/P6）；检索 label 丢失（项 3）；静态卡注释误导（项 3）；knowledge_gained 不落图（项 4）；invalidated 假设唯一（项 4）；renderer storyTime 未注入（项 5）；无 init 机制/项目清单（项 7-Q1/Q2）；gitignore 缺项（项 7-Q4）
+| 项 | 状态 |
+|---|------|
+| 导入管道 current_action 未闭合（P3） | ✅ write.ts change 分支自动闭合同 property 未闭合声明 |
+| 检索 label 丢失（项 3 偏差 2） | ✅ FactSnapshot +label，plan.ts 打标，role-pool 渲染【label】分组小标题（+1 测试） |
+| 静态卡注释误导（项 3 偏差 3） | ✅ 注释改为与实际行为一致（白名单字段 + 其余走动态层） |
+| invalidated 假设唯一（项 4） | ✅ commit.ts find→filter 全量闭合（+1 测试） |
+| renderer storyTime 未注入（项 5） | ✅ buildUserMessage 注入 `（故事时间：xxx）`（+1 测试） |
+| world_status Infinity 语义 | ✅ currentStoryTime 未设置时回退最新 storyTime |
+| visualizer standalone 默认 db 指向 v2 | ✅ 改 v3 |
+| api.md 文档滞后 | ✅ 30 工具 / v3 运行时 / role-pool / scheduler / 主会话 prompt 说明已补 |
+| 规则集三件套缺失（novel 项目） | ✅ 已从 templates 复制 + novel.json + 正文/ |
+| novel db 垃圾/重复数据 | ✅ 3 条垃圾 Fact 物理删除（含 Visibility 引用），重复未闭合清零 |
+| knowledge_gained 不落图 | ⏸️ **保留待设计决策**（自然语言→declarationId 映射需 LLM，不是 bug） |
+| HF 向量模型缓存 | ⏸️ 环境事项（首次 embed 需联网或配 HF_ENDPOINT 镜像） |
 
 ### 待需求决策（设计空白）
 

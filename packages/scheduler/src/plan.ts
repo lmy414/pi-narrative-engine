@@ -101,8 +101,9 @@ export async function plan(
       const facts = dynamicFactsByCharacter.get(characterId);
       if (facts) {
         // 检索结果按 label 分组追加到该角色的 dynamicFacts
+        // label 随 Fact 传递（审计偏差 2：role-pool 渲染为分组小标题）
         // 注意：当前不去重（Pending Gap #11），同一 declarationId 可能被多次命中
-        facts.push(...result);
+        facts.push(...result.map((f) => ({ ...f, label: item.label })));
       }
     }
   }
