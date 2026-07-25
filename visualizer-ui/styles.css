@@ -51,9 +51,14 @@ body {
 #topbar .tb-label { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 
 /* ---------- 时间轴 ---------- */
-.timeline-bar { flex: 1; display: flex; align-items: center; gap: 14px; min-width: 0; }
+.timeline-bar { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .timeline-track { position: relative; flex: 1; height: 46px; min-width: 120px; }
+.timeline-track.grouped { height: 80px; }
 .timeline-track .rail { position: absolute; left: 0; right: 0; top: 14px; height: 2px; background: var(--line); }
+.timeline-track .row { position: absolute; left: 0; right: 0; height: 38px; }
+.timeline-track .row.chapters { top: 0; }
+.timeline-track .row.events { top: 40px; }
+.timeline-track .row.events .rail { top: 12px; }
 .timeline-track .tick {
   position: absolute; top: 0; transform: translateX(-50%);
   cursor: pointer; text-align: center; min-width: 40px;
@@ -62,11 +67,26 @@ body {
   width: 12px; height: 12px; border-radius: 50%; background: #c6d0dd;
   border: 2px solid var(--card); margin: 9px auto 2px; transition: all .15s;
 }
+.timeline-track .tick.event { min-width: 18px; }
+.timeline-track .tick.event .dot { width: 8px; height: 8px; margin-top: 9px; }
+.timeline-track .tick.event .lbl { font-size: 10px; }
+.timeline-track .tick.chapter .lbl { font-weight: 500; }
 .timeline-track .tick .lbl { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .timeline-track .tick:hover .dot { background: #9fb4cc; }
 .timeline-track .tick.active .dot { background: var(--c-character); transform: scale(1.35); }
 .timeline-track .tick.active .lbl { color: var(--ink); font-weight: 600; }
 .timeline-track .tick .evt { font-size: 10px; color: #b6c2d0; }
+.tb-step {
+  flex: none; width: 22px; height: 22px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--card); color: var(--ink-2);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0;
+}
+.tb-step:hover { background: #eef2f7; color: var(--ink); }
+.tb-jump {
+  flex: none; max-width: 130px; font-size: 12px; color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px;
+  background: var(--card); cursor: pointer;
+}
 .timeline-now { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 
 /* ---------- 主区三栏 ---------- */
