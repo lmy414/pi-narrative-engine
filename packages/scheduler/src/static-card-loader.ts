@@ -37,6 +37,9 @@ const KNOWN_FIELDS = [
   "mes_example",
   "creator_notes",
   "tags",
+  "system_prompt",
+  "post_history_instructions",
+  "alternate_greetings",
 ] as const;
 
 /**

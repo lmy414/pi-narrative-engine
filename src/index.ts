@@ -3,7 +3,7 @@
  *
  * 职责：
  * - session_start 时初始化 WorldGraph / Embedder / Search
- * - 注册 30 个工具（18 个 world_* + open_visualizer + import_novel + 5 个 render_* + 2 个 role_* + 3 个 scheduler_*）供主会话/前端调用
+ * - 注册 31 个工具（18 个 world_* + open_visualizer + import_novel + import_character_card + 5 个 render_* + 2 个 role_* + 3 个 scheduler_*）供主会话/前端调用
  * - session_shutdown 时关闭 WorldGraph 与可视化服务
  * - 管理 session 级 currentStoryTime
  *
@@ -13,7 +13,7 @@
  *   写入类：world_entity_create / world_entity_kill / world_entity_update_summary / world_relation_add / world_relation_close / world_event_apply
  *   可见性：world_visibility_set / world_visibility_close / world_visibility_infer
  *   可视化：open_visualizer
- *   导入：import_novel
+ *   导入：import_novel / import_character_card
  *   渲染：render_append / render_modify / render_preview / render_check / render_rule_set
  *   角色池：role_interact / role_rule_set
  *   调度器：scheduler_dispatch / scheduler_commit / scheduler_discard
@@ -57,6 +57,7 @@ import {
   type StructuredEvent,
 } from "@pi/scheduler";
 import { makeSchedulerCtx } from "./scheduler-llm.ts";
+import { parseCardFile, importCardToWorldGraph } from "./tools/import-card.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -853,6 +854,35 @@ export default function (pi: ExtensionAPI) {
         `  存储目录: ${result.worldGraphDir}`,
         `  dump 文件: ${result.dumpPath}`,
       ].join("\n");
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
+
+  // --------------------------------------------------------------------------
+  // 酒馆角色卡导入工具（1 个）— Pending Gap #5
+  // --------------------------------------------------------------------------
+
+  pi.registerTool({
+    name: "import_character_card",
+    label: "Import Character Card",
+    description:
+      "导入酒馆角色卡（SillyTavern V1/V2，.json 或 .png）到世界图：birth 角色实体 + 卡字段写 Facts（description 写入 Entity.summary）+ 自产自知可见性。导入后调度器静态卡重组自动获得完整酒馆卡。",
+    promptSnippet: "导入酒馆角色卡（.json/.png）到世界图",
+    parameters: Type.Object({
+      cardPath: Type.String({ description: "角色卡文件绝对路径（.json 或 .png）" }),
+      entityId: Type.Optional(Type.String({ description: "指定 entityId（缺省自动生成 ent_char_xxxxxxxx）" })),
+      storyTime: Type.Optional(Type.String({ description: "诞生时刻（不传用 currentStoryTime）" })),
+    }),
+    async execute(_id, params) {
+      const g = requireWg();
+      const storyTime = resolveStoryTime(params.storyTime);
+      const card = await parseCardFile(params.cardPath);
+      const result = await importCardToWorldGraph(g, card, storyTime, params.entityId);
+      currentStoryTime = storyTime;
+      const text = `角色卡已导入：${result.name}（${result.entityId}），${result.factCount} 个字段 Facts @ ${storyTime}`;
       return {
         content: [{ type: "text", text }],
         details: result,
