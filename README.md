@@ -93,6 +93,10 @@ cd packages/<子包> && npx tsx --test tests/*.test.ts
 
 CI：ubuntu / windows / macos × node 20/22，每次 push 全量跑。
 
+**分支策略**：日常开发在 `feat/*` 分支，master 无独有提交时定期 fast-forward 合并回 `master`
+（`git checkout master && git merge --ff-only <feat分支> && git push`）。
+当前工作分支：`feat/role-pool`。
+
 ## License
 
 [GPL-3.0](LICENSE) © 2026 lmy414
