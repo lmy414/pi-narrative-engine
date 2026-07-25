@@ -87,7 +87,23 @@ git 会提示 LF→CRLF 警告，无害。可视化前端和渲染器都兼容�
 | Windows 10/11 x64 | ✅ 主开发环境，全功能验证 | — |
 | macOS / Linux | ⚠️ 未实测 | 代码无平台特定逻辑；风险集中在 better-sqlite3 绑定（npm rebuild 兜底）和路径分隔符（全部用 `path.join`，理论上安全）。CI 会逐步覆盖 |
 
-## 5. 环境变量速查
+## 5. pi 版本兼容性
+
+**核心机制**：扩展 API 由**宿主 pi CLI**（用户机器上运行的 pi 版本）提供，不是由本仓库 node_modules 提供。
+本仓库 devDependencies 的 `^0.77.0` 只管开发期类型检查（0.x caret 只允许 patch 漂移）。
+
+**兼容矩阵**（2026-07-25 实测，对 npm 0.82.0 类型定义逐项核对）：
+
+| 我们用到的 API | 0.77（开发） | 0.82（最新） |
+|---------------|:---:|:---:|
+| `pi.registerTool` / `ExtensionAPI` | ✅ | ✅ |
+| `pi.on("session_start" / "session_shutdown" / "before_agent_start")` | ✅ | ✅ |
+| `ctx.ui.notify` | ✅ | ✅ |
+| pi-ai `complete` / `getModel` / `validateToolCall` / `StringEnum` / `Type` | ✅ | ✅ |
+
+**结论**：pi CLI `>= 0.77` 均可运行本扩展。`npm run doctor` 会探测宿主 pi 版本并提示。
+
+## 6. 环境变量速查
 
 | 变量 | 用途 | 缺省 |
 |------|------|------|
@@ -97,6 +113,6 @@ git 会提示 LF→CRLF 警告，无害。可视化前端和渲染器都兼容�
 | `PI_PLANNER_API_KEY` / `PI_ROLE_API_KEY` / `PI_RENDERER_API_KEY` | 按角色覆盖 key | 跟 DEEPSEEK_API_KEY |
 | `HF_ENDPOINT` | HF 镜像 | huggingface.co |
 
-## 6. CI（持续集成）
+## 7. CI（持续集成）
 
 `.github/workflows/test.yml`：每次 push 在 ubuntu / windows / macos 三平台跑全部子包单测（326+，全 mock 无需 API key）。

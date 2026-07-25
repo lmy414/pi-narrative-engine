@@ -21,6 +21,7 @@ import { readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
+import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -41,13 +42,13 @@ function fail(msg, hint) {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[1/7] Node.js 版本");
+console.log("\n[1/8] Node.js 版本");
 const major = parseInt(process.version.slice(1), 10);
 if (major >= 20) ok(`${process.version}（>= 20）`);
 else fail(`${process.version} 过旧，需要 Node.js >= 20`, "https://nodejs.org/ 或 nvm 安装 LTS");
 
 // ---------------------------------------------------------------------------
-console.log("\n[2/7] better-sqlite3 原生绑定");
+console.log("\n[2/8] better-sqlite3 原生绑定");
 try {
   const { createRequire } = await import("node:module");
   const req = createRequire(resolve(repoRoot, "package.json"));
@@ -64,13 +65,13 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[3/7] dist/ 构建产物");
+console.log("\n[3/8] dist/ 构建产物");
 const distIndex = resolve(repoRoot, "dist", "index.js");
 if (existsSync(distIndex)) ok("dist/index.js 存在");
 else fail("dist/ 不存在", "运行 npm run build");
 
 // ---------------------------------------------------------------------------
-console.log("\n[4/7] templates/novel/ 模板目录");
+console.log("\n[4/8] templates/novel/ 模板目录");
 const tplDir = resolve(repoRoot, "templates", "novel");
 if (existsSync(tplDir)) {
   const files = readdirSync(tplDir);
@@ -80,7 +81,7 @@ if (existsSync(tplDir)) {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[5/7] LLM API key");
+console.log("\n[5/8] LLM API key");
 const hasKey = !!(process.env.DEEPSEEK_API_KEY || process.env.PI_API_KEY);
 if (hasKey) {
   ok(`已配置（${process.env.DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY" : "PI_API_KEY"}）`);
@@ -91,7 +92,7 @@ if (hasKey) {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[6/7] 向量模型环境（Embedder）");
+console.log("\n[6/8] 向量模型环境（Embedder）");
 // transformers.js v2 默认缓存路径是模块所在 node_modules 下的 .cache/（不是 ~/.cache/huggingface）
 function hasModelCache(base) {
   const dir = join(base, "node_modules", "@xenova", "transformers", ".cache", "Xenova");
@@ -113,10 +114,26 @@ if (hasModelCache(repoRoot)) {
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n[7/8] pi 宿主版本（扩展 API 兼容性）");
+// 扩展 API 由宿主 pi CLI 提供（不是本仓库 node_modules）。
+// 兼容矩阵见 docs/SETUP.md §5：已验证 0.77（开发）/ 0.82（最新）API 一致。
+{
+  const r = spawnSync("pi", ["--version"], { encoding: "utf8", timeout: 10000 });
+  const ver = (r.stdout ?? "").trim().split(/\s+/).pop();
+  if (r.status === 0 && ver) {
+    const minor = parseInt(ver.split(".")[1] ?? "0", 10);
+    if (minor >= 77) ok(`pi ${ver}（>= 0.77，API 兼容）`);
+    else fail(`pi ${ver} 过旧（< 0.77）`, "升级 pi 后重试");
+  } else {
+    warn("无法探测 pi 版本（pi 不在 PATH 或非交互环境）", "运行时宿主为 pi CLI，要求 >= 0.77；矩阵见 docs/SETUP.md §5");
+  }
+}
+
+// ---------------------------------------------------------------------------
 const novelIdx = process.argv.indexOf("--novel");
 if (novelIdx >= 0 && process.argv[novelIdx + 1]) {
   const novelDir = resolve(process.argv[novelIdx + 1]);
-  console.log(`\n[7/7] 小说工程结构（${novelDir}）`);
+  console.log(`\n[8/8] 小说工程结构（${novelDir}）`);
   const checks = [
     ["novel.json", "项目清单（可选但推荐，npm run init 会生成）", "warn"],
     ["规则集.md", "渲染规则集", "warn"],
@@ -139,7 +156,7 @@ if (novelIdx >= 0 && process.argv[novelIdx + 1]) {
     else warn("扩展目录模型未缓存：首次向量检索需下载（可用 HF_ENDPOINT 镜像）");
   }
 } else {
-  console.log("\n[7/7] 小说工程结构（跳过，--novel <目录> 可检查）");
+  console.log("\n[8/8] 小说工程结构（跳过，--novel <目录> 可检查）");
 }
 
 // ---------------------------------------------------------------------------

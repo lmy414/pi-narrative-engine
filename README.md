@@ -55,14 +55,15 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 
 ## 文档导航
 
+**总索引：[docs/README.md](docs/README.md)**（现行 / 设计 / 历史三分）
+
 | 文档 | 内容 |
 |------|------|
 | [docs/USAGE.md](docs/USAGE.md) | **完整使用说明**（口述创作 / plan-yolo / 修改插入 / 导入 / 可视化 / 规则集） |
-| [docs/SETUP.md](docs/SETUP.md) | 部署指南 + 已知坑排行榜 + 环境变量速查 |
+| [docs/SETUP.md](docs/SETUP.md) | 部署指南 + 已知坑排行榜 + pi 版本兼容性 + 环境变量速查 |
 | [docs/api.md](docs/api.md) | 31 个 pi 工具 + 子包 API 完整参考 |
 | [docs/novel-project-structure.md](docs/novel-project-structure.md) | 小说工程结构定义（novel.json / 目录 / git 策略） |
 | [docs/audits/2026-07-25-requirements-audit.md](docs/audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项 + 修复史） |
-| [docs/plans/](docs/plans/) | renderer / role-pool / scheduler 设计文档 |
 
 ## 子包
 

@@ -1,3 +1,5 @@
+> 📜 **状态：历史参考**（V2 及以前的飞书文档整理，概念溯源用；现行文档见 docs/README.md 索引）。
+
 # 飞书文档整理：叙事引擎设计讨论
 
 > 源文档：https://dcncwu4omj.feishu.cn/wiki/RDAtwA2WviFEmHkJbItccKFEnec
