@@ -20,10 +20,14 @@ export async function characterView(
   wg: WorldGraph,
   characterId: string,
   storyTime: string,
-  opts: { modalityFilter?: Modality[] } = {},
+  opts: { modalityFilter?: Modality[]; recordedAsOf?: string } = {},
 ): Promise<StateDeclaration[]> {
-  const allDecls = await wg.getAllDeclarations();
-  const visDecls = await wg.getVisibilityForCharacter(characterId, storyTime);
+  // recordedAsOf（事务时间轴）：声明与可见性记录都重建到该写入时点，
+  // 之后补写/改写的内容不可见（retcon 隔离）
+  const allDecls = await wg.getAllDeclarations({ recordedAsOf: opts.recordedAsOf });
+  const visDecls = await wg.getVisibilityForCharacter(characterId, storyTime, {
+    recordedAsOf: opts.recordedAsOf,
+  });
   const modalityFilter = opts.modalityFilter;
 
   const visible: StateDeclaration[] = [];

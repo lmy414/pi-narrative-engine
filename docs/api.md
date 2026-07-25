@@ -179,16 +179,20 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 **返回**：
 ```json
 {
-  "content": [{ "type": "text", "text": "currentStoryTime: act2-scene1\n统计时刻: act2-scene1\n实体数: 5\n事件数: 3" }],
+  "content": [{ "type": "text", "text": "currentStoryTime: act2-scene1\n统计时刻: act2-scene1\n实体数: 5\n事件数: 3\nrecordedNow: r1:0000000000000007:2026-07-25T16:02:32.048Z" }],
   "details": {
     "status": {
       "currentStoryTime": "act2-scene1",
       "entityCount": 5,
-      "eventCount": 3
+      "eventCount": 3,
+      "recordedNow": "r1:0000000000000007:2026-07-25T16:02:32.048Z"
     }
   }
 }
 ```
+
+> `recordedNow`（2026-07-25 新增）：当前事务时间坐标（SDK recorded instant，字典序可比较）。
+> 存档后可作为 `recordedAsOf` 传入 `world_entity_get` / `world_character_view` 做双时态检索。空图为 `null`。
 
 > 注（2026-07-25 修复）：`currentStoryTime` 未设置时，统计时刻回退为最新 storyTime
 > （此前用 `"Infinity"`，字符串比较 `'I' < 'c'` 会导致全部实体被排除，显示 0）。
@@ -254,13 +258,14 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 #### `world_entity_get`
 
-获取实体快照（bi-temporal 查询）。
+获取实体快照（bi-temporal 查询：storyTime=故事时间轴，recordedAsOf=事务时间轴）。
 
 **参数**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `entityId` | string | 是 | 实体 ID |
 | `storyTime` | string | 否 | 故事时间（不传用 `currentStoryTime`） |
+| `recordedAsOf` | string | 否 | 事务时间坐标（2026-07-25 新增）。传入后只含该时点之前写入的内容——后续改写/补写不可见（retcon 隔离）。坐标取自 `world_status` 的 `recordedNow` |
 
 **返回** `EntitySnapshot`：
 ```json
@@ -286,7 +291,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 > 注：`properties[]` 不含 `valueText`——`valueText` 仅 `getEntityHistory` / `world_entity_history` 返回。
 
-**bi-temporal 查询规则**：返回 `validFrom <= storyTime < validTo` 的 Entity 及其所有匹配的 Fact。`validTo = "Infinity"` 表示未闭合。
+**bi-temporal 查询规则**：返回 `validFrom <= storyTime < validTo` 的 Entity 及其所有匹配的 Fact。`validTo = "Infinity"` 表示未闭合。带 `recordedAsOf` 时，节点状态由 SDK RecordedStoreView 重建到该事务时点（后续被闭合的 `validTo` 恢复为当时的未闭合值），再做故事时间过滤。
 
 ---
 
@@ -406,6 +411,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 |------|------|------|------|
 | `characterId` | string | 是 | 角色 ID |
 | `storyTime` | string | 否 | 不传用 `currentStoryTime` |
+| `recordedAsOf` | string | 否 | 事务时间坐标（2026-07-25 新增）：视角只含该时点之前写入的声明与可见性记录 |
 
 **返回**：`StateDeclaration[]` — 该角色在 `storyTime` 时刻可见的所有声明。
 
@@ -896,14 +902,19 @@ const wg = await WorldGraph.create({
 |------|------|
 | `get search(): StoreSearch` | SDK 检索 facade（fulltext/vector/hybrid） |
 | `query(): QueryBuilder` | SDK 链式图查询入口 |
+| `async recordedNow(): Promise<string \| undefined>` | 当前事务时间坐标（2026-07-25 新增；存档后作 `recordedAsOf` 用） |
+
+> **双时态查询（2026-07-25 新增）**：下列查询方法接受可选 `opts?: TemporalQueryOpts`（`{ recordedAsOf?: string }`）。
+> 传入后节点状态由 SDK RecordedStoreView 重建到该事务时点，再做故事时间过滤——
+> 「storyTime 时刻的世界，但只含 recordedAsOf 之前写入的内容」。不带 opts 行为不变。
 
 **实体**：
 | 方法 | 说明 |
 |------|------|
 | `async birthEntity(entityId, type, initialProps, storyTime, summary?): Promise<void>` | 创建实体（`summary` 可选，实体无状态客观事实描述） |
 | `async killEntity(entityId, storyTime): Promise<void>` | 消亡实体 |
-| `async getEntityAt(entityId, storyTime): Promise<EntitySnapshot \| null>` | bi-temporal 查询 |
-| `async getAllEntities(storyTime): Promise<EntitySnapshot[]>` | 列出所有有效实体 |
+| `async getEntityAt(entityId, storyTime, opts?): Promise<EntitySnapshot \| null>` | bi-temporal 查询 |
+| `async getAllEntities(storyTime, opts?): Promise<EntitySnapshot[]>` | 列出所有有效实体 |
 | `async updateEntitySummary(entityId, summary): Promise<void>` | 更新实体无状态描述（独立字段；参与向量检索限导入管道 embedder 路径，运行时 `Embedder.embedEntity` 不拼接 summary） |
 | `async getEntityHistory(entityId): Promise<{entities, facts}>` | 实体全部版本（含已闭合） |
 
@@ -912,8 +923,8 @@ const wg = await WorldGraph.create({
 |------|------|
 | `async addRelation(sourceId, targetId, label, storyTime): Promise<void>` | 创建关系 |
 | `async closeRelation(sourceId, targetId, label, storyTime): Promise<void>` | 闭合关系 |
-| `async getRelations(entityId, storyTime): Promise<Relation[]>` | 列出实体关系 |
-| `async getAllRelationsAt(storyTime): Promise<Relation[]>` | 列出所有有效关系 |
+| `async getRelations(entityId, storyTime, opts?): Promise<Relation[]>` | 列出实体关系 |
+| `async getAllRelationsAt(storyTime, opts?): Promise<Relation[]>` | 列出所有有效关系 |
 | `async getRelationHistory(entityId?): Promise<Relation[]>` | 关系历史（含已闭合） |
 
 **事件**：
@@ -928,12 +939,12 @@ const wg = await WorldGraph.create({
 |------|------|
 | `async setVisibility(characterId, declarationId, opts): Promise<void>` | 设置可见性 |
 | `async closeVisibility(characterId, declarationId, storyTime): Promise<void>` | 闭合可见性（撤销） |
-| `async getVisibilityForCharacter(characterId, storyTime): Promise<VisibilityDeclaration[]>` | 查询角色可见性 |
+| `async getVisibilityForCharacter(characterId, storyTime, opts?): Promise<VisibilityDeclaration[]>` | 查询角色可见性 |
 | `async getVisibilityForDeclaration(declarationId, storyTime?): Promise<VisibilityDeclaration[]>` | 反向查询（某声明被谁知道） |
-| `async getAllDeclarationsAt(storyTime): Promise<StateDeclaration[]>` | 列出所有有效声明 |
-| `async getAllDeclarations(): Promise<StateDeclaration[]>` | 全部声明（含已闭合，供知识持续语义使用） |
+| `async getAllDeclarationsAt(storyTime, opts?): Promise<StateDeclaration[]>` | 列出所有有效声明 |
+| `async getAllDeclarations(opts?): Promise<StateDeclaration[]>` | 全部声明（含已闭合，供知识持续语义使用） |
 | `async inferVisibility(storyTime): Promise<void>` | 推断可见性 |
-| `async getCharacterView(characterId, storyTime, opts?): Promise<StateDeclaration[]>` | 角色视角（五步过滤） |
+| `async getCharacterView(characterId, storyTime, opts?): Promise<StateDeclaration[]>` | 角色视角（五步过滤；opts 支持 `modalityFilter` 与 `recordedAsOf`） |
 
 **元信息**：
 | 方法 | 说明 |
@@ -1455,6 +1466,7 @@ interface EventRecord {
   }>;
   causedBy?: string;        // 因果链前驱事件 ID
   userInput?: string;       // 用户口述原文（2026-07-25 新增；主会话透传，供项目记忆 memory.md 展示）
+  recordedAt?: string;      // 写入墙钟时间（2026-07-25 新增；processEvent 自动填充，事务时间轴审计用）
 }
 ```
 

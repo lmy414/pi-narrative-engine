@@ -81,6 +81,12 @@ export const EventRecord = z.object({
    * （memory.md）展示最近事件时引用此字段。
    */
   userInput: z.string().optional(),
+  /**
+   * 写入墙钟时间（2026-07-25 新增，双时态检索的事务时间轴）
+   * processEvent 自动填充（new Date().toISOString()），调用方可显式覆盖。
+   * 旧事件日志行无此字段，故为可选。
+   */
+  recordedAt: z.string().optional(),
 });
 export type EventRecord = z.infer<typeof EventRecord>;
 /** 调用方传入的事件（source 可省略，parse 时默认 "engine"） */

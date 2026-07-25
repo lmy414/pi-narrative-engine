@@ -75,33 +75,34 @@ let visualizerServer: VisualizerServer | null = null;
  * 主会话 system prompt 资源文件路径（Pending Gap #5）
  *
  * 设计：
- * - main-session.md 是纯自由文本 prompt 资源（与 role-ruleSet / render-ruleSet 约定一致）
+ * - prompts/*.md 是纯自由文本 prompt 资源（与 role-ruleSet / render-ruleSet 约定一致）
  * - session_start 时一次性加载到内存，before_agent_start 时追加到 systemPrompt 末尾
  * - 不缓存到磁盘：每次 session_start 重读，便于热更新
+ *
+ * 注入顺序（before_agent_start 拼接）：
+ *   systemPrompt + main-session.md（身份/意图） + engine-guide.md（流水线/工具纪律）
+ *   + memory.md（项目记忆，每轮重读，放最末注意力最强位）
  */
-const MAIN_SESSION_PROMPT_PATH = path.join(
-  path.dirname(url.fileURLToPath(import.meta.url)),
-  "prompts",
-  "main-session.md",
-);
+const PROMPTS_DIR = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "prompts");
 
 /** 主会话 prompt 缓存（session_start 时加载，session_shutdown 时清空） */
 let mainSessionPrompt: string | null = null;
 
+/** 引擎使用指南缓存（同上生命周期） */
+let engineGuidePrompt: string | null = null;
+
 /**
- * 加载主会话 prompt
+ * 加载 prompts/ 下的 prompt 资源
  *
  * 失败时不抛错（避免阻塞 session_start），仅打印警告并返回空字符串
  * 理由：prompt 加载失败不应影响 world-graph 等其他初始化
  */
-async function loadMainSessionPrompt(): Promise<string> {
+async function loadPromptAsset(fileName: string): Promise<string> {
+  const filePath = path.join(PROMPTS_DIR, fileName);
   try {
-    return await fs.readFile(MAIN_SESSION_PROMPT_PATH, "utf8");
+    return await fs.readFile(filePath, "utf8");
   } catch (err) {
-    console.warn(
-      `[narrative-engine] 主会话 prompt 加载失败 (${MAIN_SESSION_PROMPT_PATH}):`,
-      err,
-    );
+    console.warn(`[narrative-engine] prompt 资源加载失败 (${filePath}):`, err);
     return "";
   }
 }
@@ -213,9 +214,10 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`[narrative-engine] 加载 plan 缓存失败: ${err}`, "warning");
     }
 
-    // 加载主会话 prompt（Pending Gap #5）
-    // 失败不阻塞 session_start，仅警告（详见 loadMainSessionPrompt 注释）
-    mainSessionPrompt = await loadMainSessionPrompt();
+    // 加载主会话 prompt + 引擎使用指南（Pending Gap #5 / 2026-07-25 指南注入）
+    // 失败不阻塞 session_start，仅警告（详见 loadPromptAsset 注释）
+    mainSessionPrompt = await loadPromptAsset("main-session.md");
+    engineGuidePrompt = await loadPromptAsset("engine-guide.md");
     if (mainSessionPrompt) {
       ctx.ui.notify(
         `[narrative-engine] 已加载主会话 prompt (${mainSessionPrompt.length} 字符)`,
@@ -223,6 +225,9 @@ export default function (pi: ExtensionAPI) {
       );
     } else {
       ctx.ui.notify(`[narrative-engine] 主会话 prompt 未加载（文件缺失或读取失败）`, "warning");
+    }
+    if (!engineGuidePrompt) {
+      ctx.ui.notify(`[narrative-engine] 引擎使用指南未加载（文件缺失或读取失败）`, "warning");
     }
   });
 
@@ -237,14 +242,15 @@ export default function (pi: ExtensionAPI) {
   // - 末尾注入（注意力最强）：与 renderer ruleSet 注入位置约定一致
   //
   // 注意：
-  // - before_agent_start 在每次用户提交 prompt 时触发，但 mainSessionPrompt
-  //   是 session_start 时一次性加载的，避免每轮读盘
-  // - 若 mainSessionPrompt 为空（加载失败），不修改 systemPrompt，主会话仍可工作
+  // - before_agent_start 在每次用户提交 prompt 时触发，但 mainSessionPrompt /
+  //   engineGuidePrompt 是 session_start 时一次性加载的，避免每轮读盘
+  // - 若 prompt 为空（加载失败），跳过对应段，主会话仍可工作
   // - 项目记忆（memory.md）每次重新读盘：它在会话进行中会被 commit 等
   //   写入路径更新，必须拿最新内容（文件很小，读盘开销可忽略）
   pi.on("before_agent_start", async (event) => {
     let prompt = event.systemPrompt;
     if (mainSessionPrompt) prompt += "\n\n" + mainSessionPrompt;
+    if (engineGuidePrompt) prompt += "\n\n" + engineGuidePrompt;
     if (sessionCwd) {
       const memory = await loadMemory(sessionCwd);
       if (memory) prompt += "\n\n" + memory;
@@ -274,6 +280,7 @@ export default function (pi: ExtensionAPI) {
     currentStoryTime = null;
     sessionCwd = null;
     mainSessionPrompt = null;
+    engineGuidePrompt = null;
   });
 
   // --------------------------------------------------------------------------
@@ -298,16 +305,19 @@ export default function (pi: ExtensionAPI) {
       }
       const entities = await g.getAllEntities(st);
       const events = await g.getAllEvents();
+      const recordedNow = await g.recordedNow();
       const status = {
         currentStoryTime,
         entityCount: entities.length,
         eventCount: events.length,
+        recordedNow,
       };
       const text = [
         `currentStoryTime: ${currentStoryTime ?? "(未设置)"}`,
         `统计时刻: ${st}`,
         `实体数: ${status.entityCount}`,
         `事件数: ${status.eventCount}`,
+        `recordedNow: ${recordedNow ?? "(空图)"}`,
       ].join("\n");
       return {
         content: [{ type: "text", text }],
@@ -375,15 +385,18 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "world_entity_get",
     label: "World Entity Get",
-    description: "获取实体快照（bi-temporal）",
+    description: "获取实体快照（bi-temporal：storyTime=故事时间轴，recordedAsOf=事务时间轴）",
     parameters: Type.Object({
       entityId: Type.String(),
       storyTime: Type.Optional(Type.String()),
+      recordedAsOf: Type.Optional(Type.String({
+        description: "事务时间坐标（world_status 返回的 recordedNow 历史值）。传入后只含该时点之前写入的内容（retcon 隔离）",
+      })),
     }),
     async execute(_id, params) {
       const g = requireWg();
       const st = resolveStoryTime(params.storyTime);
-      const snap = await g.getEntityAt(params.entityId, st);
+      const snap = await g.getEntityAt(params.entityId, st, { recordedAsOf: params.recordedAsOf });
       return {
         content: [{
           type: "text" as const,
@@ -559,15 +572,18 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "world_character_view",
     label: "World Character View",
-    description: "获取角色视角（五步过滤后的可见声明）",
+    description: "获取角色视角（五步过滤后的可见声明；recordedAsOf 可做事务时间隔离）",
     parameters: Type.Object({
       characterId: Type.String(),
       storyTime: Type.Optional(Type.String()),
+      recordedAsOf: Type.Optional(Type.String({
+        description: "事务时间坐标。传入后角色视角只含该时点之前写入的内容（retcon 隔离）",
+      })),
     }),
     async execute(_id, params) {
       const g = requireWg();
       const st = resolveStoryTime(params.storyTime);
-      const view = await g.getCharacterView(params.characterId, st);
+      const view = await g.getCharacterView(params.characterId, st, { recordedAsOf: params.recordedAsOf });
       return {
         content: [{ type: "text", text: JSON.stringify(view) }],
         details: { view, count: view.length },

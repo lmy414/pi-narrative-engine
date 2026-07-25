@@ -10,7 +10,7 @@ import {
   embedding,
   sqliteVecStrategy,
 } from "@nicia-ai/typegraph";
-import type { HistoryStore, EmbeddingValue } from "@nicia-ai/typegraph";
+import type { HistoryStore, EmbeddingValue, RecordedInstant } from "@nicia-ai/typegraph";
 import {
   createSqliteBackend,
   generateSqliteMigrationSQL,
@@ -106,6 +106,20 @@ export interface EntitySnapshot {
   properties: StateDeclaration[];
 }
 
+/**
+ * 双时态查询选项（2026-07-25 新增）
+ *
+ * recordedAsOf：事务时间坐标（SDK recorded instant，由 recordedNow() 获取，
+ * 形如 "r1:0000000000000007:2026-07-25T16:02:32.048Z"，字典序可比较）。
+ *
+ * 语义：「storyTime 时刻的世界状态，但只含 recordedAsOf 之前写入的内容」。
+ * 用途：modify/insert 锚定历史事件时，角色视角/查询不被后来补写的
+ * 设定污染（retcon 隔离）；不带 recordedAsOf 的调用行为完全不变。
+ */
+export interface TemporalQueryOpts {
+  recordedAsOf?: string;
+}
+
 export class WorldGraph {
   private db: Database.Database;
   private store: HistoryStore<typeof graph>;
@@ -162,6 +176,40 @@ export class WorldGraph {
     return this.store.query();
   }
 
+  /**
+   * 当前事务时间坐标（SDK recorded instant）。
+   * 调用方可存档该值，后续作为 recordedAsOf 传入查询实现双时态检索。
+   * 空图（尚无写入）返回 undefined。
+   */
+  async recordedNow(): Promise<string | undefined> {
+    const instant = await this.store.recordedNow();
+    return instant as string | undefined;
+  }
+
+  /**
+   * 双时态节点读取：带 recordedAsOf 时走 SDK RecordedStoreView 重建
+   * 该事务时点的节点状态（含后续被闭合/修改的字段原值）；否则走 live find()。
+   * scan 单页上限 1000，循环翻页取全量（与 find() 语义对齐）。
+   */
+  private async findNodes(
+    kind: "Entity" | "Fact" | "Relation" | "Visibility",
+    recordedAsOf?: string,
+  ): Promise<any[]> {
+    if (!recordedAsOf) {
+      return await (this.store.nodes as any)[kind].find();
+    }
+    const view = this.store.asOfRecorded(recordedAsOf as RecordedInstant);
+    const collection = (view.nodes as any)[kind];
+    const out: any[] = [];
+    let after: string | undefined;
+    do {
+      const page = await collection.scan({ limit: 1000, after });
+      out.push(...page.data);
+      after = page.nextCursor;
+    } while (after);
+    return out;
+  }
+
   async birthEntity(
     entityId: string,
     entityType: EntityType,
@@ -210,10 +258,12 @@ export class WorldGraph {
   async getEntityAt(
     entityId: string,
     storyTime: string,
+    opts?: TemporalQueryOpts,
   ): Promise<EntitySnapshot | null> {
-    // bi-temporal 查询：validFrom <= storyTime < validTo
+    // bi-temporal 查询：validFrom <= storyTime < validTo（故事时间轴）
+    // 叠加 opts.recordedAsOf（事务时间轴）：只含该时点之前写入的内容
     // "Infinity" 需特殊处理（字符串比较 'I' < 'a' 导致误判）
-    const entities = await this.store.nodes.Entity.find();
+    const entities = await this.findNodes("Entity", opts?.recordedAsOf);
     const ent = entities.find(
       (e: any) =>
         e.entityId === entityId &&
@@ -221,7 +271,7 @@ export class WorldGraph {
         (e.validTo === INFINITY || storyTime < e.validTo),
     );
     if (!ent) return null;
-    const facts = await this.store.nodes.Fact.find();
+    const facts = await this.findNodes("Fact", opts?.recordedAsOf);
     const props = facts
       .filter(
         (f: any) =>
@@ -296,7 +346,7 @@ export class WorldGraph {
     await this.store.nodes.Relation.update(rel.id, { validTo: storyTime });
   }
 
-  async getRelations(entityId: string, storyTime: string): Promise<Array<{
+  async getRelations(entityId: string, storyTime: string, opts?: TemporalQueryOpts): Promise<Array<{
     relationId: string;
     sourceId: string;
     targetId: string;
@@ -304,7 +354,7 @@ export class WorldGraph {
     validFrom: string;
     validTo: string;
   }>> {
-    const rels = await this.store.nodes.Relation.find();
+    const rels = await this.findNodes("Relation", opts?.recordedAsOf);
     return rels
       .filter((r: any) =>
         (r.sourceId === entityId || r.targetId === entityId)
@@ -323,7 +373,11 @@ export class WorldGraph {
 
   async processEvent(input: EventRecordInput): Promise<void> {
     // 解析并应用默认值（source 缺省为 "engine"），日志中始终落完整记录
-    const event = EventRecord.parse(input);
+    // recordedAt（事务时间轴墙钟）缺省填充当前时间，调用方显式传入时优先
+    const event = EventRecord.parse({
+      recordedAt: new Date().toISOString(),
+      ...input,
+    });
     // 写入 JSONL 事件日志（先写日志，确保因果链可回溯）
     await this.eventLog.append(event);
 
@@ -408,8 +462,8 @@ export class WorldGraph {
     });
   }
 
-  async getVisibilityForCharacter(characterId: string, storyTime: string): Promise<VisibilityDeclaration[]> {
-    const all = await this.store.nodes.Visibility.find();
+  async getVisibilityForCharacter(characterId: string, storyTime: string, opts?: TemporalQueryOpts): Promise<VisibilityDeclaration[]> {
+    const all = await this.findNodes("Visibility", opts?.recordedAsOf);
     return all
       .filter((v: any) => v.characterId === characterId
         && v.validFrom <= storyTime
@@ -469,8 +523,8 @@ export class WorldGraph {
       })) as VisibilityDeclaration[];
   }
 
-  async getAllDeclarationsAt(storyTime: string): Promise<StateDeclaration[]> {
-    const facts = await this.store.nodes.Fact.find();
+  async getAllDeclarationsAt(storyTime: string, opts?: TemporalQueryOpts): Promise<StateDeclaration[]> {
+    const facts = await this.findNodes("Fact", opts?.recordedAsOf);
     return facts
       .filter((f: any) => f.validFrom <= storyTime
         && (f.validTo === INFINITY || storyTime < f.validTo))
@@ -489,8 +543,8 @@ export class WorldGraph {
    * 全部声明（不做时态过滤，含已闭合）。
    * 供 character_view 的"知识持续"语义使用：声明闭合后知识不消失。
    */
-  async getAllDeclarations(): Promise<StateDeclaration[]> {
-    const facts = await this.store.nodes.Fact.find();
+  async getAllDeclarations(opts?: TemporalQueryOpts): Promise<StateDeclaration[]> {
+    const facts = await this.findNodes("Fact", opts?.recordedAsOf);
     return facts
       .map((f: any) => ({
         declarationId: f.declarationId,
@@ -503,11 +557,11 @@ export class WorldGraph {
       })) as StateDeclaration[];
   }
 
-  async getAllRelationsAt(storyTime: string): Promise<Array<{
+  async getAllRelationsAt(storyTime: string, opts?: TemporalQueryOpts): Promise<Array<{
     relationId: string; sourceId: string; targetId: string;
     label: string; validFrom: string; validTo: string;
   }>> {
-    const rels = await this.store.nodes.Relation.find();
+    const rels = await this.findNodes("Relation", opts?.recordedAsOf);
     return rels
       .filter((r: any) => r.validFrom <= storyTime
         && (r.validTo === INFINITY || storyTime < r.validTo))
@@ -529,21 +583,21 @@ export class WorldGraph {
   async getCharacterView(
     characterId: string,
     storyTime: string,
-    opts: { modalityFilter?: Modality[] } = {},
+    opts: { modalityFilter?: Modality[]; recordedAsOf?: string } = {},
   ): Promise<StateDeclaration[]> {
     const { characterView } = await import("./character-view.ts");
     return characterView(this, characterId, storyTime, opts);
   }
 
-  async getAllEntities(storyTime: string): Promise<EntitySnapshot[]> {
-    const entities = await this.store.nodes.Entity.find();
+  async getAllEntities(storyTime: string, opts?: TemporalQueryOpts): Promise<EntitySnapshot[]> {
+    const entities = await this.findNodes("Entity", opts?.recordedAsOf);
     const valid = entities.filter(
       (e: any) => e.validFrom <= storyTime
         && (e.validTo === INFINITY || storyTime < e.validTo),
     );
     const snapshots: EntitySnapshot[] = [];
     for (const ent of valid) {
-      const snap = await this.getEntityAt(ent.entityId, storyTime);
+      const snap = await this.getEntityAt(ent.entityId, storyTime, opts);
       if (snap) snapshots.push(snap);
     }
     return snapshots;
@@ -561,7 +615,12 @@ export class WorldGraph {
       validFrom: string;
       validTo: string;
     }>;
-    facts: StateDeclaration[];
+    facts: Array<StateDeclaration & {
+      /** 写入时间（事务时间轴墙钟，SDK meta.createdAt）；旧数据可能缺失 */
+      createdAt?: string;
+      /** 最后修改时间（如闭合 validTo 的时刻，SDK meta.updatedAt） */
+      updatedAt?: string;
+    }>;
   }> {
     const entities = await this.store.nodes.Entity.find();
     const ents = entities
@@ -587,7 +646,9 @@ export class WorldGraph {
         modality: f.modality,
         validFrom: f.validFrom,
         validTo: f.validTo,
-      }) as StateDeclaration)
+        createdAt: f.meta?.createdAt,
+        updatedAt: f.meta?.updatedAt,
+      }) as StateDeclaration & { createdAt?: string; updatedAt?: string })
       .sort((a, b) => a.validFrom.localeCompare(b.validFrom));
 
     return { entities: ents, facts: allFacts };
