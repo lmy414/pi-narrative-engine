@@ -831,7 +831,7 @@ const retrievalPlanTool = {
 };
 ```
 
-**已知问题与对策**（参考项目记忆 [Lessons Learned](file:///c:/Users/Mirror/.trae-cn/memory/projects/-d-claude-pi-ex/project_memory.md)）：
+**已知问题与对策**（参考项目记忆 Lessons Learned）：
 
 | 风险 | 对策 |
 |---|---|

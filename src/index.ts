@@ -57,6 +57,7 @@ import {
   type StructuredEvent,
 } from "@pi/scheduler";
 import { makeSchedulerCtx } from "./scheduler-llm.ts";
+import { getLlmConfig } from "./llm-config.ts";
 import { parseCardFile, importCardToWorldGraph } from "./tools/import-card.ts";
 
 // ============================================================================
@@ -106,24 +107,14 @@ async function loadMainSessionPrompt(): Promise<string> {
 /** session_start 时记录 cwd，供 import_novel 等工具默认 worldGraphDir 使用 */
 let sessionCwd: string | null = null;
 
-/** 渲染器 LLM 配置（从环境变量读取） */
+/** 渲染器 LLM 配置（从环境变量读取，共享实现见 ./llm-config.ts） */
 function getRendererLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_RENDERER_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
-  const apiKey = process.env.PI_RENDERER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error("渲染器 LLM apiKey 未配置（设置 PI_RENDERER_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
-  }
-  return { model, apiKey };
+  return getLlmConfig("renderer");
 }
 
-/** 角色池 LLM 配置（从环境变量读取） */
+/** 角色池 LLM 配置（从环境变量读取，共享实现见 ./llm-config.ts） */
 function getRoleLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_ROLE_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
-  const apiKey = process.env.PI_ROLE_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error("角色池 LLM apiKey 未配置（设置 PI_ROLE_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
-  }
-  return { model, apiKey };
+  return getLlmConfig("role");
 }
 
 /** 角色池结构化输出 schema（render_append / render_modify / render_preview 共用） */

@@ -36,7 +36,6 @@
 |----|--------|------|
 | `typescript` | Apache-2.0 | 类型检查 |
 | `tsx` | MIT | 测试运行器（tsx --test） |
-| `litegraph.js` | MIT | （历史）V1 可视化画布依赖，V3 已弃用但 vendor 文件仍在仓库内（见下） |
 | `@types/node` | MIT | Node 类型定义 |
 
 ## 4. Vendored 前端库（`visualizer-ui/vendor/`，随仓库分发）
@@ -50,7 +49,6 @@
 | `three.min.js` | three.js（0.18x） | MIT | 3D 渲染引擎（3D 关系图） |
 | `3d-force-graph.min.js` | 3d-force-graph（1.80.x，vasturiano） | MIT | 力导向 3D 图布局 |
 | `three-spritetext.min.js` | three-spritetext（1.10.x） | MIT | 3D 图中的文字标签 |
-| `litegraph.js` / `litegraph.css` | litegraph.js（0.7.18，jagenjo） | MIT | （历史遗留）V1 蓝图风画布；现行 V3 未使用，待清理 |
 | `docs/legacy/prototype-v3/v3/vendor/`（3 个 three 系文件） | 同上 | MIT | V3 原型的历史副本 |
 
 ## 5. AI 模型（运行时下载，不入库）

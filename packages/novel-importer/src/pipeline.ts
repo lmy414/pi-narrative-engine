@@ -97,7 +97,8 @@ interface V3Dump {
 // ============================================================================
 
 const DEFAULT_PROVIDER = "deepseek";
-const DEFAULT_MODEL = "deepseek-chat";
+// 与扩展层三路 LLM 缺省对齐（deepseek-chat 已被当前 API 拒绝：仅支持 v4-pro/v4-flash）
+const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_WORLD_GRAPH_DIRNAME = ".pi/world-graph-v3";
 

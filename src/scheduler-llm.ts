@@ -25,55 +25,8 @@ import { makeRendererLlmCaller } from "./renderer-llm.ts";
 import { loadPlannerRuleSet } from "./planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
+import { getLlmConfig } from "./llm-config.ts";
 import type { Embedder } from "./embedder.ts";
-
-/**
- * planner LLM 配置（从环境变量读取）
- *
- * 优先级：PI_PLANNER_MODEL → PI_MODEL → deepseek-v4-flash
- *         PI_PLANNER_API_KEY → PI_API_KEY → DEEPSEEK_API_KEY
- */
-function getPlannerLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_PLANNER_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
-  const apiKey = process.env.PI_PLANNER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error(
-      "planner LLM apiKey 未配置（设置 PI_PLANNER_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）",
-    );
-  }
-  return { model, apiKey };
-}
-
-/**
- * role LLM 配置（从环境变量读取）
- *
- * [TODO] 与 src/index.ts 中的 getRoleLlmConfig 重复。
- * 后续应提取到 src/llm-config.ts 共享，避免三处定义。
- * 当前为最小改动，不破坏 index.ts 现有逻辑。
- */
-function getRoleLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_ROLE_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
-  const apiKey = process.env.PI_ROLE_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error("角色池 LLM apiKey 未配置（设置 PI_ROLE_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
-  }
-  return { model, apiKey };
-}
-
-/**
- * renderer LLM 配置（从环境变量读取）
- *
- * [TODO] 与 src/index.ts 中的 getRendererLlmConfig 重复。
- * 后续应提取到 src/llm-config.ts 共享，避免三处定义。
- */
-function getRendererLlmConfig(): { model: string; apiKey: string } {
-  const model = process.env.PI_RENDERER_MODEL ?? process.env.PI_MODEL ?? "deepseek-v4-flash";
-  const apiKey = process.env.PI_RENDERER_API_KEY ?? process.env.PI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error("渲染器 LLM apiKey 未配置（设置 PI_RENDERER_API_KEY / PI_API_KEY / DEEPSEEK_API_KEY 环境变量）");
-  }
-  return { model, apiKey };
-}
 
 /**
  * 构建 SchedulerCtx
@@ -88,9 +41,9 @@ export async function makeSchedulerCtx(
   embedder: Embedder,
   cwd: string,
 ): Promise<SchedulerCtx> {
-  const { model: plannerModel, apiKey: plannerApiKey } = getPlannerLlmConfig();
-  const { model: roleModel, apiKey: roleApiKey } = getRoleLlmConfig();
-  const { model: renderModel, apiKey: renderApiKey } = getRendererLlmConfig();
+  const { model: plannerModel, apiKey: plannerApiKey } = getLlmConfig("planner");
+  const { model: roleModel, apiKey: roleApiKey } = getLlmConfig("role");
+  const { model: renderModel, apiKey: renderApiKey } = getLlmConfig("renderer");
 
   const [plannerRuleSet, roleRuleSet, renderRuleSet] = await Promise.all([
     loadPlannerRuleSet(cwd),

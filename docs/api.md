@@ -621,7 +621,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `epubPath` | string | 是 | EPUB 文件绝对路径 |
 | `worldGraphDir` | string | 否 | world-graph 存储目录（缺省 `<cwd>/.pi/world-graph-v3/`） |
 | `chapters` | number[] | 否 | 限定导入章节（1-based），缺省全部 |
-| `model` | string | 否 | LLM 模型名（缺省读 `PI_MODEL` 环境变量，否则 `deepseek-chat`） |
+| `model` | string | 否 | LLM 模型名（缺省读 `PI_MODEL` 环境变量，否则 `deepseek-v4-flash`） |
 | `apiKey` | string | 否 | LLM API key（缺省读 `DEEPSEEK_API_KEY` 或 `PI_API_KEY`） |
 | `concurrency` | number | 否 | 章节并行限流（缺省 3，范围 1-10） |
 | `resumeFromStage` | number | 否 | 从指定阶段恢复（1-8，缺省从 1 开始） |
@@ -959,7 +959,7 @@ const result = await runImportPipeline({
   epubPath: "/path/to/novel.epub",
   worldGraphDir: "/path/to/world-graph-v3",  // 缺省 <cwd>/.pi/world-graph-v3/
   chapters: [1, 2, 3],        // 可选：限定章节
-  model: "deepseek-chat",     // 可选：LLM 模型
+  model: "deepseek-v4-flash",     // 可选：LLM 模型
   apiKey: process.env.DEEPSEEK_API_KEY,  // 可选：API key
   concurrency: 3,             // 可选：章节并行限流
   resumeFromStage: 1,         // 可选：从阶段 N 恢复
