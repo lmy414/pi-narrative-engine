@@ -1,15 +1,15 @@
 # Narrative Engine API 文档
 
-> **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt）
-> **适用分支**: `feat/role-pool`（待 FF merge 回 `master`）
-> **最后更新**: 2026-07-25（30 工具时代，与需求审计 docs/audits/2026-07-25-requirements-audit.md 对齐）
+> **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt + 酒馆卡导入）
+> **适用分支**: `master`（feat/role-pool 已 FF merge）
+> **最后更新**: 2026-07-25（31 工具时代，与需求审计 docs/audits/2026-07-25-requirements-audit.md 对齐）
 
 ## 目录
 
 - [1. 架构概览](#1-架构概览)
 - [2. 存储路径](#2-存储路径)
 - [3. storyTime 管理约定](#3-storytime-管理约定)
-- [4. PI 扩展工具 API（25 个）](#4-pi-扩展工具-api25-个)
+- [4. PI 扩展工具 API（31 个）](#4-pi-扩展工具-api31-个)
   - [4.1 状态查询](#41-状态查询)
   - [4.2 实体工具](#42-实体工具)
   - [4.3 关系工具](#43-关系工具)
@@ -23,6 +23,8 @@
 - [5. `@pi/world-graph` 包 API](#5-piworld-graph-包-api)
 - [6. `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
 - [6.5 `@pi/renderer` 包 API](#65-pirenderer-包-api)
+- [6.6 `@pi/role-pool` 包 API](#66-pirole-pool-包-api)
+- [6.7 `@pi/scheduler` 包 API](#67-pischeduler-包-api)
 - [7. `Search` 类 API](#7-search-类-api)
 - [8. `Embedder` 类 API](#8-embedder-类-api)
 - [9. 类型定义](#9-类型定义)
@@ -36,14 +38,18 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  PI 主会话 / Scheduler / 前端                             │
-│  （通过 pi.registerTool 注册的 25 个工具调用）             │
+│  （通过 pi.registerTool 注册的 31 个工具调用）             │
 └──────────────────┬───────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────┐
 │  narrative-engine/src/index.ts                            │
 │  - session_start: 初始化 WorldGraph/Embedder/Search      │
-│  - 注册 18 个 world_* + open_visualizer + import_novel   │
+│    + 恢复 scheduler plan 缓存 + 加载 main-session.md      │
+│  - before_agent_start: 主会话 prompt 注入 systemPrompt    │
+│  - 注册 18 个 world_* + open_visualizer                  │
+│  - 注册 import_novel + import_character_card（导入）      │
 │  - 注册 5 个 render_*（append/modify/preview/check/rule_set）│
+│  - 注册 2 个 role_* + 3 个 scheduler_*（编排）            │
 │  - 管理 session 级 currentStoryTime                      │
 └────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │
@@ -122,6 +128,11 @@
 - `world_event_apply` / `world_entity_create` / `world_entity_kill` 时更新为事件/操作的 `storyTime`
 - 其他工具（如 `world_entity_get`、`world_query`）不更新
 
+**storyTime 格式**（2026-07-25 统一，双格式兼容）：
+- 口述/运行时格式：`ch-<N>`（如 `ch-2`）
+- 导入器事件格式：`ch<NNN>.ev<MMM>`（如 `ch009.ev003`）
+- 章节路径解析（`resolveChapterPath`）对两种格式均取章节号定位 `正文/第<N>章-*.md`
+
 如果 `currentStoryTime` 为 `null` 且工具需要 storyTime，会抛错：
 ```
 Error: storyTime required (call world_event_apply first or pass storyTime explicitly)
@@ -129,7 +140,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
-## 4. PI 扩展工具 API（30 个）
+## 4. PI 扩展工具 API（31 个）
 
 所有工具通过 `pi.registerTool` 注册，遵循 PI ExtensionAPI 约定：
 - `name` — 工具唯一标识（`world_*` 前缀 / `open_visualizer` / `import_novel`）
@@ -138,7 +149,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - `parameters` — TypeBox schema 定义参数
 - `async execute(_id, params)` — 执行体，返回 `{ content: [{type, text}], details }`
 
-**工具分类**（30 个）：
+**工具分类**（31 个）：
 - **状态查询**（1 个）：`world_status`
 - **实体工具**（3 个）：`world_entity_create` / `world_entity_kill` / `world_entity_get`
 - **关系工具**（3 个）：`world_relation_add` / `world_relation_close` / `world_relations`
@@ -147,7 +158,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - **检索工具**（1 个）：`world_query`
 - **历史与元信息**（4 个）：`world_entity_update_summary` / `world_entity_history` / `world_relation_history` / `world_story_times`
 - **可视化**（1 个）：`open_visualizer`
-- **导入**（1 个）：`import_novel`
+- **导入**（2 个）：`import_novel` / `import_character_card`
 - **渲染**（5 个）：`render_append` / `render_modify` / `render_preview` / `render_check` / `render_rule_set`
 - **角色池**（2 个）：`role_interact` / `role_rule_set`（详见 `docs/plans/2026-07-24-role-pool-design.md`）
 - **调度器**（3 个）：`scheduler_dispatch` / `scheduler_commit` / `scheduler_discard`（详见 `docs/plans/2026-07-25-scheduler-design.md`）
@@ -596,6 +607,10 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ### 4.9 导入工具
 
+> [!WARNING]
+> **测试实现声明**：`import_novel` 与 `import_character_card` 均为测试实现——
+> 功能链路已验证可用，但**不保证数据质量**，后续将重写。导入数据建议仅用于试验。
+
 #### `import_novel`
 
 从 EPUB 文件导入小说到世界图（V3）。执行 8 阶段管道，内部并行 spawn 多个 LLM 子代理处理各章节。长时间运行任务（11 章约 10 分钟）。
@@ -646,6 +661,41 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - 阶段 8 调用 `reembedAll` 为所有 Entity/Fact 补齐向量
 
 **详见**：[第 6 节 `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
+
+**2026-07-25 行为修订**：
+- 空章节（content 为空/全空白）跳过事件生成（不再产生"本章无内容"占位 Fact）
+- change 事件写入时**自动闭合**同 property 未闭合声明（不再依赖 LLM 声明 invalidated）
+
+#### `import_character_card`
+
+导入酒馆角色卡（SillyTavern V1/V2，`.json` 或 `.png` 内嵌）到世界图（Pending Gap #5，2026-07-25 实现）。
+
+**参数**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `cardPath` | string | 是 | 角色卡文件绝对路径（.json / .png） |
+| `entityId` | string | 否 | 指定 entityId（缺省自动生成 `ent_char_xxxxxxxx`） |
+| `storyTime` | string | 否 | 诞生时刻（不传用 `currentStoryTime`） |
+
+**导入策略**：
+- `card.description` → `Entity.summary`（birth 事件，重组静态卡时映射回 `card.description`）
+- 其余 11 个卡字段 → 同名 Fact：`name / personality / scenario / first_mes / mes_example / creator_notes / tags / system_prompt / post_history_instructions / alternate_greetings`
+- 自产自知：为角色自身写入全部卡字段 Fact 的 Visibility（`source: "self"`）
+- **不支持**：`character_book`（lorebook）；**不抽取卡内角色关系**（需手动 `world_relation_add` 补录）
+
+**支持格式**：
+- `.json`：V1 平铺（`{ name, description, ... }`）/ V2（`{ spec: "chara_card_v2", data: {...} }`）
+- `.png`：tEXt / 未压缩 iTXt chunk（keyword `chara` / `ccv3`，base64 JSON）
+
+**返回**：
+```json
+{
+  "content": [{ "type": "text", "text": "角色卡已导入：诺艾尔（ent_char_f8aba5a5），10 个字段 Facts @ ch009.ev005" }],
+  "details": { "entityId": "ent_char_f8aba5a5", "name": "诺艾尔", "factCount": 10, "eventId": "evt_card_import_xxxx" }
+}
+```
+
+**副作用**：更新 `currentStoryTime = storyTime`
 
 ---
 
@@ -1070,6 +1120,7 @@ export { renderText, renderToFile } from "./renderer.ts";
 ...
 
 [叙事指令]
+（故事时间：ch-2）
 （续写模式：在已有上下文之后续写新段落）
 ...
 
@@ -1099,6 +1150,111 @@ export { renderText, renderToFile } from "./renderer.ts";
 - 每个事件渲染产物前插入 `<!-- event: <eventId> -->` 锚点
 - 锚点后空一行，接正文
 - modify 模式按锚点定位重写区间
+
+---
+
+## 6.6 `@pi/role-pool` 包 API
+
+角色池子包：串行角色扮演编排。无状态（LLM 实例、规则集、演员表均由调用方持有）。
+
+### 子包导出
+
+```typescript
+export type { SillyTavernCard, FactSnapshot, CastMember, InteractCommand, PriorAction,
+  RoleAgentOutput, StateChange, RoleRelationUpdate, InteractResult, RoleLlmCaller, RoleCtx } from "./types.ts";
+export { buildSystemPrompt, buildUserMessage } from "./prompts.ts";
+export { interact } from "./role-pool.ts";
+export { extractStateChanges, extractRelations, toRoleOutputs } from "./transforms.ts";
+export { loadRoleRuleSet } from "./rule-loader.ts";
+```
+
+### `interact(cmd: InteractCommand, ctx: RoleCtx): Promise<InteractResult>`
+
+按 `cast` 顺序逐个调用角色 LLM，**后动者可见先动者的公开 action**（不含 thought/emotion/state_changes）。
+单角色失败跳过记 `errors`，不中断。
+
+### Prompt 组装（2026-07-25 修订后）
+
+- **System**：角色规则集.md + "动态层优先于静态层"冲突提醒 + executionHints（可选）
+- **User**：`[你的 entityId]` + `[本场角色名单]` → 静态卡 JSON → 动态层 → storyTime → 先动者行动 → 事件指令（末尾）
+- **动态层渲染**：`- [属主名] property: value（modality）`；已闭合声明标注 `（fact·旧）`；按检索 label 分组渲染【小标题】
+
+### `RoleAgentOutput`（9 字段）
+
+```typescript
+{
+  characterId: string;          // 必填，LLM 填自己的 entityId
+  actor: string;                // 行动者名字（角色卡 name）
+  action: string;               // 可观察行动
+  target?: string;
+  emotion?: string;
+  relation_update?: { target: string; label: string }[];  // target 填对方 characterId
+  thought?: string;             // 内心（其他角色不可见）
+  knowledge_gained?: string[];  // ⚠️ 当前不写世界图（自然语言→declarationId 映射未设计）
+  state_changes?: { entityId: string; property: string; value: unknown; modality: Modality }[];
+}
+```
+
+### transforms
+
+| 函数 | 用途 |
+|------|------|
+| `extractStateChanges(outputs)` | 扁平化全部 state_changes（供 commit 写扩散） |
+| `extractRelations(outputs)` | 提取 relation_update，source 取 `characterId` |
+| `toRoleOutputs(outputs)` | 投影为渲染器 RoleOutput（剥掉 `characterId`/`state_changes`） |
+
+---
+
+## 6.7 `@pi/scheduler` 包 API
+
+调度器子包：编排层（不演戏、不渲染、纯串联）。
+
+### 子包导出
+
+```typescript
+export { plan, commit, discard, loadAllPlans } from "./index.ts";  // 编排
+export { resolveChapterPath } from "./chapter-resolver.ts";        // storyTime → 章节路径（双格式）
+export { defaultStaticCardLoader } from "./static-card-loader.ts"; // Entity+Facts → 酒馆卡重组
+export type { StructuredEvent, RetrievalPlan, RetrievalItem, PlanResult,
+  DispatchPlanOutput, DispatchYoloOutput, CommitResult, SchedulerCtx, FactSnapshot } from "./types.ts";
+```
+
+### `plan(event: StructuredEvent, ctx)` 10 步
+
+1. 生成 eventId/planId → 2. 解析章节路径 → 3. planner LLM 推导 RetrievalPlan →
+4. 兜底：每角色至少 1 条 character_view → 5. 逐项执行检索（按 assignTo 信息差分配，label 随 Fact 传递）→
+5.5 解析动态层属主名（ownerName）→ 6. 组装 CastMember → 7. role-pool.interact →
+8. 缓存 plan（内存 + `.pi/scheduler-plans/` 磁盘，TTL 1h）→ 9/10. yolo 自动 commit / plan 等确认
+
+### `commit(planId, ctx)` 8 步
+
+1. 取 plan → 2. extractStateChanges → 3. 按 entityId 分组 →
+4. 写扩散：同 property 未闭合 Fact **全量** invalidated + `processEvent(type="change")` →
+4.3 **自产自知**：为作者角色写新 Fact 的 Visibility（`source: "experienced"`）→
+5. extractRelations → `addRelation` → 6. toRoleOutputs 投影 → 7. 按 intent 渲染（add/modify/insert）→ 8. 清理 plan 缓存
+
+### `StructuredEvent`（调度器唯一输入）
+
+```typescript
+{
+  storyTime: string;
+  instruction: string;
+  characterIds: string[];         // 主会话已消解为 entityId
+  executionHints?: string;        // 用户特殊要求，透传角色池+渲染器
+  mode?: "plan" | "yolo";        // 缺省 plan
+  chapterPath?: string;           // 缺省从 storyTime 推断
+  locationId?: string;
+  intent?: "add" | "modify" | "insert";
+  targetEventId?: string;         // modify/insert 必填
+}
+```
+
+### 检索类型（RetrievalItem.type）
+
+`character_view` / `entity_snapshot`（不过可见性，慎用）/ `relations` / `search_text` / `search_vector` / `search_hybrid`
+
+> ⚠️ `search_vector` / `search_hybrid` 仅支持 `Entity`/`Fact` 节点（只有这两种声明了 embedding 字段）；
+> planner 误输出 Relation/Visibility 时执行层防御性跳过（不崩）。
 
 ---
 
@@ -1198,6 +1354,13 @@ export HF_ENDPOINT=https://hf-mirror.com
 ```
 
 **模型文件**：~50MB（量化 ONNX），首次运行时下载到本地缓存。
+
+**缓存路径**（2026-07-25 修正认知）：`<模块所在 node_modules>/@xenova/transformers/.cache/`
+（transformers.js v2 默认缓存位置，**不是** `~/.cache/huggingface`）。
+sync 保留扩展目录 node_modules，缓存不会因重新同步丢失。
+
+**离线回退**（2026-07-25 新增）：远程加载失败（HF 受限网络 fetch failed）时自动
+`localFilesOnly = true` 重试——模型已缓存则完全离线可用。
 
 ---
 
@@ -1406,6 +1569,9 @@ type HybridSearchHit<N> = {
 ## 11. 可视化服务（Visualizer）
 
 世界图可视化前端：按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角模式、历史审计。
+
+时间轴 UI（2026-07-25 优化）：两级分组防重叠——层级 storyTime（如 `ch009.ev003`）自动拆为
+章级刻度 + 当前章事件刻度；非层级 storyTime 用稀疏标签 + `‹ ›` 步进 + 下拉直跳。
 
 ### 11.1 启动方式（双入口，共用 `src/visualizer/server.ts` 的 `startVisualizer`）
 
