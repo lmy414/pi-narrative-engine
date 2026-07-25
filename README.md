@@ -64,6 +64,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 | [docs/api.md](docs/api.md) | 31 个 pi 工具 + 子包 API 完整参考 |
 | [docs/novel-project-structure.md](docs/novel-project-structure.md) | 小说工程结构定义（novel.json / 目录 / git 策略） |
 | [docs/audits/2026-07-25-requirements-audit.md](docs/audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项 + 修复史） |
+| [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点（GPL 兼容性说明） |
 
 ## 子包
 
