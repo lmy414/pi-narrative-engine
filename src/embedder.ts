@@ -72,9 +72,19 @@ export class Embedder {
     this.initPromise = (async () => {
       // transformers.js 的 PretrainedOptions 类型对 quantized 字段的类型定义有联合类型问题，
       // 用类型断言绕过（实际运行时只接受 boolean）
-      this.extractor = await pipeline("feature-extraction", this.model, {
-        quantized: USE_QUANTIZED as unknown as undefined,
-      } as Record<string, unknown>);
+      const opts = { quantized: USE_QUANTIZED as unknown as undefined } as Record<string, unknown>;
+      try {
+        this.extractor = await pipeline("feature-extraction", this.model, opts);
+      } catch (err) {
+        // 远程不可达（HF 网络受限）时回退纯本地缓存：
+        // transformers.js 默认每次都会先请求远端 config，缓存命中也会发请求，
+        // 离线/被墙环境下会 fetch failed。localFilesOnly 强制只读本地缓存。
+        console.warn(
+          `[narrative-engine] embedder 远程加载失败（${(err as Error).message}），回退本地缓存重试…`,
+        );
+        (env as any).localFilesOnly = true;
+        this.extractor = await pipeline("feature-extraction", this.model, opts);
+      }
     })();
 
     return this.initPromise;
