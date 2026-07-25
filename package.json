@@ -6,6 +6,7 @@
   ],
   "type": "module",
   "description": "Narrative engine extension for pi (novel writing with world-graph state).",
+  "license": "GPL-3.0-only",
   "scripts": {
     "build": "node scripts/build.mjs",
     "sync": "node scripts/sync.mjs",
