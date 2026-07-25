@@ -40,7 +40,7 @@ export const retrievalPlanSchema = Type.Object({
       entityId: Type.Optional(Type.String({ description: "character_view / entity_snapshot / relations 用" })),
       query: Type.Optional(Type.String({ description: "search_* 用（自然语言查询）" })),
       nodeType: Type.Optional(StringEnum(["Entity", "Fact", "Relation", "Visibility"], {
-        description: "search_* 必填：检索节点类型",
+        description: "search_* 必填：检索节点类型。注意：search_vector/search_hybrid 仅支持 Entity/Fact（只有这两种节点声明了 embedding 字段），Relation/Visibility 请用 search_text",
       })),
       limit: Type.Optional(Type.Integer({ description: "检索上限（search_* 用）" })),
       fieldPath: Type.Optional(Type.String({ description: "向量字段路径（search_vector/hybrid 用，缺省 embedding）" })),

@@ -484,8 +484,48 @@ test("search_vector: query 缺失返回 null", async () => {
 });
 
 // ============================================================================
-// search_hybrid
+// 防御：Relation/Visibility 无 embedding 字段（审计实测：planner 误输出导致整场崩）
 // ============================================================================
+
+test("search_vector: nodeType=Relation 跳过不崩（无 embedding 字段）", async () => {
+  const ctx = makeMockCtx({
+    characterViews: new Map(),
+    entities: new Map(),
+    relations: new Map(),
+    fulltextHits: new Map(),
+    vectorHits: new Map(),
+    hybridHits: new Map(),
+    embedderCalls: [],
+  });
+  const item: RetrievalItem = {
+    type: "search_vector",
+    params: { query: "朋友关系", nodeType: "Relation" },
+    assignTo: ["c1"],
+    label: "test",
+  };
+  const result = await executeRetrievalItem(ctx, item, "ch-1");
+  assert.equal(result, null, "Relation 无 embedding，应跳过返回 null");
+});
+
+test("search_hybrid: nodeType=Visibility 跳过不崩", async () => {
+  const ctx = makeMockCtx({
+    characterViews: new Map(),
+    entities: new Map(),
+    relations: new Map(),
+    fulltextHits: new Map(),
+    vectorHits: new Map(),
+    hybridHits: new Map(),
+    embedderCalls: [],
+  });
+  const item: RetrievalItem = {
+    type: "search_hybrid",
+    params: { query: "可见性", nodeType: "Visibility" },
+    assignTo: ["c1"],
+    label: "test",
+  };
+  const result = await executeRetrievalItem(ctx, item, "ch-1");
+  assert.equal(result, null);
+});
 
 test("search_hybrid: 同时调用 embedder 和 fulltext", async () => {
   const state: MockState = {

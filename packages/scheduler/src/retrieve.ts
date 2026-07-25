@@ -155,6 +155,14 @@ export async function executeRetrievalItem(
     case "search_vector": {
       if (!item.params.query) return null;
       const nodeType = item.params.nodeType ?? "Entity";
+      // 防御：schema 只有 Entity/Fact 声明了 embedding 字段，
+      // planner LLM 误输出 Relation/Visibility 时跳过该项而非崩掉整场戏
+      if (nodeType !== "Entity" && nodeType !== "Fact") {
+        console.warn(
+          `[scheduler] search_vector 不支持 nodeType=${nodeType}（无 embedding 字段），跳过该检索项`,
+        );
+        return null;
+      }
       const fieldPath = item.params.fieldPath ?? "embedding";
       // query → queryEmbedding（512 维向量）
       const queryEmbedding = await ctx.embedder.embed(item.params.query);
@@ -173,6 +181,13 @@ export async function executeRetrievalItem(
     case "search_hybrid": {
       if (!item.params.query) return null;
       const nodeType = item.params.nodeType ?? "Fact";
+      // 防御：同 search_vector，hybrid 含向量分量，Relation/Visibility 无 embedding 字段
+      if (nodeType !== "Entity" && nodeType !== "Fact") {
+        console.warn(
+          `[scheduler] search_hybrid 不支持 nodeType=${nodeType}（无 embedding 字段），跳过该检索项`,
+        );
+        return null;
+      }
       const fieldPath = item.params.fieldPath ?? "embedding";
       const queryEmbedding = await ctx.embedder.embed(item.params.query);
       const hits = await ctx.wg.search.hybrid(nodeType, {
