@@ -125,14 +125,16 @@
 2. **隐式复用**：不传时使用 `currentStoryTime`（session 级状态）
 
 `currentStoryTime` 更新规则：
-- `session_start` 时初始化为 `null`
+- `session_start` 时**从事件日志恢复**（全部事件中的最大 storyTime；空项目为 `null`）——跨会话不丢时间锚点（2026-07-25 项目记忆修复）
 - `world_event_apply` / `world_entity_create` / `world_entity_kill` 时更新为事件/操作的 `storyTime`
+- `scheduler_dispatch` 时推进（2026-07-25 修复：**只前进不后退**——`storyTime > currentStoryTime` 才更新，modify/insert 锚定历史不会回拉）
 - 其他工具（如 `world_entity_get`、`world_query`）不更新
 
-**storyTime 格式**（2026-07-25 统一，双格式兼容）：
-- 口述/运行时格式：`ch-<N>`（如 `ch-2`）
-- 导入器事件格式：`ch<NNN>.ev<MMM>`（如 `ch009.ev003`）
-- 章节路径解析（`resolveChapterPath`）对两种格式均取章节号定位 `正文/第<N>章-*.md`
+**storyTime 格式**（2026-07-25 统一约定）：
+- 标准格式：`ch{NNN}.ev{NNN}`（如 `ch009.ev003`）——`ch`+3 位零填充=章节号，`.ev`+3 位零填充=章内事件序号
+- 推进规则：同章内 ev+1；进新章 ch+1 且 ev 从 001 开始；零填充保证字典序==故事时序
+- 旧格式（如 `ch-2`）字符串比较仍兼容，但新写作请用标准格式
+- 章节路径解析（`resolveChapterPath`）取章节号定位 `正文/第<N>章-*.md`
 
 如果 `currentStoryTime` 为 `null` 且工具需要 storyTime，会抛错：
 ```
@@ -365,6 +367,8 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
       property: string,
     }>,
     causedBy?: string,                                  // 因果链前驱事件 ID
+    userInput?: string,                                 // 用户口述原文（2026-07-25 新增，供项目记忆展示）
+    recordedAt?: string,                                // 写入墙钟时间（缺省自动填充当前时间）
   }
 }
 ```
@@ -382,6 +386,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - 写入 JSONL 事件日志（先写日志，确保因果链可回溯）
 - 根据 `type` 执行对应操作
 - 更新 `currentStoryTime = event.storyTime`
+- 更新项目记忆 `.pi/world-graph-v3/memory.md`（2026-07-25 新增）
 
 ---
 

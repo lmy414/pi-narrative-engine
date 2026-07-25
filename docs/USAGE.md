@@ -150,7 +150,16 @@ cd ../小说B && pi   # 独立世界图、独立章节、独立规则集
 ## 10. FAQ
 
 **Q: 工具报 "WorldGraph not initialized"？**
-A: 九成是 better-sqlite3 绑定缺失：`cd .pi/extensions/narrative-engine && npm rebuild better-sqlite3`，然后 `/reload`。跑 `npm run doctor -- --novel <目录>` 能确诊。
+A: 九成是 better-sqlite3 绑定缺失：`cd .pi/extensions/narrative-engine && npm rebuild better-sqlite3`，然后 `/reload`。跑 `npm run doctor -- --novel <目录>` 能确诊（doctor 会连 sharp / onnxruntime-node 一起查）。
+
+**Q: pi 启动就报 sharp 模块错误 / 扩展整个加载失败？**
+A: sharp 原生绑定缺失（transformers.js 静态 import 链）。`cd .pi/extensions/narrative-engine && npm rebuild sharp` 后重启。详见 SETUP.md §3.2。
+
+**Q: 新会话/切换会话后，引擎还记得上次写到哪吗？**
+A: 记得。`.pi/world-graph-v3/memory.md`（项目记忆）在每次事件写入后自动更新：当前 storyTime、在场角色、最近事件（含你的口述原文）。新会话启动时自动注入主会话上下文，storyTime 锚点也会从事件日志恢复。
+
+**Q: 改写了历史剧情后，想查“改写前角色知道什么”？**
+A: 用双时态检索：先 `world_status` 记下改写前的 `recordedNow` 坐标，再 `world_character_view` / `world_entity_get` 传 `recordedAsOf=<坐标>`——结果只含该时点之前写入的内容，后续改写不可见。
 
 **Q: scheduler_dispatch 报 "fetch failed"？**
 A: 向量模型没缓存且 huggingface.co 不可达。`export HF_ENDPOINT=https://hf-mirror.com` 后重启；首次成功下载后离线可用。

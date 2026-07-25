@@ -25,7 +25,8 @@
     │   └── narrative-engine/
     ├── world-graph-v3/     # 世界图（git 跟踪）
     │   ├── world.db        #   SQLite（bi-temporal 节点 + FTS5 + 向量索引）
-    │   └── events.jsonl    #   事件日志（因果链可回溯）
+    │   ├── events.jsonl    #   事件日志（因果链可回溯）
+    │   └── memory.md       #   项目记忆（引擎自动维护，勿手改：当前 storyTime/在场角色/最近事件含口述原文）
     └── scheduler-plans/    # plan 缓存（TTL 1h，gitignore）
 ```
 
