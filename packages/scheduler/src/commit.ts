@@ -12,6 +12,13 @@
  *    - 直接调 wg.addRelation(sourceId, targetId, label, storyTime)
  *    - source/target 均为 characterId（role-pool prompt 已让 LLM 直接输出 ID）
  *    - 无需"实体消解"
+ * 5.5 自产自知可见性（2026-07-25 修复角色自盲断链，审计核对项 4）
+ *    - state_changes 写入的新 Fact 只对已有 Visibility 记录的角色可见
+ *    - 此前 commit 不写 Visibility → 下一场 character_view 五步过滤把新 Fact 滤掉
+ *      → 角色看不见自己上一场的状态变化（"自盲"）
+ *    - 修复：为产生该 state_change 的角色（作者）写入 Visibility（state=known,
+ *      source=experienced, confidence=1）；declarationId 按 world-graph 生成规则
+ *      `decl-{entityId}-{property}-{storyTime}` 重建
  * 6. 投影为 RoleOutput[]（去掉 state_changes 和 characterId，保留渲染器需要的 6 字段）
  * 7. 按 event.intent 分支写章节文件（Pending Gap #4 已完成）：
  *    - add（缺省）：renderer.renderToFile(mode="append")
@@ -71,6 +78,20 @@ export async function commit(
   //    StateChange 结构兼容 world_event_apply 的 newFacts
   const stateChanges = extractStateChanges(roleResult.outputs);
 
+  // 2.5 建立 state_change 作者映射（entityId → 产生变更的 characterId 集合）
+  //     供步骤 4.3 写入"自产自知"可见性（extractStateChanges 不保留作者，直接遍历 outputs）
+  const changeAuthors = new Map<string, Set<string>>();
+  for (const out of roleResult.outputs) {
+    for (const change of out.state_changes ?? []) {
+      let set = changeAuthors.get(change.entityId);
+      if (!set) {
+        set = new Set();
+        changeAuthors.set(change.entityId, set);
+      }
+      set.add(out.characterId);
+    }
+  }
+
   // 3. 按 entityId 分组（每个 entityId 生成一个 change 事件，决策 #7）
   const changesByEntity = groupBy(stateChanges, (c) => c.entityId);
 
@@ -115,6 +136,29 @@ export async function commit(
       })),
     });
     appliedEventIds.push(subEventId);
+
+    // 4.3 自产自知：为产生这些变更的角色写入新 Fact 的可见性
+    //     不修则下一场 character_view 五步过滤会把新 Fact 滤掉（角色自盲）
+    const knowers = changeAuthors.get(entityId);
+    if (knowers) {
+      for (const change of changes) {
+        // declarationId 生成规则与 world-graph.processEvent 一致
+        const declarationId = `decl-${entityId}-${change.property}-${event.storyTime}`;
+        for (const knowerId of knowers) {
+          try {
+            await ctx.wg.setVisibility(knowerId, declarationId, {
+              state: "known",
+              confidence: 1,
+              source: "experienced",
+              validFrom: event.storyTime,
+              isExplicit: true,
+            });
+          } catch {
+            // 重复可见性等异常不阻断 commit（与导入器 write.ts 的容错策略一致）
+          }
+        }
+      }
+    }
   }
 
   // 5. relation_update 写入世界图（2026-07-25 解决 Pending Gap #2）

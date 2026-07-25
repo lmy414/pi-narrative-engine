@@ -34,6 +34,10 @@ export interface FactSnapshot {
   valueText?: string;
   modality: "fact" | "belief" | "hypothesis";
   validFrom: string;
+  /** 失效时刻（"Infinity" = 未闭合）；已闭合的为历史知识，渲染时标注（旧） */
+  validTo?: string;
+  /** 属主名称（调度器解析 entityId 后填入）；渲染为 `- [属主] property: value（modality）` */
+  ownerName?: string;
 }
 
 /**

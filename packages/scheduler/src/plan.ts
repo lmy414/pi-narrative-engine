@@ -107,6 +107,28 @@ export async function plan(
     }
   }
 
+  // 5.5 解析动态层属主名称（2026-07-25 审计 P1）
+  //     formatFact 以 `- [属主] property: value（modality）` 渲染归属。
+  //     收集全部动态 Fact 的 entityId，批量解析：name Fact → summary（截断）→ entityId
+  const ownerEntityIds = new Set<string>();
+  for (const facts of dynamicFactsByCharacter.values()) {
+    for (const f of facts) ownerEntityIds.add(f.entityId);
+  }
+  const ownerNames = new Map<string, string>();
+  for (const eid of ownerEntityIds) {
+    const snap = await ctx.wg.getEntityAt(eid, event.storyTime);
+    const nameFact = snap?.properties.find((p) => p.property === "name");
+    ownerNames.set(
+      eid,
+      nameFact ? String(nameFact.value) : snap?.summary ? String(snap.summary).slice(0, 20) : eid,
+    );
+  }
+  for (const facts of dynamicFactsByCharacter.values()) {
+    for (const f of facts) {
+      f.ownerName = ownerNames.get(f.entityId) ?? f.entityId;
+    }
+  }
+
   // 6. 为每个角色构建 CastMember
   const cast: CastMember[] = [];
   for (const characterId of event.characterIds) {

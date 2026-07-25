@@ -19,6 +19,16 @@ test("resolveChapterPath: 大数字 ch-100", () => {
   assert.equal(p, path.join("D:/novel", "正文", "第100章-未命名.md"));
 });
 
+test("resolveChapterPath: 导入器格式 ch009.ev003 取章节号（审计 Q3）", () => {
+  const p = resolveChapterPath("D:/novel", "ch009.ev003");
+  assert.equal(p, path.join("D:/novel", "正文", "第9章-未命名.md"));
+});
+
+test("resolveChapterPath: 导入器格式 ch001.ev021", () => {
+  const p = resolveChapterPath("D:/novel", "ch001.ev021");
+  assert.equal(p, path.join("D:/novel", "正文", "第1章-未命名.md"));
+});
+
 test("resolveChapterPath: 非 ch-N 格式兜底为第1章", () => {
   const p = resolveChapterPath("D:/novel", "invalid");
   assert.equal(p, path.join("D:/novel", "正文", "第1章-未命名.md"));

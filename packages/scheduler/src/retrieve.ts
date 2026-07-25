@@ -200,6 +200,7 @@ function stateDeclToFact(d: StateDeclaration): FactSnapshot {
     valueText: d.valueText,
     modality: d.modality,
     validFrom: d.validFrom,
+    validTo: d.validTo,
   };
 }
 
@@ -235,6 +236,7 @@ function hitsToFactSnapshots(
         valueText: node.valueText,
         modality: node.modality ?? "fact",
         validFrom: node.validFrom ?? storyTime,
+        validTo: typeof node.validTo === "string" ? node.validTo : undefined,
       });
     } else if (nodeType === "Entity") {
       // Entity 节点：summary 作为一条 fact

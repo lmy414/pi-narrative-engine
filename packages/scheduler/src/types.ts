@@ -46,6 +46,17 @@ export interface FactSnapshot {
   valueText?: string;
   modality: "fact" | "belief" | "hypothesis";
   validFrom: string;
+  /**
+   * 失效时刻（"Infinity" = 未闭合）
+   * 2026-07-25 新增（审计 P2）：role-pool 渲染时区分"当前状态"与"历史知识"
+   */
+  validTo?: string;
+  /**
+   * 属主名称（如 "彩叶"）
+   * 2026-07-25 新增（审计 P1）：由调度器在组装 dynamicFacts 时解析 entityId 填入，
+   * role-pool 渲染为 `- [属主] property: value（modality）`，解决动态层无归属问题
+   */
+  ownerName?: string;
 }
 
 // ---------------------------------------------------------------------------

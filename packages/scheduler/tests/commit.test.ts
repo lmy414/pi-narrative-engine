@@ -47,9 +47,11 @@ function makeMockWg(): {
   wg: WorldGraph;
   processEventCalls: any[];
   addRelationCalls: any[];
+  setVisibilityCalls: any[];
 } {
   const processEventCalls: any[] = [];
   const addRelationCalls: any[] = [];
+  const setVisibilityCalls: any[] = [];
   const wg = {
     getEntityAt: async () => null,
     processEvent: async (input: any) => {
@@ -58,8 +60,11 @@ function makeMockWg(): {
     addRelation: async (sourceId: string, targetId: string, label: string, storyTime: string) => {
       addRelationCalls.push({ sourceId, targetId, label, storyTime });
     },
+    setVisibility: async (characterId: string, declarationId: string, opts: any) => {
+      setVisibilityCalls.push({ characterId, declarationId, opts });
+    },
   } as unknown as WorldGraph;
-  return { wg, processEventCalls, addRelationCalls };
+  return { wg, processEventCalls, addRelationCalls, setVisibilityCalls };
 }
 
 /**
@@ -240,6 +245,52 @@ test("commit: state_changes 触发 wg.processEvent 调用", async () => {
   assert.equal(processEventCalls[0].type, "change");
   assert.equal(processEventCalls[0].entityId, "e_lin");
   assert.equal(result.appliedEventIds.length, 1);
+});
+
+// ----------------------------------------------------------------------------
+// 自产自知可见性测试（2026-07-25 修复角色自盲，审计核对项 4）
+// state_changes 写入的新 Fact 必须对产生变更的角色可见，
+// 否则下一场 character_view 五步过滤会把它滤掉（角色"自盲"）
+// ----------------------------------------------------------------------------
+
+test("commit: state_changes 的新 Fact 为作者角色写入可见性（自盲回归）", async () => {
+  const { wg, setVisibilityCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].state_changes = [
+    {
+      entityId: "e_lin",
+      property: "mood",
+      value: "绝望",
+      modality: "fact",
+    },
+  ];
+  setPlan("plan_vis", plan);
+
+  const result = await commit("plan_vis", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(setVisibilityCalls.length, 1, "应有 1 次 setVisibility 调用");
+  assert.equal(setVisibilityCalls[0].characterId, "e_lin", "作者角色应获得可见性");
+  assert.equal(
+    setVisibilityCalls[0].declarationId,
+    "decl-e_lin-mood-ch-2",
+    "declarationId 应与 world-graph 生成规则一致",
+  );
+  assert.equal(setVisibilityCalls[0].opts.state, "known");
+  assert.equal(setVisibilityCalls[0].opts.validFrom, "ch-2");
+});
+
+test("commit: 无 state_changes 时不调 setVisibility", async () => {
+  const { wg, setVisibilityCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  setPlan("plan_no_vis", plan);
+
+  const result = await commit("plan_no_vis", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(setVisibilityCalls.length, 0, "无变更不应写可见性");
 });
 
 // ============================================================================

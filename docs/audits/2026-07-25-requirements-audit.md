@@ -404,11 +404,11 @@ novel init <dir>（或 pi 命令 /novel-init）应做的事：
 
 ### 🔴 高危（阻断连续叙事正确性）
 
-1. **角色自盲**：commit 写 state_changes 不写 Visibility → 下一场角色看不见自己的新状态（项 4）
-2. **动态层无归属**：formatFact 不渲染 entityId，67 条混排（项 3/6）
-3. **历史/当前不分**：知识持续语义下已闭合旧 Fact 与当前 Fact 同样渲染（项 6-P2）
-4. **垃圾数据入图**：空章节占位 Fact（"本章无内容"）（项 6-P4）
-5. **storyTime 格式分裂**：chapter-resolver 对导入数据失配（项 7-Q3）
+1. ~~**角色自盲**~~ → **已修复**（commit.ts 步骤 4.3：state_changes 新 Fact 为作者角色写 Visibility（自产自知），declarationId 按 `decl-{entityId}-{property}-{storyTime}` 重建；+2 回归测试）
+2. ~~**动态层无归属**~~ → **已修复**（FactSnapshot +ownerName/validTo；plan.ts 步骤 5.5 解析属主名；formatFact 渲染 `- [属主] property: value（modality）`，已闭合标注 `（fact·旧）`；+3 测试；真实数据模拟验证）
+3. ~~**历史/当前不分**~~ → **已修复**（同 #2 的 `（fact·旧）` 标注）
+4. **垃圾数据入图**：空章节占位 Fact（"本章无内容"）（项 6-P4）——待修（导入器校验 + 数据清理）
+5. ~~**storyTime 格式分裂**~~ → **已修复**（chapter-resolver 正则改 `/^ch-?(\d+)(?:\.ev\d+)?$/` 双格式兼容，取章节号；+2 测试）
 
 ### ⚠️ 中低危
 

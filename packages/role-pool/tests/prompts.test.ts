@@ -106,6 +106,49 @@ test("buildUserMessage: 包含动态层事实", () => {
   assert.ok(msg.includes("山神庙"), "应包含 location 值");
 });
 
+// ----------------------------------------------------------------------------
+// 归属与历史标注（2026-07-25 审计 P1/P2）
+// ----------------------------------------------------------------------------
+
+test("buildUserMessage: 动态层渲染属主名（P1 归属）", () => {
+  const member: CastMember = {
+    characterId: "linchong",
+    staticCard: mockMember.staticCard,
+    dynamicFacts: [
+      { declarationId: "d1", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
+      { declarationId: "d2", entityId: "luqian", property: "plan", value: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦" },
+    ],
+  };
+  const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-1", cast: [member] };
+  const msg = buildUserMessage(cmd, member, []);
+  assert.ok(msg.includes("- [林冲] mood: 愤怒（fact）"), "应渲染自身属主名");
+  assert.ok(msg.includes("- [陆谦] plan: 火烧草料场（hypothesis）"), "应渲染他人属主名");
+});
+
+test("buildUserMessage: 无 ownerName 时兑底 entityId", () => {
+  const msg = buildUserMessage(
+    { eventInstruction: "测试", storyTime: "ch-1", cast: [mockMember] },
+    mockMember,
+    [],
+  );
+  assert.ok(msg.includes("- [linchong] mood: 愤怒（fact）"), "应兑底 entityId");
+});
+
+test("buildUserMessage: 已闭合声明标注（旧）（P2 历史/当前区分）", () => {
+  const member: CastMember = {
+    characterId: "linchong",
+    staticCard: mockMember.staticCard,
+    dynamicFacts: [
+      { declarationId: "d1", entityId: "linchong", property: "mood", value: "放松", modality: "fact", validFrom: "ch-1", validTo: "ch-2", ownerName: "林冲" },
+      { declarationId: "d2", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-2", validTo: "Infinity", ownerName: "林冲" },
+    ],
+  };
+  const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-2", cast: [member] };
+  const msg = buildUserMessage(cmd, member, []);
+  assert.ok(msg.includes("- [林冲] mood: 放松（fact·旧）"), "已闭合应标注旧");
+  assert.ok(msg.includes("- [林冲] mood: 愤怒（fact）"), "未闭合不应标注");
+});
+
 test("buildUserMessage: 先动者行动在事件指令之前", () => {
   const cmd: InteractCommand = {
     eventInstruction: "武松进场",

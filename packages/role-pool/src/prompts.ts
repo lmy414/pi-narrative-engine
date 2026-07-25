@@ -106,7 +106,9 @@ export function buildUserMessage(
   parts.push("");
 
   // 2. 当前状态（动态层）
-  parts.push("─── 你的当前状态（动态层）───");
+  //    注意：动态层是该角色"可见的全部声明"（五步过滤结果），
+  //    不止自身状态，还包括他所知的他人/他物信息——标题如实说明
+  parts.push("─── 你所知道的世界状态（动态层，含你所知的他人/他物信息）───");
   if (member.dynamicFacts.length === 0) {
     parts.push("（无动态状态）");
   } else {
@@ -150,8 +152,16 @@ export function buildUserMessage(
 
 /**
  * 格式化单条 Fact 为可读文本
+ *
+ * 2026-07-25（审计 P1/P2）：
+ * - 带属主名：`- [属主] property: value（modality）`，解决动态层无归属问题
+ *   （动态层可包含其他实体的可见声明，仅渲染 property 会让 LLM 分不清是谁的）
+ * - 已闭合声明标注（旧）：知识持续语义下旧状态仍注入，需与当前状态区分
  */
 function formatFact(fact: FactSnapshot): string {
   const valueText = fact.valueText ?? String(fact.value);
-  return `- ${fact.property}: ${valueText}（${fact.modality}）`;
+  const owner = fact.ownerName ?? fact.entityId;
+  const closed = fact.validTo && fact.validTo !== "Infinity";
+  const modality = closed ? `${fact.modality}·旧` : fact.modality;
+  return `- [${owner}] ${fact.property}: ${valueText}（${modality}）`;
 }
