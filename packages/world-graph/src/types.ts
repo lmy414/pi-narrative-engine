@@ -74,6 +74,13 @@ export const EventRecord = z.object({
     modality: Modality,
   })).optional(),
   causedBy: z.string().optional(),
+  /**
+   * 用户口述原文（2026-07-25 新增，跨会话项目记忆）
+   * 主会话把用户的自然语言原话透传到 scheduler_dispatch(userInput)，
+   * commit 写扩散时落到每个 change 事件；引擎自动维护的项目记忆文件
+   * （memory.md）展示最近事件时引用此字段。
+   */
+  userInput: z.string().optional(),
 });
 export type EventRecord = z.infer<typeof EventRecord>;
 /** 调用方传入的事件（source 可省略，parse 时默认 "engine"） */

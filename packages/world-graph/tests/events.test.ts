@@ -120,3 +120,26 @@ test("processEvent 写入 JSONL 日志", withTempWg(async (wg, dir) => {
   assert.equal(chain.length, 1);
   assert.equal(chain[0].eventId, "evt-log-1");
 }));
+
+test("processEvent 持久化 userInput（用户口述原文）", withTempWg(async (wg) => {
+  await wg.processEvent({
+    eventId: "evt-ui-1",
+    type: "change",
+    storyTime: "ch001.ev001",
+    entityId: "e1",
+    newFacts: [{ entityId: "e1", property: "mood", value: "好奇", modality: "fact" }],
+    userInput: "彩叶推开咖啡厅的门",
+  });
+  const events = await wg.getAllEvents();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].userInput, "彩叶推开咖啡厅的门");
+  // 无 userInput 的事件该字段为 undefined（可选字段不落默认值）
+  await wg.processEvent({
+    eventId: "evt-ui-2",
+    type: "change",
+    storyTime: "ch001.ev002",
+    entityId: "e1",
+  });
+  const all = await wg.getAllEvents();
+  assert.equal(all[1].userInput, undefined);
+}));

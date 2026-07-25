@@ -94,6 +94,7 @@
 |------|------|
 | `world.db` | SQLite 数据库（Entity/Fact/Relation/Visibility 节点 + fulltext/vector 索引） |
 | `events.jsonl` | 事件日志（JSONL 格式，每行一条 EventRecord） |
+| `memory.md` | 跨会话项目记忆（2026-07-25 新增；引擎自动维护，勿手改：当前 storyTime / 在场角色 / 最近事件含口述原文） |
 
 ### 2.2 导入目录（import_novel 工具）
 
@@ -1246,6 +1247,7 @@ export type { StructuredEvent, RetrievalPlan, RetrievalItem, PlanResult,
   locationId?: string;
   intent?: "add" | "modify" | "insert";
   targetEventId?: string;         // modify/insert 必填
+  userInput?: string;             // 用户口述原文（2026-07-25 新增；commit 时落入 EventRecord.userInput）
 }
 ```
 
@@ -1452,6 +1454,7 @@ interface EventRecord {
     modality: Modality;
   }>;
   causedBy?: string;        // 因果链前驱事件 ID
+  userInput?: string;       // 用户口述原文（2026-07-25 新增；主会话透传，供项目记忆 memory.md 展示）
 }
 ```
 

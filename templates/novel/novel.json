@@ -4,6 +4,6 @@
   "engineVersion": "0.1.0",
   "worldGraphDir": ".pi/world-graph-v3",
   "chaptersDir": "正文",
-  "storyTimeFormat": "ch-{N}",
+  "storyTimeFormat": "ch{NNN}.ev{NNN}",
   "createdAt": "{{date}}"
 }

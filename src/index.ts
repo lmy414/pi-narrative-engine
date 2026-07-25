@@ -59,6 +59,7 @@ import {
 import { makeSchedulerCtx } from "./scheduler-llm.ts";
 import { getLlmConfig } from "./llm-config.ts";
 import { parseCardFile, importCardToWorldGraph } from "./tools/import-card.ts";
+import { loadMemory, updateMemory, latestStoryTime } from "./memory.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -184,6 +185,21 @@ export default function (pi: ExtensionAPI) {
     embedder = new Embedder();
     search = new Search(wg, embedder);
     currentStoryTime = null;
+
+    // 跨会话恢复 storyTime 锚点（2026-07-25 项目记忆）
+    // pi 无跨会话记忆，session 内存状态全部重建；世界图是持久真相，
+    // 从事件日志恢复最大 storyTime，避免新会话失去时间锚点。
+    try {
+      currentStoryTime = await latestStoryTime(wg);
+      // 记忆文件自愈：事件存在但 memory.md 缺失（老项目/被删）时重建
+      const existing = await loadMemory(ctx.cwd);
+      if (currentStoryTime && !existing) {
+        await updateMemory(wg, ctx.cwd);
+      }
+    } catch (err) {
+      ctx.ui.notify(`[narrative-engine] 恢复 storyTime/记忆文件失败: ${err}`, "warning");
+    }
+
     ctx.ui.notify(`[narrative-engine] 已初始化世界图: ${dir}`, "info");
 
     // 恢复未 commit 的 plan（Pending Gap #6 持久化）
@@ -224,11 +240,16 @@ export default function (pi: ExtensionAPI) {
   // - before_agent_start 在每次用户提交 prompt 时触发，但 mainSessionPrompt
   //   是 session_start 时一次性加载的，避免每轮读盘
   // - 若 mainSessionPrompt 为空（加载失败），不修改 systemPrompt，主会话仍可工作
+  // - 项目记忆（memory.md）每次重新读盘：它在会话进行中会被 commit 等
+  //   写入路径更新，必须拿最新内容（文件很小，读盘开销可忽略）
   pi.on("before_agent_start", async (event) => {
-    if (!mainSessionPrompt) return;
-    return {
-      systemPrompt: event.systemPrompt + "\n\n" + mainSessionPrompt,
-    };
+    let prompt = event.systemPrompt;
+    if (mainSessionPrompt) prompt += "\n\n" + mainSessionPrompt;
+    if (sessionCwd) {
+      const memory = await loadMemory(sessionCwd);
+      if (memory) prompt += "\n\n" + memory;
+    }
+    return { systemPrompt: prompt };
   });
 
   pi.on("session_shutdown", async () => {
@@ -489,12 +510,21 @@ export default function (pi: ExtensionAPI) {
           property: Type.String(),
         }))),
         causedBy: Type.Optional(Type.String()),
+        userInput: Type.Optional(Type.String({
+          description: "用户口述原文（写入事件日志，供项目记忆展示）",
+        })),
       }),
     }),
     async execute(_id, params) {
       const g = requireWg();
       await g.processEvent(params.event);
       currentStoryTime = params.event.storyTime;
+      // 更新项目记忆（失败不阻断事件应用）
+      try {
+        await updateMemory(g, sessionCwd ?? process.cwd());
+      } catch (err) {
+        console.warn(`[narrative-engine] 更新项目记忆失败: ${err}`);
+      }
       const details = { ok: true, eventId: params.event.eventId, type: params.event.type };
       return {
         content: [{ type: "text", text: `事件 ${params.event.eventId}（${params.event.type}）已应用 @ ${params.event.storyTime}` }],
@@ -1162,7 +1192,7 @@ export default function (pi: ExtensionAPI) {
       "调度器派发事件：planner LLM 推导检索计划→检索世界图→role-pool 演绎→（plan 模式返回；yolo 模式自动 commit 写扩散+渲染）。plan 模式下返回 planId 供 scheduler_commit/scheduler_discard 使用。",
     promptSnippet: "派发事件到调度器（plan/yolo 双模式）",
     parameters: Type.Object({
-      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      storyTime: Type.String({ description: "故事时间（格式 ch{NNN}.ev{NNN}，如 ch009.ev006；同章内 ev+1，进新章 ch+1 且 ev 从 001 开始）" }),
       instruction: Type.String({ description: "事件指令（自然语言，主会话已加工）" }),
       characterIds: Type.Array(Type.String(), {
         description: "参与角色 ID 列表（主会话已识别）",
@@ -1188,6 +1218,9 @@ export default function (pi: ExtensionAPI) {
       targetEventId: Type.Optional(Type.String({
         description: "modify/insert 模式必填：目标事件 ID（modify 重写该锚点区间，insert 在该锚点后插入）",
       })),
+      userInput: Type.Optional(Type.String({
+        description: "用户口述原文（主会话透传用户原话，写入事件日志供项目记忆展示）",
+      })),
     }),
     async execute(_id, params) {
       const g = requireWg();
@@ -1205,9 +1238,26 @@ export default function (pi: ExtensionAPI) {
         locationId: params.locationId,
         intent: params.intent,
         targetEventId: params.targetEventId,
+        userInput: params.userInput,
       };
 
       const result = await schedulerPlan(event, ctx);
+
+      // 推进 storyTime 锚点（2026-07-25 修复：dispatch/commit 此前不更新
+      // currentStoryTime，导致后续工具调用失去时间锚点）
+      // modify/insert 可能锚定历史时刻，故只前进不后退
+      if (!currentStoryTime || params.storyTime > currentStoryTime) {
+        currentStoryTime = params.storyTime;
+      }
+
+      // yolo 模式已在调度器内部 commit，这里同步更新项目记忆
+      if (result.mode === "yolo") {
+        try {
+          await updateMemory(g, cwd);
+        } catch (err) {
+          console.warn(`[narrative-engine] 更新项目记忆失败: ${err}`);
+        }
+      }
 
       const text = result.mode === "yolo"
         ? `调度器 yolo 模式完成：planId=${result.planId}，已 commit（${result.commitResult.appliedEventIds.length} 个 change 事件，已渲染到 ${result.commitResult.chapterPath}）`
@@ -1235,6 +1285,15 @@ export default function (pi: ExtensionAPI) {
       const ctx = await makeSchedulerCtx(g, emb, cwd);
 
       const result = await schedulerCommit(params.planId, ctx);
+
+      // 写扩散完成后更新项目记忆（失败不阻断 commit 结果）
+      if (result.ok) {
+        try {
+          await updateMemory(g, cwd);
+        } catch (err) {
+          console.warn(`[narrative-engine] 更新项目记忆失败: ${err}`);
+        }
+      }
 
       const text = result.ok
         ? `已提交 plan ${params.planId}：${result.appliedEventIds.length} 个 change 事件，渲染到 ${result.chapterPath}`

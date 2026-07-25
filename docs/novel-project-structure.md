@@ -37,7 +37,7 @@
 | `engine` / `engineVersion` | 引擎标识与版本 |
 | `worldGraphDir` | 世界图目录（相对项目根，缺省 `.pi/world-graph-v3`） |
 | `chaptersDir` | 章节目录（缺省 `正文`） |
-| `storyTimeFormat` | storyTime 格式约定（当前 `ch-{N}`；导入器 `chNNN.evNNN` 的统一修复以此为准，见审计 P-Q3） |
+| `storyTimeFormat` | storyTime 格式约定（`ch{NNN}.ev{NNN}`：ch+3 位零填充=章节号，.ev+3 位零填充=章内事件序号；同章内 ev+1，进新章 ch+1 且 ev 从 001 开始；零填充保证字典序==时序） |
 | `createdAt` | 初始化日期 |
 
 > **注意**：v1 的引擎代码尚未读取 novel.json（路径仍硬编码）。清单是"约定先行"，

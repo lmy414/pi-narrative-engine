@@ -53,7 +53,20 @@ npm rebuild better-sqlite3
 
 （网络受限时 prebuild 下不动，会回退源码编译——所以需要 C++ 编译环境。）
 
-### 3.2 向量模型下载失败（huggingface.co 不可达）
+### 3.2 sharp 原生绑定缺失（扩展 import 即崩）🔴
+
+**症状**：扩展加载失败 / 测试文件集体崩溃，报 `Something went wrong installing the "sharp" module` / `Cannot find module '../build/Release/sharp-win32-x64.node'`。
+**根因**：`@xenova/transformers` 的 `src/utils/image.js` **静态** `import sharp from 'sharp'`（本项目只用文本 embedding，根本用不到 sharp，但 import 链躲不开）。`embedder.ts` 里的 `env.sharp = false` 只能阻止运行时调用，**防不住静态 import**——绑定一缺，整个扩展 import 即崩。
+**修复**：
+
+```bash
+cd <小说目录>/.pi/extensions/narrative-engine   # 或引擎仓库根目录
+npm rebuild sharp
+# 若 rebuild 无效（prebuild 下载失败）：
+npm install --platform=win32 --arch=x64 sharp   # 按实际平台调整
+```
+
+### 3.3 向量模型下载失败（huggingface.co 不可达）
 
 **症状**：`scheduler_dispatch` 报 `fetch failed`。
 **修复**：
@@ -66,7 +79,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 **注意**：缓存路径是 `<扩展目录>/node_modules/@xenova/transformers/.cache/`（不是 `~/.cache/huggingface`）。sync 保留 node_modules，缓存不会因重新同步丢失。
 
-### 3.3 模型名变更
+### 3.4 模型名变更
 
 默认模型 `deepseek-v4-flash`。若 API 报 `invalid_request_error`，用环境变量覆盖：
 
@@ -75,11 +88,11 @@ export PI_MODEL=<你的模型名>
 # 或按角色分开：PI_PLANNER_MODEL / PI_ROLE_MODEL / PI_RENDERER_MODEL
 ```
 
-### 3.4 sync 后工具消失/行为没变
+### 3.5 sync 后工具消失/行为没变
 
 `npm run sync` 只复制文件，**pi 需要 `/reload`（或重启会话）才加载新代码**。规则集 .md 例外（每次调用重读）。
 
-### 3.5 Windows 换行符
+### 3.6 Windows 换行符
 
 git 会提示 LF→CRLF 警告，无害。可视化前端和渲染器都兼容。
 

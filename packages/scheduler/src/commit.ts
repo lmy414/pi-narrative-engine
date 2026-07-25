@@ -127,6 +127,7 @@ export async function commit(
       storyTime: event.storyTime,
       entityId,
       source: "engine",
+      userInput: event.userInput,
       invalidated: invalidated.length > 0 ? invalidated : undefined,
       newFacts: changes.map((c) => ({
         entityId: c.entityId,

@@ -6,7 +6,7 @@
  *
  * 检查项（每项 ✅/❌/⚠️ + 修复指引）：
  *   1. Node.js 版本（>= 20）
- *   2. better-sqlite3 原生绑定（历史上最频发的坑：绑定缺失导致世界图无法初始化）
+ *   2. 原生绑定（better-sqlite3 / sharp / onnxruntime-node——缺失分别导致世界图无法初始化、扩展 import 崩溃、向量模型无法推理）
  *   3. dist/ 构建产物（是否跑过 npm run build）
  *   4. templates/novel/ 模板目录
  *   5. LLM API key（DEEPSEEK_API_KEY / PI_API_KEY）
@@ -48,20 +48,47 @@ if (major >= 20) ok(`${process.version}（>= 20）`);
 else fail(`${process.version} 过旧，需要 Node.js >= 20`, "https://nodejs.org/ 或 nvm 安装 LTS");
 
 // ---------------------------------------------------------------------------
-console.log("\n[2/8] better-sqlite3 原生绑定");
-try {
+console.log("\n[2/8] 原生绑定（better-sqlite3 / sharp / onnxruntime-node）");
+{
   const { createRequire } = await import("node:module");
   const req = createRequire(resolve(repoRoot, "package.json"));
-  const Database = req("better-sqlite3");
-  const db = new Database(":memory:");
-  db.exec("CREATE TABLE t(a)");
-  db.close();
-  ok("绑定可加载，内存库读写正常");
-} catch {
-  fail(
-    "原生绑定缺失或 ABI 不匹配（世界图将无法初始化，且错误会被静默吞掉）",
-    "运行 npm rebuild better-sqlite3；若网络受限需先配好 C++ 编译环境（Windows: VS Build Tools）",
-  );
+
+  // better-sqlite3：世界图存储
+  try {
+    const Database = req("better-sqlite3");
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t(a)");
+    db.close();
+    ok("better-sqlite3 绑定可加载，内存库读写正常");
+  } catch {
+    fail(
+      "better-sqlite3 原生绑定缺失或 ABI 不匹配（世界图将无法初始化，且错误会被静默吞掉）",
+      "运行 npm rebuild better-sqlite3；若网络受限需先配好 C++ 编译环境（Windows: VS Build Tools）",
+    );
+  }
+
+  // sharp：@xenova/transformers 的传递依赖，src/utils/image.js 静态 import。
+  // 绑定一缺，扩展 import 即崩（embedder.ts 的 env.sharp=false 防不住静态 import）。
+  try {
+    req("sharp");
+    ok("sharp 绑定可加载（transformers.js 静态 import 链安全）");
+  } catch {
+    fail(
+      "sharp 原生绑定缺失（扩展将 import 崩溃：Something went wrong installing the \"sharp\" module）",
+      "运行 npm rebuild sharp；或 npm install --platform=win32 --arch=x64 sharp（按实际平台调整）",
+    );
+  }
+
+  // onnxruntime-node：embedding 模型推理后端
+  try {
+    req("onnxruntime-node");
+    ok("onnxruntime-node 绑定可加载（向量推理后端可用）");
+  } catch {
+    fail(
+      "onnxruntime-node 原生绑定缺失（首次向量检索将失败）",
+      "运行 npm rebuild onnxruntime-node；或重装：npm install onnxruntime-node",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +181,22 @@ if (novelIdx >= 0 && process.argv[novelIdx + 1]) {
   if (existsSync(extDir)) {
     if (hasModelCache(extDir)) ok("扩展目录模型已缓存（向量检索离线可用）");
     else warn("扩展目录模型未缓存：首次向量检索需下载（可用 HF_ENDPOINT 镜像）");
+    // 扩展目录的原生绑定（运行时真正加载的是这里的 node_modules）
+    if (existsSync(join(extDir, "node_modules"))) {
+      const { createRequire } = await import("node:module");
+      const extReq = createRequire(join(extDir, "package.json"));
+      for (const pkg of ["better-sqlite3", "sharp", "onnxruntime-node"]) {
+        try {
+          extReq(pkg);
+          ok(`扩展目录 ${pkg} 绑定可加载`);
+        } catch {
+          fail(
+            `扩展目录 ${pkg} 原生绑定缺失（扩展运行时将崩）`,
+            `cd ${extDir} && npm rebuild ${pkg}`,
+          );
+        }
+      }
+    }
   }
 } else {
   console.log("\n[8/8] 小说工程结构（跳过，--novel <目录> 可检查）");

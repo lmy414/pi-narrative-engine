@@ -112,6 +112,12 @@ export interface StructuredEvent {
   intent?: "add" | "modify" | "insert";
   /** modify/insert 模式下的目标事件 ID */
   targetEventId?: string;
+  /**
+   * 用户口述原文（2026-07-25 新增，跨会话项目记忆）
+   * 主会话把用户原话透传过来；commit 写扩散时落到每个 change 事件的
+   * EventRecord.userInput，供项目记忆文件（memory.md）展示最近事件。
+   */
+  userInput?: string;
 }
 
 // ---------------------------------------------------------------------------
