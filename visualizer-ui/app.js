@@ -14,11 +14,12 @@
       DetailEditor: C.DetailEditor,
       EntityForm: C.EntityForm,
       EventTimeline: C.EventTimeline,
-      HelpTour: C.HelpTour
+      HelpTour: C.HelpTour,
+      DebugView: C.DebugView
     },
     data: function () {
       return {
-        mainTab: "workbench",        // workbench | events
+        mainTab: "workbench",        // workbench | events | debug
         storyTimes: [],
         storyTime: "",
         events: [],
@@ -188,6 +189,7 @@
           <el-radio-group v-model="mainTab" size="small">
             <el-radio-button value="workbench">工作台</el-radio-button>
             <el-radio-button value="events">事件链</el-radio-button>
+            <el-radio-button value="debug">调试</el-radio-button>
           </el-radio-group>
           <span class="spacer"></span>
           <span class="tb-label">角色视角</span>
@@ -231,6 +233,8 @@
       </main>
 
       <event-timeline v-show="mainTab === 'events'" :events="events" :entity-names="entityNames"></event-timeline>
+
+      <debug-view v-show="mainTab === 'debug'"></debug-view>
 
       <entity-form v-model="entityDialog" :story-time="storyTime" @created="onCreated"></entity-form>
       <help-tour v-model="helpDialog"></help-tour>

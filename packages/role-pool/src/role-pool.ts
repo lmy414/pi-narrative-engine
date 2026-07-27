@@ -12,6 +12,7 @@
 import type {
   CastMember,
   InteractCommand,
+  InteractHooks,
   InteractResult,
   PriorAction,
   RoleAgentOutput,
@@ -24,17 +25,21 @@ import { buildSystemPrompt, buildUserMessage } from "./prompts.ts";
  *
  * @param cmd 调用命令（事件指令 + 演员表）
  * @param ctx 调用上下文（LLM 调用器 + 规则集）
+ * @param hooks 调试钩子（可选，逐角色回调，见 types.ts#InteractHooks）
  * @returns 成功输出 + 失败记录
  */
 export async function interact(
   cmd: InteractCommand,
   ctx: RoleCtx,
+  hooks?: InteractHooks,
 ): Promise<InteractResult> {
   const outputs: RoleAgentOutput[] = [];
   const errors: { characterId: string; error: string }[] = [];
   const priorActions: PriorAction[] = [];
 
+  let turnIndex = 0;
   for (const member of cmd.cast) {
+    const token = hooks?.onTurnStart?.(member, turnIndex++);
     try {
       // 透传 executionHints 到 system prompt（让角色也遵守用户特殊要求）
       const systemPrompt = buildSystemPrompt(member, ctx.ruleSet, cmd.executionHints);
@@ -48,11 +53,11 @@ export async function interact(
         action: output.action,
         ...(output.target !== undefined ? { target: output.target } : {}),
       });
+      hooks?.onTurnEnd?.(token, member, { output });
     } catch (err) {
-      errors.push({
-        characterId: member.characterId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const error = err instanceof Error ? err.message : String(err);
+      errors.push({ characterId: member.characterId, error });
+      hooks?.onTurnEnd?.(token, member, { error });
       // 跳过失败角色，继续后续角色
     }
   }

@@ -51,6 +51,9 @@ export {
 // Re-export 工具函数
 export { randomId, groupBy } from "./utils.ts";
 
+// Re-export 调试事件总线（2026-07-27 新增）
+export { startSpan, newTraceId } from "./debug.ts";
+
 // Re-export 类型
 export type {
   SillyTavernCard,
@@ -67,3 +70,5 @@ export type {
   DispatchPlanOutput,
   DispatchYoloOutput,
 } from "./types.ts";
+
+export type { DebugBus, DebugSpan, DebugEvent } from "./debug.ts";

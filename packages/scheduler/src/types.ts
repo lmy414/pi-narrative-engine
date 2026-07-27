@@ -17,6 +17,7 @@ import type {
   StateChange,
 } from "@pi/role-pool";
 import type { RenderLlmCaller, RoleOutput } from "@pi/renderer";
+import type { DebugBus } from "./debug.ts";
 
 /**
  * SillyTavern V2 角色卡（结构子集）
@@ -398,6 +399,22 @@ export interface SchedulerCtx {
     characterId: string,
     storyTime: string,
   ) => Promise<SillyTavernCard>;
+  /**
+   * 调试事件总线（可选注入，2026-07-27 新增）
+   *
+   * 注入后调度链关键点会发射 DebugEvent：
+   * - dispatch.start/end
+   * - plan.llm.start/end
+   * - retrieve.item.start/end（每项检索）
+   * - role.interact.start/end
+   * - commit.start/end
+   * - commit.step.{4,4.4,5,5.5,6,7}.start/end
+   * - render.llm.start/end
+   *
+   * 未注入时为 noop（零开销）。
+   * traceId 由 plan() / commit() 入口生成，贯穿同一次 dispatch 的所有事件。
+   */
+  debugBus?: DebugBus;
 }
 
 // ---------------------------------------------------------------------------

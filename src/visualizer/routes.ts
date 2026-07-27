@@ -15,12 +15,16 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { WorldGraph } from "@pi/world-graph";
 import type { EventRecordInput } from "@pi/world-graph";
 import type { Search } from "../search.ts";
+import type { DebugBus } from "../debug/types.ts";
+import { handleDebugStream, handleDebugEvents, handleDebugClear } from "../debug/sse.ts";
 
 export interface VisualizerContext {
   wg: WorldGraph;
   search: Search | null;
   /** standalone 无 embedder 时为 true：/api/search 强制 fulltext */
   forceFulltext: boolean;
+  /** 调试事件总线（null 时 /api/debug/* 返回 503） */
+  debugBus: DebugBus | null;
 }
 
 type JsonValue = unknown;
@@ -93,6 +97,31 @@ export async function handleApi(
     .split("/")
     .filter(Boolean)
     .map((s) => decodeURIComponent(s));
+
+  // /api/debug/* 路由特殊处理：SSE 流不能进入常规 try/catch（res 不能 end）
+  const [head] = segments;
+  if (head === "debug") {
+    if (!ctx.debugBus) {
+      fail(res, 503, "DEBUG_UNAVAILABLE", "调试总线未启用（未注入 debugBus）");
+      return;
+    }
+    const [, sub] = segments;
+    if (sub === "stream" && method === "GET") {
+      // SSE 长连接：handleDebugStream 内部自行管理 res 生命周期
+      handleDebugStream(ctx.debugBus, req, res);
+      return;
+    }
+    if (sub === "events" && method === "GET") {
+      handleDebugEvents(ctx.debugBus, res);
+      return;
+    }
+    if (sub === "clear" && method === "POST") {
+      handleDebugClear(ctx.debugBus, res);
+      return;
+    }
+    fail(res, 404, "NOT_FOUND", `未找到路由 ${method} ${url.pathname}`);
+    return;
+  }
 
   try {
     if (method === "GET") {

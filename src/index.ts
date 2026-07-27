@@ -60,6 +60,7 @@ import { makeSchedulerCtx } from "./scheduler-llm.ts";
 import { getLlmConfig } from "./llm-config.ts";
 import { parseCardFile, importCardToWorldGraph } from "./tools/import-card.ts";
 import { loadMemory, updateMemory, latestStoryTime } from "./memory.ts";
+import { createDebugBus, type DebugBus } from "./debug/bus.ts";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建）
@@ -70,6 +71,20 @@ let embedder: Embedder | null = null;
 let search: Search | null = null;
 let currentStoryTime: string | null = null;
 let visualizerServer: VisualizerServer | null = null;
+
+/**
+ * 调试事件总线（session 级单例，2026-07-27 新增）
+ *
+ * 生命周期与 wg/embedder 一致：session_start 时创建，session_shutdown 时释放。
+ * 容量 2000 条事件（环形缓冲，FIFO 淘汰）。
+ *
+ * 注入到：
+ * - SchedulerCtx.debugBus：调度链关键点发射 DebugEvent
+ * - startVisualizer：暴露 /api/debug/* 端点供前端订阅
+ *
+ * 不注入（=null/undefined）时所有 startSpan 调用为 no-op，零开销。
+ */
+let debugBus: DebugBus | null = null;
 
 /**
  * 主会话 system prompt 资源文件路径（Pending Gap #5）
@@ -186,6 +201,9 @@ export default function (pi: ExtensionAPI) {
     embedder = new Embedder();
     search = new Search(wg, embedder);
     currentStoryTime = null;
+    // 创建调试事件总线（容量 2000，环形缓冲）
+    // 若环境变量 PI_DEBUG=off 则禁用（零开销）
+    debugBus = process.env.PI_DEBUG === "off" ? null : createDebugBus(2000);
 
     // 跨会话恢复 storyTime 锚点（2026-07-25 项目记忆）
     // pi 无跨会话记忆，session 内存状态全部重建；世界图是持久真相，
@@ -281,6 +299,7 @@ export default function (pi: ExtensionAPI) {
     sessionCwd = null;
     mainSessionPrompt = null;
     engineGuidePrompt = null;
+    debugBus = null;
   });
 
   // --------------------------------------------------------------------------
@@ -808,6 +827,8 @@ export default function (pi: ExtensionAPI) {
           wg: g,
           search,
           ...(params.port !== undefined ? { port: params.port } : {}),
+          // 注入调试总线：未创建时传 null，前端 /api/debug/* 返回 503
+          ...(debugBus ? { debugBus } : {}),
         });
       } catch (err) {
         const message = `可视化服务启动失败：${(err as Error).message}（可尝试更换 port 参数）`;
@@ -1242,7 +1263,7 @@ export default function (pi: ExtensionAPI) {
       const g = requireWg();
       const emb = requireEmbedder();
       const cwd = sessionCwd ?? process.cwd();
-      const ctx = await makeSchedulerCtx(g, emb, cwd);
+      const ctx = await makeSchedulerCtx(g, emb, cwd, debugBus ?? undefined);
 
       const event: StructuredEvent = {
         storyTime: params.storyTime,
@@ -1298,7 +1319,7 @@ export default function (pi: ExtensionAPI) {
       const g = requireWg();
       const emb = requireEmbedder();
       const cwd = sessionCwd ?? process.cwd();
-      const ctx = await makeSchedulerCtx(g, emb, cwd);
+      const ctx = await makeSchedulerCtx(g, emb, cwd, debugBus ?? undefined);
 
       const result = await schedulerCommit(params.planId, ctx);
 

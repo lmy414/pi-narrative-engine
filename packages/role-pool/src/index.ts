@@ -24,6 +24,7 @@ export type {
   StateChange,
   PriorAction,
   InteractResult,
+  InteractHooks,
   RoleLlmCaller,
   RoleCtx,
 } from "./types.ts";

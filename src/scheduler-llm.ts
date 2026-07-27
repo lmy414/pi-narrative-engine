@@ -16,7 +16,7 @@
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §2.4
  */
 
-import type { SchedulerCtx, SillyTavernCard } from "@pi/scheduler";
+import type { SchedulerCtx, SillyTavernCard, DebugBus } from "@pi/scheduler";
 import { defaultStaticCardLoader } from "@pi/scheduler";
 import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
 import { makePlannerLlmCaller } from "./planner-llm.ts";
@@ -35,12 +35,14 @@ import type { Embedder } from "./embedder.ts";
  * @param wg WorldGraph 实例
  * @param embedder Embedder 实例（用于 search_vector / search_hybrid）
  * @param cwd novel 工作目录（用于规则集加载和章节路径推断）
+ * @param debugBus 调试事件总线（可选，注入后调度链关键点发射 DebugEvent）
  * @returns SchedulerCtx 实例
  */
 export async function makeSchedulerCtx(
   wg: WorldGraph,
   embedder: Embedder,
   cwd: string,
+  debugBus?: DebugBus,
 ): Promise<SchedulerCtx> {
   const { model: plannerModel, apiKey: plannerApiKey } = getLlmConfig("planner");
   const { model: roleModel, apiKey: roleApiKey } = getLlmConfig("role");
@@ -90,5 +92,8 @@ export async function makeSchedulerCtx(
     plannerRuleSet,
     cwd,
     staticCardLoader,
+    // 2026-07-27 调试模块：注入 debugBus 启用调度链埋点
+    // undefined 时 startSpan 为 no-op，零开销
+    ...(debugBus ? { debugBus } : {}),
   };
 }

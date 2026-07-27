@@ -20,6 +20,7 @@ import { resolve, dirname, join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WorldGraph } from "@pi/world-graph";
 import type { Search } from "../search.ts";
+import type { DebugBus } from "../debug/types.ts";
 import { handleApi } from "./routes.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,8 @@ export interface StartVisualizerOptions {
   uiDir?: string;
   /** standalone 无 embedder 时置 true：/api/search 强制 fulltext */
   forceFulltext?: boolean;
+  /** 调试事件总线（注入后启用 /api/debug/* 端点） */
+  debugBus?: DebugBus;
 }
 
 export interface VisualizerServer {
@@ -121,6 +124,7 @@ export function startVisualizer(opts: StartVisualizerOptions): Promise<Visualize
     wg: opts.wg,
     search: opts.search ?? null,
     forceFulltext: opts.forceFulltext ?? false,
+    debugBus: opts.debugBus ?? null,
   };
 
   const server = createServer((req, res) => {

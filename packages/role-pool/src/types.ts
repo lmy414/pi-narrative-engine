@@ -146,3 +146,30 @@ export interface RoleCtx {
   /** 角色规则集.md 全文 */
   ruleSet: string;
 }
+
+/**
+ * 交互过程调试钩子（可选）
+ *
+ * 由调度器注入，将每个角色的生成过程挂到调试总线（stage: role.turn）。
+ * role-pool 本身不感知 DebugBus——钩子的实现由调用方用调度器侧 startSpan 接线，
+ * 保持本子包零外部依赖。不注入时零开销。
+ */
+export interface InteractHooks {
+  /**
+   * 角色开始生成前调用。
+   * @param member 当前角色
+   * @param index 出场顺序（0 起）
+   * @returns 任意 token，原样透传给 onTurnEnd（调用方可用来携带 span 句柄）
+   */
+  onTurnStart?(member: CastMember, index: number): unknown;
+  /**
+   * 角色生成结束（成功或失败）后调用。
+   * @param token onTurnStart 的返回值
+   * @param result 成功含 output，失败含 error
+   */
+  onTurnEnd?(
+    token: unknown,
+    member: CastMember,
+    result: { output?: RoleAgentOutput; error?: string },
+  ): void;
+}
