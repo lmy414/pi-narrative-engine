@@ -47,6 +47,9 @@ export const retrievalPlanSchema = Type.Object({
       modalityFilter: Type.Optional(Type.Array(StringEnum(["fact", "belief", "hypothesis"]), {
         description: "模态过滤（character_view 用）",
       })),
+      recordedAsOf: Type.Optional(Type.String({
+        description: "事务时间坐标（可选，P0-2 修复）。modify/insert 锚定历史事件时，若要\"查改写前的世界状态\"，调用 wg.recordedNow() 取当前事务时间传入。日常推进（add）不需要使用。仅 character_view/entity_snapshot/relations 生效；search_* 暂不支持（会降级为 console.warn）。",
+      })),
     }),
     assignTo: Type.Array(Type.String(), {
       description: "这条检索结果分配给哪些角色 ID（信息差分配）",
@@ -127,7 +130,7 @@ function parseRetrievalPlan(params: { items: unknown[] }): RetrievalPlan {
   };
 }
 
-function parseRetrievalItem(raw: Record<string, unknown>): RetrievalItem {
+export function parseRetrievalItem(raw: Record<string, unknown>): RetrievalItem {
   const params = (raw.params ?? {}) as Record<string, unknown>;
   return {
     type: raw.type as RetrievalItem["type"],
@@ -140,6 +143,7 @@ function parseRetrievalItem(raw: Record<string, unknown>): RetrievalItem {
       modalityFilter: Array.isArray(params.modalityFilter)
         ? (params.modalityFilter as RetrievalItem["params"]["modalityFilter"])
         : undefined,
+      recordedAsOf: typeof params.recordedAsOf === "string" ? params.recordedAsOf : undefined,
     },
     assignTo: Array.isArray(raw.assignTo) ? (raw.assignTo as string[]) : [],
     label: typeof raw.label === "string" ? raw.label : "",

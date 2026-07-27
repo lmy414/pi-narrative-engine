@@ -8,7 +8,7 @@
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §2 数据契约
  */
 
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
 import type {
   CastMember,
   InteractResult,
@@ -186,6 +186,18 @@ export interface RetrievalItem {
     fieldPath?: string;
     /** 模态过滤（character_view 用，如只看 fact） */
     modalityFilter?: ("fact" | "belief" | "hypothesis")[];
+    /**
+     * 事务时间坐标（P0-2 修复，2026-07-27）
+     *
+     * 由 wg.recordedNow() 获取，modify/insert 锚定历史事件时使用。
+     * 语义：「storyTime 时刻的世界状态，但只含 recordedAsOf 之前写入的内容」
+     * 实现双时态检索的 retcon 隔离。
+     *
+     * - character_view / entity_snapshot / relations：透传给 wg 查询 API
+     * - search_text / search_vector / search_hybrid：当前 wg.search 不支持，
+     *   retrieve.ts 会 console.warn 并降级为不过滤（与 P0-1 的未来事实过滤合并实现）
+     */
+    recordedAsOf?: string;
   };
 
   /**
@@ -213,6 +225,38 @@ export type PlannerLlmCaller = (
   systemPrompt: string,
   userMessage: string,
 ) => Promise<RetrievalPlan>;
+
+/**
+ * knowledge_gained → declarationId 映射 LLM 调用器（P0-3+6 修复，2026-07-27）
+ *
+ * 角色在一场戏中产出的 knowledge_gained（自然语言字符串数组）需要映射到
+ * world-graph 中已存在的 declarationId，才能写入 Visibility（他盲修复）。
+ * 由 LLM 完成语义匹配。
+ *
+ * 输入：
+ * - characterId：产出 knowledge_gained 的角色 ID
+ * - knowledgeItems：knowledge_gained 字符串数组
+ * - candidates：候选 declarationId 列表（由 wg.getAllDeclarationsAt(storyTime) 取，
+ *   限制在 storyTime 时刻所有有效声明范围内，避免映射到未来事实）
+ *
+ * 输出：每个 knowledge_gained 项映射到的 declarationId（或 null 表示无匹配）+ 置信度。
+ *
+ * 单测可注入 mock mapper 返回预设映射。
+ */
+export type KnowledgeMapperLlmCaller = (
+  characterId: string,
+  knowledgeItems: string[],
+  candidates: Array<{
+    declarationId: string;
+    entityId: string;
+    property: string;
+    value: unknown;
+  }>,
+) => Promise<Array<{
+  knowledge: string;
+  declarationId: string | null;  // null 表示未找到匹配
+  confidence: number;  // 0-1，< 0.5 不写 Visibility
+}>>;
 
 // ---------------------------------------------------------------------------
 // §2.2 中间状态类型
@@ -276,6 +320,19 @@ export interface CommitResult {
   writtenText: string;
   /** 渲染错误（ok=false 时） */
   error?: string;
+  /**
+   * P0-4 修复（2026-07-27）：写扩散失败的 entityId 列表（部分成功时填）
+   *
+   * 单个 entityId 失败不阻断其他 entityId；调用方据 failedEntityIds 决定
+   * 是否人工介入或重新派发新事件。ok=false 时可能含部分成功（appliedEventIds 非空）。
+   */
+  failedEntityIds?: string[];
+  /**
+   * P0-4 修复（2026-07-27）：写入失败的关系列表（部分成功时填）
+   *
+   * relation_update 步骤失败不阻断主链路；调用方据 failedRelations 决定是否补偿。
+   */
+  failedRelations?: Array<{ source: string; target: string; label: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,14 +360,31 @@ export interface SchedulerCtx {
   /** 渲染器 LLM 调用器（注入 renderToFile） */
   renderLlm: RenderLlmCaller;
   /**
-   * 向量化器（用于 search_vector / search_hybrid）
-   * 调度器把 planner LLM 输出的自然语言 query 通过 embedder 转 512 维 queryEmbedding，
-   * 再调 wg.search.vector(nodeKind, { fieldPath, queryEmbedding, limit })
+   * 向量化器（P0-5 修复后支持实体/声明级嵌入，2026-07-27）
    *
-   * 默认实现：Embedder（@xenova/transformers + Xenova/bge-small-zh-v1.5）
+   * - embed(text)：通用文本向量化（retrieve.ts search_vector / search_hybrid 用）
+   * - embedEntity(snap)：实体向量化（commit.ts 4.2.5 步用，写扩散后增量更新 Entity.embedding）
+   * - embedFact(decl)：状态声明向量化（commit.ts 4.2.5 步用，写扩散后增量更新 Fact.embedding）
+   *
+   * 默认实现：Embedder（src/embedder.ts）已实现全部三个方法
    * 单测可注入 mock embedder 返回预设向量
    */
-  embedder: { embed(text: string): Promise<number[]> };
+  embedder: {
+    embed(text: string): Promise<number[]>;
+    embedEntity(snap: EntitySnapshot): Promise<number[]>;
+    embedFact(decl: StateDeclaration): Promise<number[]>;
+  };
+  /**
+   * knowledge_gained → declarationId 映射 LLM 调用器（P0-3+6 修复，2026-07-27）
+   *
+   * 可选注入。未注入时 commit 跳过 4.4 步（保持向后兼容）。
+   * 生产环境应注入，单测可不注入或注入 mock。
+   *
+   * commit.ts 4.4 步用它把 role-pool 输出的 knowledge_gained 自然语言映射到
+   * 已存在的 declarationId，再调 wg.setVisibility 写"他盲"可见性
+   * （source="informed"，confidence 由 mapper 决定）。
+   */
+  knowledgeMapper?: KnowledgeMapperLlmCaller;
   /** 角色规则集.md 全文（注入 role_interact） */
   roleRuleSet: string;
   /** 渲染规则集.md 全文（注入 renderToFile） */

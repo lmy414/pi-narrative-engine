@@ -40,6 +40,8 @@ afterEach(async () => {
  * - getEntityAt：返回 null（避免触发 invalidated 逻辑）
  * - processEvent：记录调用次数和参数
  * - addRelation：记录调用次数和参数（2026-07-25 加，对应 Pending Gap #2）
+ * - updateFactEmbedding：记录调用次数和参数（P0-5 修复，2026-07-27 加）
+ * - getAllDeclarationsAt：记录调用次数和参数（P0-3+6 修复，2026-07-27 加）
  *
  * TypeScript 结构类型：只要有 WorldGraph 的方法签名即可（多余属性不报错）
  */
@@ -48,10 +50,17 @@ function makeMockWg(): {
   processEventCalls: any[];
   addRelationCalls: any[];
   setVisibilityCalls: any[];
+  updateFactEmbeddingCalls: any[];
+  getAllDeclarationsAtCalls: any[];
+  getAllDeclarationsAtReturn: Array<{ declarationId: string; entityId: string; property: string; value: unknown; modality: string; validFrom: string; validTo: string }>;
 } {
   const processEventCalls: any[] = [];
   const addRelationCalls: any[] = [];
   const setVisibilityCalls: any[] = [];
+  const updateFactEmbeddingCalls: any[] = [];
+  const getAllDeclarationsAtCalls: any[] = [];
+  // 默认返回空数组，测试用例可通过 getAllDeclarationsAtReturn 字段注入候选列表
+  const getAllDeclarationsAtReturn: Array<{ declarationId: string; entityId: string; property: string; value: unknown; modality: string; validFrom: string; validTo: string }> = [];
   const wg = {
     getEntityAt: async () => null,
     processEvent: async (input: any) => {
@@ -63,8 +72,15 @@ function makeMockWg(): {
     setVisibility: async (characterId: string, declarationId: string, opts: any) => {
       setVisibilityCalls.push({ characterId, declarationId, opts });
     },
+    updateFactEmbedding: async (declarationId: string, embedding: number[]) => {
+      updateFactEmbeddingCalls.push({ declarationId, embedding });
+    },
+    getAllDeclarationsAt: async (storyTime: string) => {
+      getAllDeclarationsAtCalls.push(storyTime);
+      return [...getAllDeclarationsAtReturn];
+    },
   } as unknown as WorldGraph;
-  return { wg, processEventCalls, addRelationCalls, setVisibilityCalls };
+  return { wg, processEventCalls, addRelationCalls, setVisibilityCalls, updateFactEmbeddingCalls, getAllDeclarationsAtCalls, getAllDeclarationsAtReturn };
 }
 
 /**
@@ -79,7 +95,11 @@ function makeMockCtx(wg: WorldGraph): SchedulerCtx {
     plannerLlm: async () => ({ items: [] }),
     roleLlm: async () => ({}) as RoleAgentOutput,
     renderLlm: async () => "这是渲染器生成的正文。",
-    embedder: { embed: async () => [0, 0, 0] },
+    embedder: {
+      embed: async () => [0, 0, 0],
+      embedEntity: async () => [0, 0, 0],
+      embedFact: async () => [0, 0, 0],
+    },
     roleRuleSet: "",
     renderRuleSet: "",
     plannerRuleSet: "",
@@ -407,4 +427,466 @@ test("commit: commit 后 plan 缓存被清空（幂等性）", async () => {
   const r2 = await commit("plan_idem", ctx);
   assert.equal(r2.ok, false);
   assert.match(r2.error ?? "", /not found/);
+});
+
+// ============================================================================
+// P0-4 事务化测试（2026-07-27 修复）
+// 单个 entityId 失败不阻断其他 entityId；失败项记入 failedEntityIds
+// ============================================================================
+
+test("commit: 单个 entityId processEvent 抛错时不阻断其他 entityId", async () => {
+  const { wg, processEventCalls } = makeMockWg();
+  // mock processEvent 对 entityId="e_fail" 抛错，对 "e_ok" 正常
+  (wg as any).processEvent = async (input: any) => {
+    if (input.entityId === "e_fail") {
+      throw new Error("mock processEvent 失败");
+    }
+    processEventCalls.push(input);
+  };
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs = [
+    {
+      characterId: "e_lin",
+      actor: "林冲",
+      action: "测试",
+      state_changes: [
+        { entityId: "e_fail", property: "mood", value: "绝望", modality: "fact" },
+        { entityId: "e_ok", property: "location", value: "酒馆", modality: "fact" },
+      ],
+    },
+  ];
+  setPlan("plan_p0_4_partial", plan);
+
+  const result = await commit("plan_p0_4_partial", ctx);
+
+  assert.equal(result.ok, false, "部分失败时 ok 应为 false（保守语义）");
+  assert.equal(processEventCalls.length, 1, "应只成功 1 次 processEvent");
+  assert.equal(processEventCalls[0].entityId, "e_ok", "成功的应是 e_ok");
+  assert.deepEqual(result.failedEntityIds, ["e_fail"], "failedEntityIds 应含 e_fail");
+  assert.equal(result.appliedEventIds.length, 1, "appliedEventIds 应有 1 项");
+});
+
+test("commit: 部分失败时 plan 缓存仍被清理（避免重复 commit）", async () => {
+  const { wg } = makeMockWg();
+  (wg as any).processEvent = async () => {
+    throw new Error("mock 失败");
+  };
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "绝望", modality: "fact" },
+  ];
+  setPlan("plan_p0_4_cleanup", plan);
+
+  const r1 = await commit("plan_p0_4_cleanup", ctx);
+  assert.equal(r1.ok, false, "应失败");
+  assert.deepEqual(r1.failedEntityIds, ["e_lin"]);
+
+  // 再次 commit 同 planId 应返回 not found（plan 已清理）
+  const r2 = await commit("plan_p0_4_cleanup", ctx);
+  assert.equal(r2.ok, false);
+  assert.match(r2.error ?? "", /not found/);
+});
+
+test("commit: relation_update 失败时不阻断主链路", async () => {
+  const { wg, addRelationCalls, processEventCalls } = makeMockWg();
+  (wg as any).addRelation = async () => {
+    throw new Error("mock addRelation 失败");
+  };
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+  ];
+  plan.roleResult.outputs[0].relation_update = [
+    { target: "e_lu", label: "仇敌" },
+  ];
+  setPlan("plan_p0_4_rel_fail", plan);
+
+  const result = await commit("plan_p0_4_rel_fail", ctx);
+
+  // relation 失败 → ok=false，但 processEvent 应已成功
+  assert.equal(result.ok, false, "relation 失败时 ok 应为 false");
+  assert.equal(processEventCalls.length, 1, "state_changes 应已写入");
+  assert.equal(addRelationCalls.length, 0, "addRelation 应未成功记录（已抛错）");
+  assert.deepEqual(
+    result.failedRelations,
+    [{ source: "e_lin", target: "e_lu", label: "仇敌" }],
+    "failedRelations 应含失败项",
+  );
+  assert.equal(result.appliedEventIds.length, 1, "主链路应已成功");
+});
+
+test("commit: 全部失败时返回 ok=false + 完整 failedEntityIds", async () => {
+  const { wg } = makeMockWg();
+  (wg as any).processEvent = async () => {
+    throw new Error("全失败");
+  };
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_a", property: "mood", value: "怒", modality: "fact" },
+    { entityId: "e_b", property: "mood", value: "怒", modality: "fact" },
+  ];
+  setPlan("plan_p0_4_all_fail", plan);
+
+  const result = await commit("plan_p0_4_all_fail", ctx);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.appliedEventIds.length, 0, "无成功项");
+  assert.deepEqual(
+    result.failedEntityIds?.sort(),
+    ["e_a", "e_b"],
+    "failedEntityIds 应含全部 entityId",
+  );
+});
+
+// ============================================================================
+// P0-5 embedding 写入测试（2026-07-27 修复）
+// commit.ts 4.2.5 步为新增 Fact 生成 embedding 并调 wg.updateFactEmbedding
+// ============================================================================
+
+test("commit: 4.2.5 步为新增 Fact 生成 embedding 并调 updateFactEmbedding", async () => {
+  const { wg, updateFactEmbeddingCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "绝望", modality: "fact" },
+    { entityId: "e_lin", property: "location", value: "山神庙", modality: "fact" },
+  ];
+  setPlan("plan_p0_5_embed", plan);
+
+  const result = await commit("plan_p0_5_embed", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(
+    updateFactEmbeddingCalls.length,
+    2,
+    "应为每个 state_change 调一次 updateFactEmbedding",
+  );
+  // 验证 declarationId 生成规则
+  assert.equal(updateFactEmbeddingCalls[0].declarationId, "decl-e_lin-mood-ch-2");
+  assert.equal(updateFactEmbeddingCalls[1].declarationId, "decl-e_lin-location-ch-2");
+  // embedding 应为数组（mock 返回 [0,0,0]）
+  assert.ok(Array.isArray(updateFactEmbeddingCalls[0].embedding));
+});
+
+test("commit: embedFact 抛错时不阻断 commit", async () => {
+  const { wg, processEventCalls } = makeMockWg();
+  // mock embedder.embedFact 抛错
+  const ctx = makeMockCtx(wg);
+  (ctx as any).embedder = {
+    embed: async () => [0, 0, 0],
+    embedEntity: async () => [0, 0, 0],
+    embedFact: async () => {
+      throw new Error("mock embedFact 失败");
+    },
+  };
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+  ];
+  setPlan("plan_p0_5_embed_fail", plan);
+
+  const result = await commit("plan_p0_5_embed_fail", ctx);
+
+  // embedding 失败不阻断 commit，主链路应成功
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(processEventCalls.length, 1, "processEvent 应已成功");
+  assert.equal(result.appliedEventIds.length, 1);
+});
+
+test("commit: updateFactEmbedding 抛错时不阻断 commit", async () => {
+  const { wg, processEventCalls } = makeMockWg();
+  // mock wg.updateFactEmbedding 抛错
+  (wg as any).updateFactEmbedding = async () => {
+    throw new Error("mock updateFactEmbedding 失败");
+  };
+  const ctx = makeMockCtx(wg);
+  const plan = makePlan({ intent: "add" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+  ];
+  setPlan("plan_p0_5_update_fail", plan);
+
+  const result = await commit("plan_p0_5_update_fail", ctx);
+
+  // embedding 写入失败不阻断 commit（与 setVisibility 同策略）
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(processEventCalls.length, 1, "processEvent 应已成功");
+});
+
+test("commit: 无 state_changes 时不调 updateFactEmbedding", async () => {
+  const { wg, updateFactEmbeddingCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  setPlan("plan_p0_5_no_sc", makePlan({ intent: "add" }));
+
+  const result = await commit("plan_p0_5_no_sc", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(updateFactEmbeddingCalls.length, 0, "无 state_changes 不应调 updateFactEmbedding");
+});
+
+// ============================================================================
+// P0-3+6 knowledge_gained 他盲修复测试（2026-07-27）
+// commit.ts 4.4 步用 LLM（knowledgeMapper）把 knowledge_gained 映射到 declarationId
+// 再调 wg.setVisibility 写"他盲"可见性（source=informed, confidence >= 0.5 才写）
+// ============================================================================
+
+test("commit: knowledge_gained 映射成功后写 Visibility（source=informed）", async () => {
+  const { wg, setVisibilityCalls, getAllDeclarationsAtReturn } = makeMockWg();
+  // 注入候选列表（mock world-graph 中已存在的声明）
+  getAllDeclarationsAtReturn.push({
+    declarationId: "decl-e_shi-mood-ch-1",
+    entityId: "e_shi",
+    property: "mood",
+    value: "老迈",
+    modality: "fact",
+    validFrom: "ch-1",
+    validTo: "Infinity",
+  });
+  const ctx = makeMockCtx(wg);
+  // 注入 knowledgeMapper mock：把"师父老了"映射到 decl-e_shi-mood-ch-1
+  (ctx as any).knowledgeMapper = async (
+    _characterId: string,
+    knowledgeItems: string[],
+    _candidates: unknown[],
+  ) => {
+    return knowledgeItems.map((k) => ({
+      knowledge: k,
+      declarationId: "decl-e_shi-mood-ch-1",
+      confidence: 0.9,
+    }));
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_kg", plan);
+
+  const result = await commit("plan_p0_3_kg", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  // 应有 1 次 setVisibility 调用（source=informed）
+  // 注意：4.3 步也会调 setVisibility（如果有 state_changes），本用例无 state_changes
+  // 所以这里只统计 source=informed 的调用
+  const informedCalls = setVisibilityCalls.filter((c) => c.opts.source === "informed");
+  assert.equal(informedCalls.length, 1, "应有 1 次 source=informed 的 setVisibility");
+  assert.equal(informedCalls[0].characterId, "e_lin", "应是产出 knowledge_gained 的角色");
+  assert.equal(informedCalls[0].declarationId, "decl-e_shi-mood-ch-1");
+  assert.equal(informedCalls[0].opts.state, "known");
+  assert.equal(informedCalls[0].opts.confidence, 0.9);
+  assert.equal(informedCalls[0].opts.validFrom, "ch-2");
+});
+
+test("commit: confidence < 0.5 时不写 Visibility", async () => {
+  const { wg, setVisibilityCalls, getAllDeclarationsAtReturn } = makeMockWg();
+  getAllDeclarationsAtReturn.push({
+    declarationId: "decl-e_shi-mood-ch-1",
+    entityId: "e_shi",
+    property: "mood",
+    value: "老迈",
+    modality: "fact",
+    validFrom: "ch-1",
+    validTo: "Infinity",
+  });
+  const ctx = makeMockCtx(wg);
+  (ctx as any).knowledgeMapper = async (
+    _characterId: string,
+    knowledgeItems: string[],
+    _candidates: unknown[],
+  ) => {
+    return knowledgeItems.map((k) => ({
+      knowledge: k,
+      declarationId: "decl-e_shi-mood-ch-1",
+      confidence: 0.3, // 低于 0.5 阈值
+    }));
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_low_conf", plan);
+
+  const result = await commit("plan_p0_3_low_conf", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  const informedCalls = setVisibilityCalls.filter((c) => c.opts.source === "informed");
+  assert.equal(informedCalls.length, 0, "confidence < 0.5 不应写 Visibility");
+});
+
+test("commit: knowledgeMapper 抛错时跳过 4.4 步不阻断 commit", async () => {
+  const { wg, getAllDeclarationsAtReturn, processEventCalls, setVisibilityCalls } = makeMockWg();
+  getAllDeclarationsAtReturn.push({
+    declarationId: "decl-e_shi-mood-ch-1",
+    entityId: "e_shi",
+    property: "mood",
+    value: "老迈",
+    modality: "fact",
+    validFrom: "ch-1",
+    validTo: "Infinity",
+  });
+  const ctx = makeMockCtx(wg);
+  (ctx as any).knowledgeMapper = async () => {
+    throw new Error("mock knowledgeMapper 失败");
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+  ];
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_mapper_fail", plan);
+
+  const result = await commit("plan_p0_3_mapper_fail", ctx);
+
+  // mapper 失败不阻断 commit，主链路应成功
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(processEventCalls.length, 1, "state_changes 应已写入");
+  assert.equal(result.appliedEventIds.length, 1, "主链路应已成功");
+  // 4.3 步的 setVisibility 应有（state_changes 的自盲修复，source=experienced），
+  // 但 4.4 步不应有 source=informed 的调用（mapper 抛错跳过）
+  const informedCalls = setVisibilityCalls.filter((c) => c.opts.source === "informed");
+  assert.equal(informedCalls.length, 0, "mapper 抛错时不应有 source=informed 的 Visibility");
+});
+
+test("commit: 未注入 knowledgeMapper 时跳过 4.4 步（向后兼容）", async () => {
+  const { wg, getAllDeclarationsAtCalls, setVisibilityCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  // 显式移除 knowledgeMapper（模拟旧版 ctx）
+  delete (ctx as any).knowledgeMapper;
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_no_mapper", plan);
+
+  const result = await commit("plan_p0_3_no_mapper", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  // 未注入 knowledgeMapper 时不应调 getAllDeclarationsAt
+  assert.equal(getAllDeclarationsAtCalls.length, 0, "未注入 mapper 不应查候选列表");
+  // 不应有 source=informed 的 Visibility
+  const informedCalls = setVisibilityCalls.filter((c) => c.opts.source === "informed");
+  assert.equal(informedCalls.length, 0, "未注入 mapper 不应写 informed 可见性");
+});
+
+test("commit: 无 knowledge_gained 的角色不触发 mapper 调用", async () => {
+  const { wg, getAllDeclarationsAtReturn } = makeMockWg();
+  getAllDeclarationsAtReturn.push({
+    declarationId: "decl-e_shi-mood-ch-1",
+    entityId: "e_shi",
+    property: "mood",
+    value: "老迈",
+    modality: "fact",
+    validFrom: "ch-1",
+    validTo: "Infinity",
+  });
+  const ctx = makeMockCtx(wg);
+  let mapperCalled = false;
+  (ctx as any).knowledgeMapper = async () => {
+    mapperCalled = true;
+    return [];
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  // 不注入 knowledge_gained（角色没学到新东西）
+  plan.roleResult.outputs[0].knowledge_gained = undefined;
+  setPlan("plan_p0_3_no_kg", plan);
+
+  const result = await commit("plan_p0_3_no_kg", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(mapperCalled, false, "无 knowledge_gained 不应调 mapper");
+});
+
+test("commit: 候选列表查询失败时跳过 4.4 步不阻断 commit", async () => {
+  const { wg, processEventCalls } = makeMockWg();
+  // mock getAllDeclarationsAt 抛错
+  (wg as any).getAllDeclarationsAt = async () => {
+    throw new Error("mock getAllDeclarationsAt 失败");
+  };
+  const ctx = makeMockCtx(wg);
+  (ctx as any).knowledgeMapper = async () => {
+    throw new Error("mapper 不应被调用");
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+  ];
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_candidates_fail", plan);
+
+  const result = await commit("plan_p0_3_candidates_fail", ctx);
+
+  // 候选列表查询失败不阻断 commit
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  assert.equal(processEventCalls.length, 1, "state_changes 应已写入");
+});
+
+test("commit: 候选列表为空时跳过 mapper 调用", async () => {
+  const { wg, getAllDeclarationsAtReturn } = makeMockWg();
+  // 不向 getAllDeclarationsAtReturn 注入任何候选（保持空数组）
+  const ctx = makeMockCtx(wg);
+  let mapperCalled = false;
+  (ctx as any).knowledgeMapper = async () => {
+    mapperCalled = true;
+    return [];
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了"];
+  setPlan("plan_p0_3_empty_candidates", plan);
+
+  const result = await commit("plan_p0_3_empty_candidates", ctx);
+
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  // 候选列表为空时不应调 mapper（避免无意义的 LLM 调用）
+  assert.equal(mapperCalled, false, "候选列表为空时不应调 mapper");
+});
+
+test("commit: knowledgeMapper 接收正确的候选列表参数", async () => {
+  const { wg, getAllDeclarationsAtReturn } = makeMockWg();
+  getAllDeclarationsAtReturn.push(
+    {
+      declarationId: "decl-e_shi-mood-ch-1",
+      entityId: "e_shi",
+      property: "mood",
+      value: "老迈",
+      modality: "fact",
+      validFrom: "ch-1",
+      validTo: "Infinity",
+    },
+    {
+      declarationId: "decl-e_lin-weapon-ch-1",
+      entityId: "e_lin",
+      property: "weapon",
+      value: "长枪",
+      modality: "fact",
+      validFrom: "ch-1",
+      validTo: "Infinity",
+    },
+  );
+  const ctx = makeMockCtx(wg);
+  let capturedCandidates: unknown = null;
+  let capturedCharacterId: string = "";
+  let capturedKnowledgeItems: string[] = [];
+  (ctx as any).knowledgeMapper = async (
+    characterId: string,
+    knowledgeItems: string[],
+    candidates: unknown,
+  ) => {
+    capturedCharacterId = characterId;
+    capturedKnowledgeItems = knowledgeItems;
+    capturedCandidates = candidates;
+    return [];
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].knowledge_gained = ["师父老了", "林冲有长枪"];
+  setPlan("plan_p0_3_args", plan);
+
+  await commit("plan_p0_3_args", ctx);
+
+  assert.equal(capturedCharacterId, "e_lin", "应传入角色 ID");
+  assert.deepEqual(capturedKnowledgeItems, ["师父老了", "林冲有长枪"], "应传入 knowledge_gained 列表");
+  assert.ok(Array.isArray(capturedCandidates), "候选列表应为数组");
+  assert.equal((capturedCandidates as any[]).length, 2, "应有 2 个候选");
+  // 验证候选列表只含 declarationId/entityId/property/value（不含 modality/validFrom 等）
+  assert.deepEqual(
+    (capturedCandidates as any[]).map((c) => Object.keys(c).sort()),
+    [["declarationId", "entityId", "property", "value"], ["declarationId", "entityId", "property", "value"]],
+    "候选列表应只含 4 字段",
+  );
 });

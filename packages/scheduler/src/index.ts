@@ -40,8 +40,13 @@ export { resolveChapterPath } from "./chapter-resolver.ts";
 // Re-export 默认 staticCard 加载器
 export { defaultStaticCardLoader } from "./static-card-loader.ts";
 
-// Re-export planner 提示词模板
-export { buildPlannerSystemPrompt, buildPlannerUserMessage } from "./prompts.ts";
+// Re-export planner 提示词模板 + knowledge mapper 提示词（P0-3+6，2026-07-27）
+export {
+  buildPlannerSystemPrompt,
+  buildPlannerUserMessage,
+  buildKnowledgeMapperSystemPrompt,
+  buildKnowledgeMapperUserMessage,
+} from "./prompts.ts";
 
 // Re-export 工具函数
 export { randomId, groupBy } from "./utils.ts";
@@ -54,6 +59,7 @@ export type {
   RetrievalPlan,
   RetrievalItem,
   PlannerLlmCaller,
+  KnowledgeMapperLlmCaller,
   PlanResult,
   PlanOutput,
   CommitResult,

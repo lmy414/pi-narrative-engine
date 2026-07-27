@@ -54,6 +54,15 @@ ${plannerRuleSet}
   - 参数：query，可选 limit
   - 用途：综合检索，覆盖关键词和语义
 
+# recordedAsOf（事务时间，可选）
+
+modify/insert 锚定历史事件时，若要"查改写前的世界状态"，调用 wg.recordedNow()
+取当前事务时间坐标传入 recordedAsOf。日常推进（add）不需要使用。
+
+仅 character_view / entity_snapshot / relations 生效（透传给 wg 查询 API）；
+search_* 暂不支持（store.search 是 SDK 透传，无事务时间视图），传入会被
+console.warn 警告并降级为不过滤。
+
 # 你的任务
 
 基于事件指令 + 参与角色 + 执行建议，推导本次叙事需要检索什么信息，
@@ -110,4 +119,63 @@ ${executionHints}
 
 调用 retrieval_plan 工具，输出 RetrievalItem 数组。
 每条 item 含 type / params / assignTo / label 四字段。`;
+}
+
+/**
+ * 构建 knowledge mapper LLM 的 system prompt（P0-3+6 修复，2026-07-27）
+ *
+ * knowledge_gained → declarationId 映射器的系统提示词。
+ * 角色在一场戏中学到的 knowledge_gained 是自然语言字符串，需要映射到
+ * world-graph 中已存在的 declarationId 才能写入 Visibility。
+ *
+ * @returns system prompt 字符串
+ */
+export function buildKnowledgeMapperSystemPrompt(): string {
+  return `你是 knowledge_gained → declarationId 映射器。
+
+# 任务
+角色在一场戏中学到了一些新认知（knowledge_gained，自然语言字符串）。
+你需要把这些认知映射到 world-graph 中已存在的 declarationId。
+
+# 候选列表
+我会提供当前 storyTime 时刻所有有效声明（candidates），每项含：
+- declarationId: 唯一标识
+- entityId: 所属实体
+- property: 属性名（如 mood/location/weapon）
+- value: 属性值
+
+# 映射规则
+1. 语义匹配：knowledge_gained 描述的内容应与 declaration 的 property+value 语义对齐
+2. 一对多：一条 knowledge_gained 可能对应多条 declarationId（如"林冲杀了王伦"对应多个状态变更）
+3. 无匹配：找不到合理匹配时返回 declarationId=null
+4. 置信度：0-1 浮点数，>=0.5 才会被写入 Visibility
+
+# 输出格式
+JSON 数组，每项 { knowledge, declarationId, confidence }
+declarationId 为 null 时表示无匹配`;
+}
+
+/**
+ * 构建 knowledge mapper LLM 的 user message（P0-3+6 修复，2026-07-27）
+ *
+ * @param characterId 角色 ID
+ * @param knowledgeItems knowledge_gained 字符串数组
+ * @param candidates 候选 declarationId 列表（来自 wg.getAllDeclarationsAt）
+ * @returns user message 字符串
+ */
+export function buildKnowledgeMapperUserMessage(
+  characterId: string,
+  knowledgeItems: string[],
+  candidates: Array<{ declarationId: string; entityId: string; property: string; value: unknown }>,
+): string {
+  return `# 角色
+${characterId}
+
+# knowledge_gained 列表
+${knowledgeItems.map((k, i) => `${i + 1}. ${k}`).join("\n")}
+
+# 候选 declarationId 列表
+${JSON.stringify(candidates, null, 2)}
+
+# 请输出映射结果（JSON 数组）`;
 }

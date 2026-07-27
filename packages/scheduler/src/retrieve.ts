@@ -79,12 +79,14 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "character_view": {
       if (!item.params.entityId) return null;
+      // P0-2 修复：透传 recordedAsOf 给 wg.getCharacterView
+      const opts: { modalityFilter?: ("fact" | "belief" | "hypothesis")[]; recordedAsOf?: string } = {};
+      if (item.params.modalityFilter) opts.modalityFilter = item.params.modalityFilter;
+      if (item.params.recordedAsOf) opts.recordedAsOf = item.params.recordedAsOf;
       const decls = await ctx.wg.getCharacterView(
         item.params.entityId,
         storyTime,
-        item.params.modalityFilter
-          ? { modalityFilter: item.params.modalityFilter }
-          : {},
+        opts,
       );
       return decls.map((d) => stateDeclToFact(d));
     }
@@ -94,7 +96,12 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "entity_snapshot": {
       if (!item.params.entityId) return null;
-      const snap = await ctx.wg.getEntityAt(item.params.entityId, storyTime);
+      // P0-2 修复：透传 recordedAsOf 给 wg.getEntityAt
+      const snap = await ctx.wg.getEntityAt(
+        item.params.entityId,
+        storyTime,
+        item.params.recordedAsOf ? { recordedAsOf: item.params.recordedAsOf } : undefined,
+      );
       if (!snap) return null;
       // Entity 快照转 FactSnapshot：
       // - summary 作为一条 fact（property="summary"）
@@ -119,7 +126,12 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "relations": {
       if (!item.params.entityId) return null;
-      const rels = await ctx.wg.getRelations(item.params.entityId, storyTime);
+      // P0-2 修复：透传 recordedAsOf 给 wg.getRelations
+      const rels = await ctx.wg.getRelations(
+        item.params.entityId,
+        storyTime,
+        item.params.recordedAsOf ? { recordedAsOf: item.params.recordedAsOf } : undefined,
+      );
       // 关系列表转 FactSnapshot：
       // - property 用 `relation.${label}`（避免与状态声明的 property 命名空间冲突）
       // - value 用 targetId
@@ -140,6 +152,12 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "search_text": {
       if (!item.params.query) return null;
+      // P0-2 修复：search_* 暂不支持 recordedAsOf（store.search 是 SDK 透传，无事务时间视图）
+      if (item.params.recordedAsOf) {
+        console.warn(
+          "[retrieve] search_text 暂不支持 recordedAsOf，忽略该参数（store.search 不支持事务时间视图）",
+        );
+      }
       const nodeType = item.params.nodeType ?? "Fact";
       const hits = await ctx.wg.search.fulltext(nodeType, {
         query: item.params.query,
@@ -154,6 +172,12 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "search_vector": {
       if (!item.params.query) return null;
+      // P0-2 修复：search_* 暂不支持 recordedAsOf
+      if (item.params.recordedAsOf) {
+        console.warn(
+          "[retrieve] search_vector 暂不支持 recordedAsOf，忽略该参数（store.search 不支持事务时间视图）",
+        );
+      }
       const nodeType = item.params.nodeType ?? "Entity";
       // 防御：schema 只有 Entity/Fact 声明了 embedding 字段，
       // planner LLM 误输出 Relation/Visibility 时跳过该项而非崩掉整场戏
@@ -180,6 +204,12 @@ export async function executeRetrievalItem(
     // ---------------------------------------------------------------
     case "search_hybrid": {
       if (!item.params.query) return null;
+      // P0-2 修复：search_* 暂不支持 recordedAsOf
+      if (item.params.recordedAsOf) {
+        console.warn(
+          "[retrieve] search_hybrid 暂不支持 recordedAsOf，忽略该参数（store.search 不支持事务时间视图）",
+        );
+      }
       const nodeType = item.params.nodeType ?? "Fact";
       // 防御：同 search_vector，hybrid 含向量分量，Relation/Visibility 无 embedding 字段
       if (nodeType !== "Entity" && nodeType !== "Fact") {
@@ -243,6 +273,9 @@ function hitsToFactSnapshots(
     if (nodeType === "Fact") {
       // Fact 节点：直接提取 StateDeclaration 字段
       if (!node.declarationId || !node.entityId || !node.property) continue;
+      // P0-1 修复：拦截未来事实（validFrom > storyTime 的 Fact 不应被检索到）
+      // 注：validFrom 缺失时走兜底 storyTime（保持原行为）
+      if (node.validFrom && node.validFrom > storyTime) continue;
       facts.push({
         declarationId: node.declarationId,
         entityId: node.entityId,
@@ -256,6 +289,9 @@ function hitsToFactSnapshots(
     } else if (nodeType === "Entity") {
       // Entity 节点：summary 作为一条 fact
       if (!node.entityId) continue;
+      // P0-1 修复：拦截未来才诞生的实体（validFrom > storyTime）
+      // 注：过滤读 node.validFrom；FactSnapshot.validFrom 仍用 storyTime 兜底（保持现状）
+      if (node.validFrom && node.validFrom > storyTime) continue;
       facts.push({
         declarationId: `search-${nodeType}-${node.entityId}-${randomId(6)}`,
         entityId: node.entityId,
@@ -268,6 +304,8 @@ function hitsToFactSnapshots(
     } else if (nodeType === "Relation") {
       // Relation 节点：转 FactSnapshot（property=`relation.${label}`）
       if (!node.sourceId || !node.label) continue;
+      // P0-1 修复：拦截未来才建立的关系
+      if (node.validFrom && node.validFrom > storyTime) continue;
       facts.push({
         declarationId: `search-${nodeType}-${node.sourceId}-${node.label}-${randomId(6)}`,
         entityId: node.sourceId,
@@ -280,6 +318,8 @@ function hitsToFactSnapshots(
     } else if (nodeType === "Visibility") {
       // Visibility 节点：转 FactSnapshot（property="visibility"）
       if (!node.entityId) continue;
+      // P0-1 修复：拦截未来才写入的可见性记录
+      if (node.validFrom && node.validFrom > storyTime) continue;
       facts.push({
         declarationId: `search-${nodeType}-${node.entityId}-${randomId(6)}`,
         entityId: node.entityId,

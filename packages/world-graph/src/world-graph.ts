@@ -744,4 +744,49 @@ export class WorldGraph {
       });
     }
   }
+
+  /**
+   * 更新单条 Fact 的 embedding（P0-5 修复，2026-07-27）
+   *
+   * commit.ts 写扩散后增量更新向量，避免全量 reembedAll 的性能开销。
+   * 找不到 declarationId 对应的 Fact 时不抛错（兼容导入器遗留数据）。
+   *
+   * @param declarationId Fact 主键
+   * @param embedding 512 维归一化向量
+   *
+   * TODO（P3 性能优化，子代理审查建议）：
+   *   当前 `this.store.nodes.Fact.find()` 是全表扫描。Fact 表大时（>1000 条）
+   *   每次 commit 都全表扫 N 次（N=state_changes 数）。
+   *   初期保持简单跑数据，视性能决定是否用 SDK query() 建 declarationId 索引。
+   */
+  async updateFactEmbedding(declarationId: string, embedding: number[]): Promise<void> {
+    const facts = await this.store.nodes.Fact.find();
+    // 不做类型断言，让 TS 推断 SDK 返回的 id 字段类型（NodeId branded type）
+    const fact = facts.find((f) => f.declarationId === declarationId);
+    if (!fact) return; // 静默跳过（兼容性，不抛错）
+    await this.store.nodes.Fact.update(fact.id, {
+      embedding: embedding as unknown as EmbeddingValue,
+    });
+  }
+
+  /**
+   * 更新单条 Entity 的 embedding（P0-5 修复，备用 API）
+   *
+   * Entity.summary 变化时调用。当前 commit.ts 不修改 summary，
+   * 此方法预留给未来 updateEntitySummary 路径使用。
+   *
+   * @param entityId 实体 ID（取 validTo=INFINITY 的当前版本）
+   * @param embedding 512 维归一化向量
+   */
+  async updateEntityEmbedding(entityId: string, embedding: number[]): Promise<void> {
+    const entities = await this.store.nodes.Entity.find();
+    // 不做类型断言，让 TS 推断 SDK 返回的 id 字段类型（NodeId branded type）
+    const ent = entities.find(
+      (e) => e.entityId === entityId && e.validTo === INFINITY,
+    );
+    if (!ent) return; // 静默跳过（兼容性）
+    await this.store.nodes.Entity.update(ent.id, {
+      embedding: embedding as unknown as EmbeddingValue,
+    });
+  }
 }

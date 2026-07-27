@@ -18,10 +18,11 @@
 
 import type { SchedulerCtx, SillyTavernCard } from "@pi/scheduler";
 import { defaultStaticCardLoader } from "@pi/scheduler";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
 import { makePlannerLlmCaller } from "./planner-llm.ts";
 import { makeRoleLlmCaller } from "./role-pool-llm.ts";
 import { makeRendererLlmCaller } from "./renderer-llm.ts";
+import { makeKnowledgeMapperLlmCaller } from "./knowledge-mapper-llm.ts";
 import { loadPlannerRuleSet } from "./planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
@@ -51,9 +52,19 @@ export async function makeSchedulerCtx(
     loadRuleSet(cwd),
   ]);
 
-  // 包装 embedder 为 SchedulerCtx.embedder 接口（只需 embed 方法）
-  const embedderAdapter: { embed(text: string): Promise<number[]> } = {
+  // 包装 embedder 为 SchedulerCtx.embedder 接口
+  // P0-5 修复（2026-07-27）：扩展 adapter 透传 embedEntity/embedFact，
+  // commit.ts 4.2.5 步增量写 embedding 时调用
+  // Embedder 类（src/embedder.ts）已实现全部三个方法，这里显式包装保持
+  // 与现有代码风格一致，便于单测 mock
+  const embedderAdapter: {
+    embed(text: string): Promise<number[]>;
+    embedEntity(snap: EntitySnapshot): Promise<number[]>;
+    embedFact(decl: StateDeclaration): Promise<number[]>;
+  } = {
     embed: (text: string) => embedder.embed(text),
+    embedEntity: (snap: EntitySnapshot) => embedder.embedEntity(snap),
+    embedFact: (decl: StateDeclaration) => embedder.embedFact(decl),
   };
 
   // 默认 staticCardLoader：从 Entity+Facts 重组
@@ -70,6 +81,10 @@ export async function makeSchedulerCtx(
     roleLlm: makeRoleLlmCaller(roleModel, roleApiKey),
     renderLlm: makeRendererLlmCaller(renderModel, renderApiKey),
     embedder: embedderAdapter,
+    // P0-3+6 修复（2026-07-27）：注入 knowledge mapper
+    // 复用 planner 模型配置（mapper 任务简单，无需独立模型；
+    // 如需独立可在 llm-config.ts 加 "knowledgeMapper" kind）
+    knowledgeMapper: makeKnowledgeMapperLlmCaller(plannerModel, plannerApiKey),
     roleRuleSet,
     renderRuleSet,
     plannerRuleSet,
