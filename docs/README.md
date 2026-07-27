@@ -10,10 +10,11 @@
 | [../README.md](../README.md) | 项目门面：简介、架构、快速开始 | 所有人 |
 | [SETUP.md](SETUP.md) | 部署指南 + 已知坑 + 环境变量 + **pi 版本兼容性** | 部署者 |
 | [USAGE.md](USAGE.md) | 完整使用手册：口述创作 / plan-yolo / modify-insert / 导入 / 规则集 / FAQ | 创作者 |
-| [api.md](api.md) | 31 个 pi 工具 + 子包 API 完整参考（2026-07-25 更新至 30+1 工具时代） | 开发者 |
+| [api.md](api.md) | 31 个 pi 工具 + 子包 API 完整参考（2026-07-28 更新至 P0 修复 + 调试管线 + §12 DebugBus） | 开发者 |
 | [novel-project-structure.md](novel-project-structure.md) | 小说工程结构定义 v1（novel.json / 目录 / git 策略 / init 流程） | 开发者 |
 | [THIRD-PARTY.md](THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点 | 合规/分发者 |
 | [audits/2026-07-25-requirements-audit.md](audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项核对 + 全部修复史） | 开发者 |
+| [audits/2026-07-27-fix-plan.md](audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段修复方案，已实施完毕） | 开发者 |
 
 ## 📐 设计文档（已实施，保留作设计依据）
 

@@ -124,7 +124,11 @@ plan 审阅时你会看到：检索计划 + 每个角色的 action / emotion / t
 "打开可视化"
 ```
 
-→ http://localhost:7421/ ：按 storyTime 快照浏览实体/关系演变（两级时间轴：章节→事件）、搜索定位、事件链、角色视角、手动编辑（编辑产生 `source:"user"` 事件）。
+ http://localhost:7421/ ：按 storyTime 快照浏览实体/关系演变（两级时间轴：章节→事件）、搜索定位、事件链、角色视角、手动编辑（编辑产生 `source:"user"` 事件）。
+
+**调试 tab**（2026-07-27 新增）：顶部页签切换到"调试"后，前端订阅 SSE 流，按 `traceId` 聚合显示调度链 DAG——`scheduler_dispatch` / `scheduler_commit` 的每个内部阶段（plan / retrieve / role.turn × N / commit.step.4 × N / commit.step.4.4 / commit.step.5 / commit.step.7）都画成一个节点，按 `start→end` 时序连线。节点状态色编码：蓝色脉冲=进行中、绿色=成功、红色=出错。点节点看 payload / 耗时 / 错误详情。
+
+触发方式：开可视化后切到"调试"页签，然后说一句推进剧情（如"下一场：林冲在草料场"）。`scheduler_dispatch` 一跑就能看到 DAG 实时生长。
 
 ## 8. 世界图直接操作
 
@@ -172,3 +176,12 @@ A: 改 `规则集.md`——渲染器对它绝对服从。也可用 `render_check
 
 **Q: 如何回退某段剧情？**
 A: 章节文本用 modify 重写；世界图状态通过新事件显式改回（"把彩叶的 mood 改回平静"）。引擎刻意不做自动 reset（保护时序完整性）。
+
+**Q: 调试 tab 显示空 / 报 "DEBUG_UNAVAILABLE"？**
+A: 两种可能：① 你跑的是 standalone 模式（`node scripts/visualizer.mjs`），该模式不创建 `debugBus`，调试 tab 不可用——只能在 pi 会话内的 `open_visualizer` 用；② 设了环境变量 `PI_DEBUG=off`，会话级调试总线被禁用——`unset PI_DEBUG` 后重启 pi。
+
+**Q: 调试 tab 的 DAG 看不到 commit.step.4.4？**
+A: 正常。4.4 步（knowledge_gained → 可见性）只在 `SchedulerCtx.knowledgeMapper` 注入时才执行；未注入 mapper 时跳过，对应节点不会出现在 DAG 中。注入由 pi 启动配置决定，详见 api.md §6.7 / §12。
+
+**Q: 想关掉调试模块省内存？**
+A: `export PI_DEBUG=off` 后重启 pi。调试总线为 null，所有 `startSpan` 调用为 no-op，零开销。环形缓冲容量 2000，正常运行下内存占用可忽略，一般无需关闭。

@@ -33,6 +33,8 @@ commit ─ 状态变化写回世界图（含可见性）→ 渲染器生成正�
 ✅ **跨会话项目记忆**（2026-07-25）：`memory.md` 自动维护当前进度/在场角色/最近事件（含口述原文），新会话自动注入。
 ✅ **双时态检索**（2026-07-25）：故事时间 × 事务时间双轴查询（`recordedAsOf`），改写历史剧情不被新写入污染。
 ✅ **AI 使用指南注入**（2026-07-25）：`engine-guide.md` 随主会话 prompt 注入，约束流水线/工具纪律。
+✅ **P0 修复**（2026-07-27）：双时态检索接入调度器 + commit 写 embedding + knowledge_gained 他盲可见性 + 部分成功语义（详见 [docs/audits/2026-07-27-fix-plan.md](docs/audits/2026-07-27-fix-plan.md)）。
+✅ **调试管线**（2026-07-27）：DebugBus 环形缓冲 + SSE 端点 + 可视化"调试" tab，实时显示调度链 DAG（`PI_DEBUG=off` 可禁用）。
 
 > [!WARNING]
 > **测试实现声明**：`import_novel`（小说导入器）与 `import_character_card`（酒馆卡导入器）
@@ -70,6 +72,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 | [docs/api.md](docs/api.md) | 31 个 pi 工具 + 子包 API 完整参考 |
 | [docs/novel-project-structure.md](docs/novel-project-structure.md) | 小说工程结构定义（novel.json / 目录 / git 策略） |
 | [docs/audits/2026-07-25-requirements-audit.md](docs/audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项 + 修复史） |
+| [docs/audits/2026-07-27-fix-plan.md](docs/audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段方案，已实施完毕） |
 | [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点（GPL 兼容性说明） |
 
 ## 子包

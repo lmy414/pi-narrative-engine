@@ -1,8 +1,8 @@
 # Narrative Engine API 文档
 
-> **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt + 酒馆卡导入）
-> **适用分支**: `master`（feat/role-pool 已 FF merge）
-> **最后更新**: 2026-07-25（31 工具时代，与需求审计 docs/audits/2026-07-25-requirements-audit.md 对齐）
+> **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt + 酒馆卡导入 + P0 修复 + 调试管线）
+> **适用分支**: `feat/role-pool`（领先 origin 3 commits，待 FF merge 回 master）
+> **最后更新**: 2026-07-28（P0 修复 + 调试管线对齐，详见 docs/audits/2026-07-27-fix-plan.md）
 
 ## 目录
 
@@ -30,6 +30,7 @@
 - [9. 类型定义](#9-类型定义)
 - [10. SDK 检索能力](#10-sdk-检索能力)
 - [11. 可视化服务（Visualizer）](#11-可视化服务visualizer)
+- [12. 调试模块（DebugBus）](#12-调试模块debugbus)
 
 ---
 
@@ -1207,10 +1208,27 @@ export { loadRoleRuleSet } from "./rule-loader.ts";
   emotion?: string;
   relation_update?: { target: string; label: string }[];  // target 填对方 characterId
   thought?: string;             // 内心（其他角色不可见）
-  knowledge_gained?: string[];  // ⚠️ 当前不写世界图（自然语言→declarationId 映射未设计）
+  knowledge_gained?: string[];  // P0-3+6 修复后由 commit.ts 4.4 步经 knowledgeMapper LLM 映射到 declarationId 并写 Visibility（source=informed）；未注入 mapper 时跳过（详见 §6.7）
   state_changes?: { entityId: string; property: string; value: unknown; modality: Modality }[];
 }
 ```
+
+### InteractHooks（调试钩子，可选）
+
+```typescript
+export interface InteractHooks {
+  /** 角色开始生成前调用；返回值原样透传给 onTurnEnd，可携带 span 句柄 */
+  onTurnStart?(member: CastMember, index: number): unknown;
+  /** 角色生成结束（成功或失败）后调用 */
+  onTurnEnd?(
+    token: unknown,
+    member: CastMember,
+    result: { output?: RoleAgentOutput; error?: string },
+  ): void;
+}
+```
+
+调度器在 `interact` 调用时注入实现，把每个角色的生成过程挂到 `DebugBus`（stage: `role.turn`）。role-pool 本身不感知 DebugBus——保持本子包零外部依赖。不注入时零开销。
 
 ### transforms
 
@@ -1243,12 +1261,23 @@ export type { StructuredEvent, RetrievalPlan, RetrievalItem, PlanResult,
 5.5 解析动态层属主名（ownerName）→ 6. 组装 CastMember → 7. role-pool.interact →
 8. 缓存 plan（内存 + `.pi/scheduler-plans/` 磁盘，TTL 1h）→ 9/10. yolo 自动 commit / plan 等确认
 
-### `commit(planId, ctx)` 8 步
+### `commit(planId, ctx)` 8 步（P0 修复后）
 
-1. 取 plan → 2. extractStateChanges → 3. 按 entityId 分组 →
-4. 写扩散：同 property 未闭合 Fact **全量** invalidated + `processEvent(type="change")` →
-4.3 **自产自知**：为作者角色写新 Fact 的 Visibility（`source: "experienced"`）→
-5. extractRelations → `addRelation` → 6. toRoleOutputs 投影 → 7. 按 intent 渲染（add/modify/insert）→ 8. 清理 plan 缓存
+1. 取 plan → 2. extractStateChanges → 2.5 建立 changeAuthors 映射（供 4.3 步） → 3. 按 entityId 分组 →
+4. 写扩散（**P0-4 修复**：单个 entityId 失败不阻断其他 entityId，记入 `failedEntityIds`）：
+   - **4.1** 查询同 property 未闭合 Fact → invalidated[]
+   - **4.2** `processEvent(type="change")` 写 change 事件
+   - **4.2.5 P0-5 修复（2026-07-27）**：为新增 Fact 增量生成 embedding 并调 `wg.updateFactEmbedding`。失败不阻断 commit（`search_text` 仍能命中 property/valueText）。修复前 `search_vector` / `search_hybrid` 完全不命中新数据
+   - **4.3 自产自知**：为作者角色写新 Fact 的 Visibility（`source: "experienced"`、`confidence: 1`）——修复角色自盲断链（2026-07-25）
+   - **4.4 P0-3+6 修复（2026-07-27）knowledge_gained → Visibility**（他盲修复）：
+     - 用 LLM mapper（`ctx.knowledgeMapper`）把 `knowledge_gained` 自然语言映射到 `declarationId`
+     - 候选列表由 `wg.getAllDeclarationsAt(storyTime)` 取（限制在 storyTime 时刻所有有效声明范围内，避免映射到未来事实）
+     - 写 Visibility（`source: "informed"`、`confidence` 由 mapper 决定，**< 0.5 不写**）
+     - 未注入 `knowledgeMapper` 时跳过 4.4 步（向后兼容，单测可不注入）
+5. extractRelations → `addRelation`（**P0-4 修复**：失败不阻断主链路，记入 `failedRelations`）→
+6. toRoleOutputs 投影 → 7. 按 intent 渲染（add/modify/insert）→ 8. 清理 plan 缓存
+
+**P0-4 部分成功语义**：`CommitResult.ok` 采用保守策略——写扩散与关系均无错且渲染成功才 `ok: true`；任一失败 `ok: false` 但 `appliedEventIds` 仍非空（调用方应同时检查 `ok` / `appliedEventIds` / `failedEntityIds` / `failedRelations`）。部分成功时也清理 plan 缓存（避免重试同 planId 重复写入）。
 
 ### `StructuredEvent`（调度器唯一输入）
 
@@ -1273,6 +1302,10 @@ export type { StructuredEvent, RetrievalPlan, RetrievalItem, PlanResult,
 
 > ⚠️ `search_vector` / `search_hybrid` 仅支持 `Entity`/`Fact` 节点（只有这两种声明了 embedding 字段）；
 > planner 误输出 Relation/Visibility 时执行层防御性跳过（不崩）。
+
+**P0-1 修复（2026-07-27）未来事实过滤**：`retrieve.ts` 的 `hitsToFactSnapshots` 转换层在 Fact/Entity 节点转 FactSnapshot 时按 `validFrom <= storyTime` 过滤，拦截所有 search 路径（`search_text`/`search_vector`/`search_hybrid`）返回的"未来才诞生"的节点。SDK `wg.search.*` 透传层不变（不影响 `world_query` 工具）。
+
+**P0-2 修复（2026-07-27）双时态检索接入**：`RetrievalItem.params` 支持 `recordedAsOf` 字段，传入后 `retrieve.ts` 在 `wg.search.*` 调用时透传，仅返回该事务时点之前写入的内容（retcon 隔离）。坐标取自 `world_status` 的 `recordedNow`。
 
 ---
 
@@ -1659,6 +1692,10 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 | `/api/events` | — | `{ events: EventRecord[] }` | 全量事件日志 |
 | `/api/events/:id/chain` | — | `{ events: EventRecord[] }` | 因果链（`traceCauses` 回溯到根） |
 | `/api/character-view` | `characterId`, `storyTime` | `{ view }` | 角色视角可见声明 |
+| `/api/debug/stream` | — | SSE 流（`text/event-stream`） | **调试模块**：先发送历史快照，再实时推送新 DebugEvent；每 30 秒 `:heartbeat` 防代理超时；客户端断开自动取消订阅 |
+| `/api/debug/events` | — | `{ events: DebugEvent[] }` | **调试模块**：一次性拉取环形缓冲内所有 DebugEvent（JSON） |
+
+> `/api/debug/*` 路由独立处理（SSE 流不能进入常规 try/catch，res 不 end）。`debugBus` 未注入时所有 `/api/debug/*` 返回 503 `DEBUG_UNAVAILABLE`。
 
 #### 11.2.2 写入端点（POST）
 
@@ -1672,6 +1709,7 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 | `/api/relations/close` | `sourceId`, `targetId`, `label`, `storyTime` | 闭合关系（`closeRelation`） |
 | `/api/visibility` | `characterId`, `declarationId`, `confidence`, `source`, `storyTime` | 设置可见性（`setVisibility`，服务端强制 `state: "known"` + `isExplicit: true`） |
 | `/api/visibility/close` | `characterId`, `declarationId`, `storyTime` | 撤销可见性（`closeVisibility`） |
+| `/api/debug/clear` | — | **调试模块**：清空环形缓冲（`bus.clear()`） |
 
 #### 11.2.3 错误码
 
@@ -1689,6 +1727,7 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 | 500 | `INTERNAL_ERROR` | GET 路径未捕获异常 |
 | 500 | `INTERNAL_ERROR` | 兜底：任何未捕获异常（保证连接不悬挂） |
 | 501 | `SEARCH_UNAVAILABLE` | `GET /api/search` 未注入 Search 实例 |
+| 503 | `DEBUG_UNAVAILABLE` | `/api/debug/*` 未注入 debugBus（`PI_DEBUG=off` 或会话未创建调试总线） |
 
 ### 11.3 前端（`visualizer-ui/`，Vue 3 + Element Plus）
 
@@ -1701,7 +1740,7 @@ V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件�
 - **脚本加载顺序**（`index.html`）：
   1. vendor：`vue.global.prod.js` → `element-plus.full.min.js` → `element-plus.locale.zh-cn.min.js` → `three.min.js` → `three-spritetext.min.js` → `3d-force-graph.min.js`
   2. `api.js`（HTTP 客户端封装）
-  3. components：`timeline-bar` → `entity-list` → `graph-3d` → `snapshot-table` → `relation-form` → `detail-editor` → `entity-form` → `event-timeline` → `help-tour`
+  3. components：`timeline-bar` → `entity-list` → `graph-3d` → `snapshot-table` → `relation-form` → `detail-editor` → `entity-form` → `event-timeline` → `help-tour` → `debug-view`
   4. `app.js`（Vue 应用根，最后加载）
 
 #### 11.3.2 主要文件
@@ -1722,6 +1761,7 @@ V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件�
 | `components/timeline-bar.js` | 顶部 storyTime 时间轴 |
 | `components/entity-form.js` | 实体新建/编辑表单 |
 | `components/help-tour.js` | 新手引导 |
+| `components/debug-view.js` | **调试 tab**：SSE 客户端订阅 `/api/debug/stream`、按 `traceId` 聚合的 DAG 流程图（SVG 节点 + 右键折线连接）、节点详情抽屉、工具栏（清空缓冲 / 暂停推送 / 拉取历史） |
 | `v2-legacy-app.js` / `v2-legacy.css` / `v2-legacy.html` | V2 遗留页面（兼容旧入口） |
 
 #### 11.3.3 vendor 依赖
@@ -1737,6 +1777,8 @@ V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件�
 
 按 storyTime 快照浏览/过滤实体与关系、搜索定位、手动编辑字段（全部走 API，编辑产生 `source: "user"` 事件）、事件链视图、角色视角置灰、历史审计。节点位置存浏览器 localStorage，不污染存储层。
 
+**调试 tab**（2026-07-27 新增）：切换到"调试"页签后订阅 SSE 流，按 `traceId` 聚合 DebugEvent 重建调度链 DAG（plan → retrieve → role.turn × N → commit.step.4 × N → commit.step.4.4 → commit.step.5 → commit.step.7 → commit）。节点状态色编码（start 蓝 / end 绿 / error 红），节点详情抽屉展示 payload 与耗时。`debugBus` 未注入时 tab 显示空状态提示。
+
 ### 11.4 同步与测试
 
 **同步**：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录（`novel/.pi/extensions/narrative-engine/visualizer-ui/`）。
@@ -1747,6 +1789,104 @@ npx tsx --test tests/visualizer-server.test.ts
 ```
 
 覆盖：静态文件服务、API envelope、所有 GET/POST 端点、错误码、CORS、路径穿越防护、端口分配（传 0 由系统分配）。
+
+> `/api/debug/*` 端点由 `tests/debug/sse.test.ts` 单独覆盖（SSE 流特殊，无法走标准 HTTP 集成测试）。
+
+---
+
+## 12. 调试模块（DebugBus）
+
+> 2026-07-27 新增。提供调度链实时可视化能力：每次 `scheduler_dispatch` / `scheduler_commit` 的内部阶段（plan → retrieve → role.turn × N → commit.step.4 × N → ...）以 DAG 形式推送到前端调试 tab。
+
+### 12.1 设计目标
+
+- **零开销可关闭**：`PI_DEBUG=off` 环境变量禁用，`debugBus` 为 `null`，所有 `startSpan` 调用为 no-op
+- **零侵入**：调度器/角色池/可视化器通过 `startSpan(bus, ...)` 钩子发射事件，bus 未注入时短路
+- **环形缓冲**：容量 2000，超出按 FIFO 淘汰（防止内存膨胀，参考 project_memory 的 lessons learned）
+- **SSE 实时推送**：前端订阅 `/api/debug/stream` 后先收历史快照再收实时事件，按 `traceId` 聚合重建 DAG
+
+### 12.2 模块结构
+
+| 文件 | 职责 |
+|------|------|
+| `src/debug/types.ts` | `DebugEvent` / `DebugBus` / `DebugSpan` 接口定义 |
+| `src/debug/bus.ts` | `createDebugBus(capacity)` 工厂：环形缓冲 + 订阅列表 |
+| `src/debug/sse.ts` | SSE 端点处理：`handleDebugStream` / `handleDebugEvents` / `handleDebugClear` |
+| `src/knowledge-mapper-llm.ts` | P0-3+6 修复的 LLM 映射器（`knowledge_gained` → `declarationId`），独立于调试模块但同期引入 |
+| `packages/scheduler/src/debug.ts` | `startSpan(ctx, stage, traceId, input?, parentId?)` 配对 start/end 事件 |
+| `visualizer-ui/components/debug-view.js` | 前端调试 tab：SSE 客户端 + DAG SVG + 节点详情抽屉 |
+
+### 12.3 `DebugEvent` 结构
+
+```typescript
+interface DebugEvent {
+  id: string;            // 事件唯一 ID（前端去重）
+  ts: number;            // 毫秒时间戳
+  traceId: string;       // 调度链追踪 ID（同一次 dispatch/commit 共享）
+  stage: string;         // 点分路径，如 "commit.step.4" / "role.turn" / "plan.llm"
+  status: "start" | "end" | "error";
+  input?: unknown;       // 阶段输入（开始时携带）
+  output?: unknown;      // 阶段输出（结束时携带）
+  durationMs?: number;   // 执行时长（仅 end/error）
+  error?: string;        // 错误信息（仅 error）
+  parentId?: string;     // 父阶段事件 ID（DAG 边构建）
+}
+```
+
+### 12.4 `startSpan` API（调度器侧）
+
+```typescript
+// packages/scheduler/src/debug.ts
+function startSpan(
+  bus: DebugBus | null | undefined,
+  stage: string,
+  traceId: string,
+  input?: unknown,
+  parentId?: string,
+): { eventId: string; end(output?: unknown): void; error(err: unknown): void };
+```
+
+用法：try/finally 配对 start/end。`bus` 为 null/undefined 时返回 dummy span，`end`/`error` 为 no-op——保证未注入调试总线时零开销。
+
+调度器在以下位置发射事件（非穷举）：
+- `dispatch` / `plan` / `plan.llm` / `retrieve` / `retrieve.item`
+- `role.turn`（由 `InteractHooks` 钩子触发，详见 §6.6）
+- `commit` / `commit.step.4`（per entityId）/ `commit.step.4.4` / `commit.step.5` / `commit.step.7`
+
+### 12.5 注入点（`src/index.ts`）
+
+```typescript
+// session_start 时创建单例（容量 2000）
+debugBus = process.env.PI_DEBUG === "off" ? null : createDebugBus(2000);
+
+// 注入 SchedulerCtx（供 plan/commit 发射事件）
+const ctx = await makeSchedulerCtx(g, emb, cwd, debugBus ?? undefined);
+
+// 注入 startVisualizer（暴露 /api/debug/* 端点）
+startVisualizer({ ..., ...(debugBus ? { debugBus } : {}) });
+
+// session_shutdown 时置 null
+debugBus = null;
+```
+
+### 12.6 环境变量
+
+| 变量 | 默认 | 行为 |
+|------|------|------|
+| `PI_DEBUG` | 未设（启用） | `off` 时禁用调试总线（`debugBus = null`，所有 `/api/debug/*` 返回 503 `DEBUG_UNAVAILABLE`） |
+
+### 12.7 测试
+
+```bash
+# DebugBus 环形缓冲与订阅
+npx tsx --test tests/debug/bus.test.ts
+
+# SSE 端点（handleDebugStream / handleDebugEvents / handleDebugClear）
+npx tsx --test tests/debug/sse.test.ts
+
+# 调度器侧 startSpan 钩子注入
+npx tsx --test packages/scheduler/tests/debug.test.ts
+```
 
 ---
 

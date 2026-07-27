@@ -2,7 +2,7 @@
 
 > **用途**：逐项核对"设计需求 ↔ 实际源码"的一致性，记录核对结论、发现的空白与待决策项。
 > **更新方式**：每完成一项核对，在本文档追加/更新对应章节。
-> **基线**：`feat/role-pool` 分支，HEAD = `264a3cd`（2026-07-25 基线清理，4 commits，200 测试全绿）
+> **基线**：`feat/role-pool` 分支，HEAD = `8922a58`（2026-07-27 P0 修复 + 调试管线，326+ 测试全绿）
 
 ---
 
@@ -208,6 +208,8 @@ RoleAgentOutput[]
 
 ### 🔴 严重断链：state_changes 的新 Fact 无可见性记录（角色"自盲"）
 
+> ✅ **已修复（2026-07-27，commit `898c31c`，commit.ts 4.3 步）**：commit 写 state_changes 时同步为作者角色写 Visibility（`source: "experienced"`、`confidence: 1`）。declarationId 按 `decl-{entityId}-{property}-{storyTime}` 规则重建。详见 api.md §6.7。
+
 **问题链**：
 1. commit 用 `processEvent` 写入新 Fact（如林冲 mood=绝望）——**但不写任何 Visibility 记录**
 2. 下一场戏 plan 阶段，兕底检索项 `character_view` 走五步过滤（`character-view.ts:31`：`visDecls.find(v => v.declarationId === decl.declarationId)`，无记录即不可见）
@@ -218,16 +220,16 @@ RoleAgentOutput[]
 **临时绕行**：planner LLM 若恰好派发 `entity_snapshot`（不查可见性，`retrieve.ts:108`）则可见——但不可控，靠 LLM 心情。
 
 **修法选项**：
-- a) commit 写 state_changes 时同步 `setVisibility(characterId=entityId 属主, declarationId=新 Fact)`（自产自知）
+- a) commit 写 state_changes 时同步 `setVisibility(characterId=entityId 属主, declarationId=新 Fact)`（自产自知） ← **已采用**
 - b) character_view 五步过滤加"自己的声明自动可见"规则（改 world-graph 内核语义）
-- c) knowledge_gained 驱动可见性（见下，但需自然语言→declarationId 映射，成本高）
+- c) knowledge_gained 驱动可见性（见下，但需自然语言→declarationId 映射，成本高） ← **P0-3+6 已采用，见下表 #1**
 
 ### 其他发现
 
-| # | 问题 | 位置 | 严重度 |
-|---|------|------|-------|
-| 1 | `knowledge_gained` 不落图：transforms.ts 注释"由调度器处理"，但 commit.ts 未处理——只随 RoleOutput 进渲染器 | commit.ts | ⚠️ 中（与断链同源） |
-| 2 | invalidated 只取"第一个同 property 未闭合 Fact，假设唯一"（代码注释自承），重复 property 时漏闭合 | commit.ts:88 | ⚠️ 低 |
+| # | 问题 | 位置 | 严重度 | 状态 |
+|---|------|------|-------|------|
+| 1 | `knowledge_gained` 不落图：transforms.ts 注释"由调度器处理"，但 commit.ts 未处理——只随 RoleOutput 进渲染器 | commit.ts | ⚠️ 中（与断链同源） | ✅ **已修复（2026-07-27，P0-3+6）**：commit 4.4 步用 `knowledgeMapper` LLM 把 `knowledge_gained` 自然语言映射到 `declarationId`，写 Visibility（`source=informed`、`confidence < 0.5 不写`）。候选列表由 `getAllDeclarationsAt(storyTime)` 取。未注入 mapper 时跳过（向后兼容）。详见 api.md §6.7 / `src/knowledge-mapper-llm.ts` |
+| 2 | invalidated 只取"第一个同 property 未闭合 Fact，假设唯一"（代码注释自承），重复 property 时漏闭合 | commit.ts:88 | ⚠️ 低 | ✅ **已修复（2026-07-27，P0-4）**：4.1 步改为全量闭合所有同 property 未闭合 Fact（`snapshot.properties.filter(p => p.property === change.property)`），不再假设唯一 |
 
 ---
 
