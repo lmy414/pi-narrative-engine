@@ -57,7 +57,7 @@
 |------|------|--------|------|
 | `Xenova/bge-small-zh-v1.5`（量化 ONNX，~50MB） | HuggingFace（BAAI 旗智源，Xenova 转换） | MIT | 中文文本嵌入（512 维）：实体/事实向量检索 |
 
-- 首次向量检索时下载到 `<扩展目录>/node_modules/@xenova/transformers/.cache/`；可用 `HF_ENDPOINT` 镜像加速
+- 首次向量检索时下载到 `<扩展目录>/node_modules/@xenova/transformers/.cache/`；可用 `HF_ENDPOINT` 镜像加速（`https://hf-mirror.com` 或作者自维护备用镜像 `https://emaostudio.online/hf-mirror`）
 - 模型权重不进 git 仓库
 
 ## 6. 宿主运行时

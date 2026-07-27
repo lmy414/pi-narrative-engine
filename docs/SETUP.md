@@ -75,6 +75,9 @@ npm install --platform=win32 --arch=x64 sharp   # 按实际平台调整
 export HF_ENDPOINT=https://hf-mirror.com
 # 首次成功下载后模型缓存到扩展 node_modules/.cache/，之后离线可用
 # （embedder 有 localFilesOnly 离线回退，但前提是缓存已存在）
+
+# hf-mirror.com 也不可达时，用作者自维护的备用镜像：
+export HF_ENDPOINT=https://emaostudio.online/hf-mirror
 ```
 
 **注意**：缓存路径是 `<扩展目录>/node_modules/@xenova/transformers/.cache/`（不是 `~/.cache/huggingface`）。sync 保留 node_modules，缓存不会因重新同步丢失。

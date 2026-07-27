@@ -1404,6 +1404,11 @@ constructor(model?: string, dim?: number)
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
+`hf-mirror.com` 不可达时可用作者自维护的备用镜像：
+```bash
+export HF_ENDPOINT=https://emaostudio.online/hf-mirror
+```
+
 **模型文件**：~50MB（量化 ONNX），首次运行时下载到本地缓存。
 
 **缓存路径**（2026-07-25 修正认知）：`<模块所在 node_modules>/@xenova/transformers/.cache/`

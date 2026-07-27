@@ -166,7 +166,7 @@ A: 记得。`.pi/world-graph-v3/memory.md`（项目记忆）在每次事件写�
 A: 用双时态检索：先 `world_status` 记下改写前的 `recordedNow` 坐标，再 `world_character_view` / `world_entity_get` 传 `recordedAsOf=<坐标>`——结果只含该时点之前写入的内容，后续改写不可见。
 
 **Q: scheduler_dispatch 报 "fetch failed"？**
-A: 向量模型没缓存且 huggingface.co 不可达。`export HF_ENDPOINT=https://hf-mirror.com` 后重启；首次成功下载后离线可用。
+A: 向量模型没缓存且 huggingface.co 不可达。`export HF_ENDPOINT=https://hf-mirror.com` 后重启；首次成功下载后离线可用。`hf-mirror.com` 也不可达时改用作者自维护的备用镜像：`export HF_ENDPOINT=https://emaostudio.online/hf-mirror`。
 
 **Q: 角色"失忆"了？**
 A: 2026-07-25 前的版本有自盲 bug（已修）。如果还有，检查角色规则集是否过大挤掉了动态层。
