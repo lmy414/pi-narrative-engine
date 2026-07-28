@@ -23,7 +23,7 @@ test("setVisibility 显式声明角色知道某声明", withTempWg(async (wg) =>
   await wg.setVisibility("ent-macbeth", titleDecl.declarationId, {
     state: "known",
     confidence: 1,
-    source: "self",
+    source: "experienced",
     validFrom: "act1-scene1",
     isExplicit: true,
   });

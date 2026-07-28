@@ -54,7 +54,7 @@ test("characterView modalityFilter 过滤", withTempWg(async (wg) => {
   const snap2 = await wg.getEntityAt("ent-macbeth", "act1-scene2");
   for (const d of snap2!.properties) {
     await wg.setVisibility("ent-macbeth", d.declarationId, {
-      state: "known", confidence: 1, source: "self",
+      state: "known", confidence: 1, source: "experienced",
       validFrom: "act1-scene1", isExplicit: true,
     });
   }
@@ -69,7 +69,7 @@ test("characterView 知识持续：声明闭合后仍可见，直到可见性被
   await wg.birthEntity("ent-hero", "character", {}, "act1-scene1");
   // hero 在 scene2 得知师父身份（rumor）
   await wg.setVisibility("ent-hero", "decl-ent-master-role-act1-scene1", {
-    state: "known", confidence: 0.5, source: "rumor",
+    state: "known", confidence: 0.5, source: "informed",
     validFrom: "act1-scene2", isExplicit: true,
   });
   // scene3 师父死亡，级联闭合其所有声明

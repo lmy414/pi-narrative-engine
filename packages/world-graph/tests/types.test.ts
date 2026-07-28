@@ -89,7 +89,7 @@ test("VisibilityDeclaration 校验完整字段", () => {
     declarationId: "decl-1",
     state: "known",
     confidence: 0.5,
-    source: "rumor",
+    source: "informed",
     validFrom: "act2-scene1",
     validTo: "Infinity",
     isExplicit: true,

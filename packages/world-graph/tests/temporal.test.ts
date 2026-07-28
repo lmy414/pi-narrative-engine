@@ -81,7 +81,7 @@ test("双时态角色视角：后补写的历史 Fact 对 recordedAsOf 不可见
     newFacts: [{ entityId: "e-lin", property: "birthplace", value: "东京", modality: "fact" }],
   });
   await wg.setVisibility("e-lin", "decl-e-lin-birthplace-ch001.ev001", {
-    state: "known", confidence: 1, source: "told", validFrom: "ch001.ev003", isExplicit: true,
+    state: "known", confidence: 1, source: "informed", validFrom: "ch001.ev003", isExplicit: true,
   });
 
   // 单时态：ch001.ev003 时刻两条都可见（含 retcon）

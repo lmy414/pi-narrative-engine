@@ -191,7 +191,7 @@ export async function importCardToWorldGraph(
       await wg.setVisibility(eid, declarationId, {
         state: "known",
         confidence: 1,
-        source: "self",
+        source: "experienced",
         validFrom: storyTime,
         isExplicit: true,
       });

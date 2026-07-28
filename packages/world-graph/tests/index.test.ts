@@ -34,7 +34,7 @@ test("类型可导入（编译期检查）", () => {
   };
   const vis: VisibilityDeclaration = {
     characterId: "c1", declarationId: "d1", state: "known",
-    confidence: 1, source: "self", validFrom: "t1", validTo: "Infinity", isExplicit: true,
+    confidence: 1, source: "experienced", validFrom: "t1", validTo: "Infinity", isExplicit: true,
   };
   assert.ok(evt);
   assert.ok(decl);

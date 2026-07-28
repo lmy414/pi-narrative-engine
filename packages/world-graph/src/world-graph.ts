@@ -16,7 +16,7 @@ import {
   generateSqliteMigrationSQL,
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
 import { z } from "zod";
-import { EntityType, Modality, EventRecord } from "./types.ts";
+import { EntityType, Modality, EventRecord, VisibilitySource } from "./types.ts";
 import type { StateDeclaration, VisibilityDeclaration, EventRecordInput } from "./types.ts";
 import { EventLog } from "./event-log.ts";
 
@@ -70,7 +70,7 @@ const VisibilityNode = defineNode("Visibility", {
     declarationId: z.string(),
     state: z.enum(["known"]),
     confidence: z.number(),
-    source: z.string(),
+    source: VisibilitySource,
     validFrom: z.string(),
     validTo: z.string(),
     isExplicit: z.boolean(),

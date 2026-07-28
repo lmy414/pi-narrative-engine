@@ -136,7 +136,7 @@ test("importCardToWorldGraph: birth + 字段 Facts + 自产自知可见性", asy
   assert.equal(visibilities.length, 3);
   assert.equal(visibilities[0].cid, "ent_char_test0001");
   assert.equal(visibilities[0].did, "decl-ent_char_test0001-name-ch-1");
-  assert.equal(visibilities[0].opts.source, "self");
+  assert.equal(visibilities[0].opts.source, "experienced");
 });
 
 test("importCardToWorldGraph: 卡无 name 时兜底 entityId", async () => {

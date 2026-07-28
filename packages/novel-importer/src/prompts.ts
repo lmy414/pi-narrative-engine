@@ -286,14 +286,15 @@ ${alreadyBornListJson}
 
 ## 4. 状态声明（new_facts）
 每个声明包含：
-- \`property\`：属性路径，按实体类型差异化：
-  - character: name/personality/background/speaking_style/goals/abilities/appearance/location/mood/health/current_action
-  - location: name/description/type/weather/time_of_day/atmosphere
-  - item: name/material/owner/history/abilities/state/location/wear
-  - concept: name/rules/scope/elements
-  - 跨实体信念：belief.about_{对象}.{方面}（如 belief.about_彩叶.trust）
-  - 跨实体假设：hypothesis.about_{对象}.{方面}
-- \`value\`：属性值（字符串/数字/布尔/对象均可）
+- \`property\`：属性名，**必须使用中文词表**，按实体类型差异化：
+  - character（角色）: 名字/性格/背景/说话风格/目标/能力/外貌/位置/心情/健康/当前行动/职业
+  - location（地点）: 名字/描述/类型/天气/时段/氛围
+  - item（物品）: 名字/材质/主人/历史/能力/状态/位置/磨损
+  - concept（概念）: 名字/规则/范围/元素
+  - 跨实体信念：信念.关于_{对象}.{方面}（如 信念.关于_彩叶.信任）
+  - 跨实体假设：假设.关于_{对象}.{方面}
+  - ⚠️ 禁止使用英文字段名（如 mood/location/name）。禁止把 summary 写入 property（走顶层 summary 字段）。
+- \`value\`：属性值（字符串/数字/布尔/对象均可，中文人类可读）
 - \`modality\`：模态
   - fact：客观事实
   - belief：角色主观信念（entityId = 持有信念的角色）
@@ -306,7 +307,7 @@ ${alreadyBornListJson}
 
 ## 5. 被替换的旧声明（invalidated）
 change 事件中，被替换的旧声明只写 \`property\`（系统会自动查找对应的 declarationId）。
-例：彩叶的心情从"开心"变"难过"，invalidated = [{"property": "mood"}]，new_facts 含 {property: "mood", value: "难过"}
+例：彩叶的心情从"开心"变"难过"，invalidated = [{"property": "心情"}]，new_facts 含 {property: "心情", value: "难过"}
 
 # 输出要求
 你必须调用 \`submit_chapter_events\` 工具提交结果，不要返回纯文本。
@@ -477,7 +478,7 @@ export function buildVisibilitiesPrompt(
 每个可见性声明指向一个 StateDeclaration（由 entity_hint + property 标识）：
 - characterId_hint：持有可见性的角色（谁能看见）
 - target_hint：被看见的实体（谁的声明）
-- property：被看见的声明属性（如 mood/location/personality）
+- property：被看见的声明属性（必须用中文词表，如 心情/位置/性格）
 
 # 输出要求
 你必须调用 \`submit_visibilities\` 工具提交结果。
@@ -488,9 +489,9 @@ export function buildVisibilitiesPrompt(
     {
       "characterId_hint": "角色规范名（谁能看见）",
       "target_hint": "被看见的实体规范名",
-      "property": "被看见的声明属性（如 mood/location）",
+      "property": "被看见的声明属性（中文词表，如 心情/位置）",
       "confidence": 0.9,
-      "source": "witnessed | rumor | inferred | 自定义",
+      "source": "witnessed",
       "storyTime": "ch${String(chapterId).padStart(3, "0")}.ev004",
       "isExplicit": true
     }

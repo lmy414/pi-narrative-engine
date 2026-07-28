@@ -93,16 +93,26 @@ export type EventRecord = z.infer<typeof EventRecord>;
 export type EventRecordInput = z.input<typeof EventRecord>;
 
 /**
+ * 可见性来源 — 区分角色是如何知道某条声明的
+ * - experienced: 自产自知（角色自己产出的 state_change，commit 4.3 步写入，confidence=1）
+ * - informed: 他盲修复（角色通过对话/观察学到的他人状态，commit 4.4 步 knowledgeMapper 映射后写入）
+ * - witnessed: 基础设施推断（inferVisibility 自动为 located_in 关系推导的同地点互相可见）
+ *
+ * 2026-07-29：从 z.string() 改为枚举，清理历史遗留值 self/rumor/told/explicit/inferred。
+ * 旧数据保持原样不迁移（用户决策），仅新写入受枚举约束。
+ */
+export const VisibilitySource = z.enum(["experienced", "informed", "witnessed"]);
+export type VisibilitySource = z.infer<typeof VisibilitySource>;
+
+/**
  * 可见性声明 — character_view 的基础单元（飞书文档"2.6 可见性管理"+"步骤 5"）
- * [存疑-1] 文档未给完整字段表，本 schema 基于 2.6 + 步骤5/6 散见字段整合
- * Task 7 实施前需 fetch 飞书文档"七、知识可见性"section 核对
  */
 export const VisibilityDeclaration = z.object({
   characterId: z.string(),
   declarationId: z.string(),
-  state: z.enum(["known"]),  // [存疑-1] 文档只示例 "known"，保守只支持此值
+  state: z.enum(["known"]),
   confidence: z.number().min(0).max(1),
-  source: z.string(),        // "witnessed" | "rumor" | 自定义
+  source: VisibilitySource,
   validFrom: z.string(),
   validTo: z.string().default("Infinity"),
   isExplicit: z.boolean(),
