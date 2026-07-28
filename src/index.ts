@@ -26,7 +26,7 @@
  */
 
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import url from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -87,40 +87,27 @@ let visualizerServer: VisualizerServer | null = null;
 let debugBus: DebugBus | null = null;
 
 /**
- * 主会话 system prompt 资源文件路径（Pending Gap #5）
+ * Skills 资源目录（2026-07-28 抽离自主会话 prompt 注入）
  *
- * 设计：
- * - prompts/*.md 是纯自由文本 prompt 资源（与 role-ruleSet / render-ruleSet 约定一致）
- * - session_start 时一次性加载到内存，before_agent_start 时追加到 systemPrompt 末尾
- * - 不缓存到磁盘：每次 session_start 重读，便于热更新
+ * 设计变更：
+ * - 旧方案（before_agent_start 拼接 systemPrompt）：main-session.md / engine-guide.md
+ *   强制注入 systemPrompt 末尾，每轮必可见
+ * - 新方案（pi skill 机制）：把两段内容改为 SKILL.md 格式，通过 resources_discover
+ *   贡献 skillPaths 给 pi；pi 按其 skill 加载机制（progressive disclosure）只把
+ *   name + description 注入 systemPrompt 的 <available_skills> 段，LLM 按需 read
+ *   加载完整 SKILL.md 内容
+ * - 项目记忆 memory.md 仍保留 before_agent_start 强制注入（每轮重读，放 systemPrompt
+ *   末尾注意力最强位），不走 skill 机制
  *
- * 注入顺序（before_agent_start 拼接）：
- *   systemPrompt + main-session.md（身份/意图） + engine-guide.md（流水线/工具纪律）
- *   + memory.md（项目记忆，每轮重读，放最末注意力最强位）
+ * skills/ 目录结构：
+ *   skills/main-session/SKILL.md   - 主会话身份与意图分类
+ *   skills/engine-guide/SKILL.md   - 引擎流水线与工具纪律
+ *
+ * 注意：skills/ 由 build.mjs 复制到 dist/skills/，sync.mjs 同步到扩展目录后
+ * 由 pi 在 resources_discover 阶段扫描。
  */
-const PROMPTS_DIR = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "prompts");
+const SKILLS_DIR = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "skills");
 
-/** 主会话 prompt 缓存（session_start 时加载，session_shutdown 时清空） */
-let mainSessionPrompt: string | null = null;
-
-/** 引擎使用指南缓存（同上生命周期） */
-let engineGuidePrompt: string | null = null;
-
-/**
- * 加载 prompts/ 下的 prompt 资源
- *
- * 失败时不抛错（避免阻塞 session_start），仅打印警告并返回空字符串
- * 理由：prompt 加载失败不应影响 world-graph 等其他初始化
- */
-async function loadPromptAsset(fileName: string): Promise<string> {
-  const filePath = path.join(PROMPTS_DIR, fileName);
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch (err) {
-    console.warn(`[narrative-engine] prompt 资源加载失败 (${filePath}):`, err);
-    return "";
-  }
-}
 /** session_start 时记录 cwd，供 import_novel 等工具默认 worldGraphDir 使用 */
 let sessionCwd: string | null = null;
 
@@ -232,48 +219,48 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`[narrative-engine] 加载 plan 缓存失败: ${err}`, "warning");
     }
 
-    // 加载主会话 prompt + 引擎使用指南（Pending Gap #5 / 2026-07-25 指南注入）
-    // 失败不阻塞 session_start，仅警告（详见 loadPromptAsset 注释）
-    mainSessionPrompt = await loadPromptAsset("main-session.md");
-    engineGuidePrompt = await loadPromptAsset("engine-guide.md");
-    if (mainSessionPrompt) {
-      ctx.ui.notify(
-        `[narrative-engine] 已加载主会话 prompt (${mainSessionPrompt.length} 字符)`,
-        "info",
-      );
+    // main-session / engine-guide 已改为 SKILL.md 由 pi skill 机制加载
+    // （见 resources_discover 事件），session_start 不再读盘
+    if (existsSync(SKILLS_DIR)) {
+      ctx.ui.notify(`[narrative-engine] skills 目录已就绪: ${SKILLS_DIR}`, "info");
     } else {
-      ctx.ui.notify(`[narrative-engine] 主会话 prompt 未加载（文件缺失或读取失败）`, "warning");
-    }
-    if (!engineGuidePrompt) {
-      ctx.ui.notify(`[narrative-engine] 引擎使用指南未加载（文件缺失或读取失败）`, "warning");
+      ctx.ui.notify(`[narrative-engine] skills 目录缺失（构建或同步异常）`, "warning");
     }
   });
 
   // --------------------------------------------------------------------------
-  // 主会话 prompt 注入（Pending Gap #5）
+  // 项目记忆注入（memory.md，每轮强制可见）
   // --------------------------------------------------------------------------
   //
-  // 通过 before_agent_start 事件把 main-session.md 追加到 systemPrompt 末尾。
-  // 设计依据：
-  // - 主会话是引擎入口，需要明确职责边界（不参与叙事、不脑补业务）
-  // - mode/意图分类/角色消解规则必须由 system prompt 注入，避免用户被迫用工程语言
-  // - 末尾注入（注意力最强）：与 renderer ruleSet 注入位置约定一致
+  // 设计变更（2026-07-28）：
+  // - 旧方案在 before_agent_start 拼接 main-session.md + engine-guide.md + memory.md
+  // - 新方案：main-session / engine-guide 改为 SKILL.md 由 pi skill 机制加载
+  //   （见 resources_discover 事件），保留 memory.md 强制注入 systemPrompt 末尾
   //
-  // 注意：
-  // - before_agent_start 在每次用户提交 prompt 时触发，但 mainSessionPrompt /
-  //   engineGuidePrompt 是 session_start 时一次性加载的，避免每轮读盘
-  // - 若 prompt 为空（加载失败），跳过对应段，主会话仍可工作
-  // - 项目记忆（memory.md）每次重新读盘：它在会话进行中会被 commit 等
-  //   写入路径更新，必须拿最新内容（文件很小，读盘开销可忽略）
+  // memory.md 仍走 before_agent_start 的理由：
+  // - 每轮会被 commit / world_event_apply 等写入路径更新，必须拿最新内容
+  // - 文件很小，读盘开销可忽略
+  // - 放 systemPrompt 末尾（注意力最强位），与项目记忆"权威源"定位一致
   pi.on("before_agent_start", async (event) => {
-    let prompt = event.systemPrompt;
-    if (mainSessionPrompt) prompt += "\n\n" + mainSessionPrompt;
-    if (engineGuidePrompt) prompt += "\n\n" + engineGuidePrompt;
-    if (sessionCwd) {
-      const memory = await loadMemory(sessionCwd);
-      if (memory) prompt += "\n\n" + memory;
-    }
-    return { systemPrompt: prompt };
+    if (!sessionCwd) return;
+    const memory = await loadMemory(sessionCwd);
+    if (!memory) return;
+    return { systemPrompt: event.systemPrompt + "\n\n" + memory };
+  });
+
+  // --------------------------------------------------------------------------
+  // 资源发现：贡献 skills/ 目录给 pi skill 加载机制
+  // --------------------------------------------------------------------------
+  //
+  // 通过 resources_discover 事件把 SKILLS_DIR 注册到 pi。
+  // pi 启动时扫描该目录下的 SKILL.md 文件，把每个 skill 的 name + description
+  // 注入 systemPrompt 的 <available_skills> 段（progressive disclosure）。
+  // LLM 按需 read 加载完整 SKILL.md 内容。
+  //
+  // 详见 pi 文档：pi-ex/packages/coding-agent/docs/skills.md
+  // 与 pi-ex/packages/coding-agent/docs/extensions.md#resources_discover
+  pi.on("resources_discover", async () => {
+    return { skillPaths: [SKILLS_DIR] };
   });
 
   pi.on("session_shutdown", async () => {
@@ -297,8 +284,6 @@ export default function (pi: ExtensionAPI) {
     search = null;
     currentStoryTime = null;
     sessionCwd = null;
-    mainSessionPrompt = null;
-    engineGuidePrompt = null;
     debugBus = null;
   });
 

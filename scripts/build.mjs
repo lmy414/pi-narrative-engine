@@ -75,12 +75,40 @@ async function build() {
     const rel = await compileFile(f);
     console.log(`[build] ${rel}`);
   }
-  // 复制非 TS 资产（如 prompts/*.md 纯文本 prompt 资源）
-  // 运行时通过 import.meta.url 相对 dist/index.js 定位，必须随产物一起输出
-  const srcPromptsDir = join(srcDir, "prompts");
-  if (existsSync(srcPromptsDir)) {
-    await cp(srcPromptsDir, join(outDir, "prompts"), { recursive: true });
-    console.log(`[build] prompts/ 资产已复制`);
+  // 复制非 TS 资产（skills/*/SKILL.md 由 pi skill 加载机制读取）
+  // 运行时通过 import.meta.url 相对 dist/index.js 定位 SKILLS_DIR，必须随产物一起输出
+  const srcSkillsDir = join(srcDir, "skills");
+  if (existsSync(srcSkillsDir)) {
+    await cp(srcSkillsDir, join(outDir, "skills"), { recursive: true });
+    console.log(`[build] skills/ 资产已复制`);
+  }
+  // 从 docs/ 精选机制/排错相关文档 → dist/skills/narrative-engine/references/
+  // 设计：源码层面 docs/ 是唯一源（不新增冗余），构建时复制到 skill 目录下
+  // 让 LLM 在机制不清楚或工具报错时能 read references/*.md 自助排错
+  // 精选标准：工具 API / 机制设计 / 已知修复记录；过滤 legacy / audits 历史快照 / 用户向文档
+  const docsDir = join(repoRoot, "docs");
+  const refsDir = join(outDir, "skills", "narrative-engine", "references");
+  if (existsSync(docsDir)) {
+    await mkdir(refsDir, { recursive: true });
+    const docsToInclude = [
+      "api.md",
+      "novel-project-structure.md",
+      "plans/2026-07-25-scheduler-design.md",
+      "plans/2026-07-24-role-pool-design.md",
+      "plans/2026-07-24-renderer.md",
+      "audits/2026-07-27-fix-plan.md",
+    ];
+    for (const rel of docsToInclude) {
+      const src = join(docsDir, rel);
+      if (existsSync(src)) {
+        const dest = join(refsDir, rel);
+        await mkdir(dirname(dest), { recursive: true });
+        await cp(src, dest);
+      } else {
+        console.warn(`[build] 文档缺失，跳过: ${rel}`);
+      }
+    }
+    console.log(`[build] references/ 已复制 ${docsToInclude.length} 个文档`);
   }
   console.log(`[build] 完成：${files.length} 个文件 → ${relative(repoRoot, outDir)}/`);
 }
