@@ -426,7 +426,7 @@ novel init <dir>（或 pi 命令 /novel-init）应做的事：
 | api.md 文档滞后 | ✅ 30 工具 / v3 运行时 / role-pool / scheduler / 主会话 prompt 说明已补 |
 | 规则集三件套缺失（novel 项目） | ✅ 已从 templates 复制 + novel.json + 正文/ |
 | novel db 垃圾/重复数据 | ✅ 3 条垃圾 Fact 物理删除（含 Visibility 引用），重复未闭合清零 |
-| knowledge_gained 不落图 | ⏸️ **保留待设计决策**（自然语言→declarationId 映射需 LLM，不是 bug） |
+| knowledge_gained 不落图 | ✅ 已修复（2026-07-27 P0-3+6，见核对项 4 表格 #1；knowledgeMapper LLM 映射 + commit 4.4 步） |
 | HF 向量模型缓存 | ⏸️ 环境事项（首次 embed 需联网或配 HF_ENDPOINT 镜像） |
 
 ### 待需求决策（设计空白）

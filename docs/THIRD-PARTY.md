@@ -2,7 +2,7 @@
 
 > 本项目以 GPL-3.0 发布。本文盘点全部第三方代码、依赖及其许可证。
 > **结论先行：所有依赖均为宽松许可证（MIT / Apache-2.0 / ISC），与 GPL-3.0 兼容。**
-> 最后更新：2026-07-25（npm registry 逐项核实）
+> 最后更新：2026-07-29（pi-coding-agent 归类修正 + 补 @types/better-sqlite3）
 
 ## 1. 兼容性结论
 
@@ -28,7 +28,6 @@
 | `@xenova/transformers` | ^2.17.2 | Apache-2.0 | 本地文本嵌入（feature-extraction pipeline，ONNX 运行时） |
 | `epub2` | ^3.0.2 | ISC | EPUB 分章解析（小说导入器阶段 1） |
 | `@earendil-works/pi-ai` | ^0.77.0 | MIT | LLM 调用（complete/getModel/validateToolCall）+ TypeBox 重导出 |
-| `@earendil-works/pi-coding-agent` | ^0.77.0 | MIT | pi 扩展 API 类型（ExtensionAPI，开发期类型；**运行时由宿主 pi CLI 提供**，见 SETUP.md §5） |
 
 ## 3. npm 开发依赖（不进运行时）
 
@@ -37,6 +36,8 @@
 | `typescript` | Apache-2.0 | 类型检查 |
 | `tsx` | MIT | 测试运行器（tsx --test） |
 | `@types/node` | MIT | Node 类型定义 |
+| `@types/better-sqlite3` | MIT | better-sqlite3 的 TypeScript 类型定义 |
+| `@earendil-works/pi-coding-agent` | MIT | pi 扩展 API 类型定义（ExtensionAPI，仅开发期类型检查；**运行时由宿主 pi CLI 提供**，见 SETUP.md §5） |
 
 ## 4. Vendored 前端库（`visualizer-ui/vendor/`，随仓库分发）
 

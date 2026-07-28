@@ -330,7 +330,7 @@ interface CommitResult {
 | `declarationId` | string | 否 | ❌ 无 | 外键 → Fact |
 | `state` | `z.enum(["known"])` | 否 | ❌ 无 | **schema 只允许 "known"** |
 | `confidence` | number | 否 | ❌ 无 | 0-1 |
-| `source` | string | 否 | ❌ 无 | **自由字符串，非枚举** |
+| `source` | `VisibilitySource`（枚举） | 否 | ❌ 无 | 2026-07-29 从 `z.string()` 改为 `z.enum(["experienced","informed","witnessed"])`；旧数据保留原样不迁移 |
 | `validFrom` | string | 否 | ❌ 无 | — |
 | `validTo` | string | 否 | ❌ 无 | — |
 | `isExplicit` | boolean | 否 | ❌ 无 | — |
@@ -339,7 +339,7 @@ interface CommitResult {
 - `"experienced"` — commit.ts:225（自产自知 state_change）
 - `"informed"` — commit.ts:308（knowledge_gained 通过 LLM mapper 学到）
 - `"witnessed"` — character-view.ts:64（inferVisibility 自动为 located_in 推导）
-- 测试中还出现 `"self" / "rumor" / "told" / "explicit"`
+- 历史遗留值 `"self" / "rumor" / "told" / "explicit"` 仅存在于旧数据库和测试 fixtures，主路径代码已清理（types.ts:101 注释）
 
 ### 3.2 边
 
@@ -576,10 +576,10 @@ retrieve.ts 对 `search_*` 类型的 `recordedAsOf` 仅 `console.warn` 降级为
 
 ### 🟢 P3：代码质量与可维护性
 
-#### #7 `Visibility.source` 非枚举
-- **位置**：[world-graph.ts:73](file:///d:/claude/pi-ex/narrative-engine/packages/world-graph/src/world-graph.ts#L73) `z.string()`
-- **影响**：代码中实际只出现 `experienced/informed/witnessed` 三种，但 schema 允许任意字符串，测试中还出现 `self/rumor/told/explicit` 等历史遗留值
-- **建议**：改为 `z.enum(["experienced","informed","witnessed"])`，清理测试中的历史值
+#### #7 ✅ 已修复（2026-07-29）：`Visibility.source` 已改为枚举
+- **位置**：[types.ts:104](file:///d:/claude/pi-ex/narrative-engine/packages/world-graph/src/types.ts#L104) `VisibilitySource = z.enum(["experienced","informed","witnessed"])`
+- **修复内容**：从 `z.string()` 改为 `z.enum(["experienced","informed","witnessed"])`，清理测试 fixtures 中的历史值（`self/rumor/told/explicit`）
+- **遗留**：旧数据库历史值保留原样不迁移（用户决策），仅新写入受枚举约束
 
 #### #8 `CloseFact` 方法不存在
 - **位置**：Fact 闭合只能通过 `killEntity` 级联或 `processEvent(change)` 间接闭合
@@ -647,7 +647,7 @@ retrieve.ts 对 `search_*` 类型的 `recordedAsOf` 仅 `console.warn` 降级为
    - #4 updateEntitySummary 联动 embedding（需评估 embedder 调用开销）
    - #5 world_event_apply 补 embedding（需评估是 wrapper 调 reembedAll 还是 processEvent 内联）
 3. **P3 #7 #9**：代码质量
-   - #7 Visibility.source 改枚举（需清理历史值）
+   - #7 ✅ 已修复（2026-07-29）：Visibility.source 已改枚举
    - #9 project_memory.md 刷新（可立即做）
 4. **P2 #6**：业务字段索引（P3 性能优化，数据量大时再做）
 

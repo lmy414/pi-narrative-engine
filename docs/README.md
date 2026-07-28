@@ -15,6 +15,7 @@
 | [THIRD-PARTY.md](THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点 | 合规/分发者 |
 | [audits/2026-07-25-requirements-audit.md](audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项核对 + 全部修复史） | 开发者 |
 | [audits/2026-07-27-fix-plan.md](audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段修复方案，已实施完毕） | 开发者 |
+| [audits/2026-07-29-data-flow-audit.md](audits/2026-07-29-data-flow-audit.md) | 数据流审计（dispatch/commit/数据库 schema/工具返回值，附 [HTML 渲染版](audits/2026-07-29-data-flow-audit.html)） | 开发者 |
 
 ## 📐 设计文档（已实施，保留作设计依据）
 

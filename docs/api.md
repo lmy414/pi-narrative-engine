@@ -1,8 +1,8 @@
 # Narrative Engine API 文档
 
 > **版本**: V2（tool-adaptation 重写后 + V3 导入器 + 调度器/角色池/主会话 prompt + 酒馆卡导入 + P0 修复 + 调试管线）
-> **适用分支**: `feat/role-pool`（领先 origin 3 commits，待 FF merge 回 master）
-> **最后更新**: 2026-07-28（P0 修复 + 调试管线对齐，详见 docs/audits/2026-07-27-fix-plan.md）
+> **适用分支**: `master`
+> **最后更新**: 2026-07-29（VisibilitySource 枚举化 + 中文 property 词表同步）
 
 ## 目录
 
@@ -444,7 +444,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 | `characterId` | string | 是 | 角色 ID |
 | `declarationId` | string | 是 | 声明 ID（StateDeclaration 的 `declarationId`） |
 | `confidence` | number | 是 | 置信度 0-1 |
-| `source` | string | 是 | 来源（如 `"witnessed"`、`"rumor"`） |
+| `source` | `"experienced" \| "informed" \| "witnessed"` | 是 | 可见性来源（自产自知=experienced / 他盲修复=informed / 基础设施推断=witnessed） |
 | `isExplicit` | boolean | 是 | 是否显式设置 |
 | `storyTime` | string | 否 | 不传用 `currentStoryTime` |
 
@@ -1534,7 +1534,7 @@ interface VisibilityDeclaration {
   declarationId: string;
   state: "known";           // 当前只支持 "known"
   confidence: number;       // 0-1
-  source: string;           // "witnessed" | "rumor" | 自定义
+  source: VisibilitySource; // "experienced" | "informed" | "witnessed"（2026-07-29 从 z.string() 改为枚举，旧数据保留原样不迁移）
   validFrom: string;
   validTo: string;          // 默认 "Infinity"
   isExplicit: boolean;

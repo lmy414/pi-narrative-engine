@@ -699,7 +699,7 @@
           <tr><td><code>declarationId</code></td><td>string</td><td>外键 → Fact</td></tr>
           <tr><td><code>state</code></td><td>enum</td><td>schema 只允许 "known"</td></tr>
           <tr><td><code>confidence</code></td><td>number</td><td>0-1</td></tr>
-          <tr><td><code>source</code></td><td>string</td><td style="color:var(--red)">⚠️ 自由字符串，非枚举（优化点 #7）</td></tr>
+          <tr><td><code>source</code></td><td>VisibilitySource（枚举）</td><td style="color:var(--green)">✅ 已修复（2026-07-29）：z.enum(["experienced","informed","witnessed"])</td></tr>
           <tr><td><code>validFrom</code></td><td>string</td><td>—</td></tr>
           <tr><td><code>validTo</code></td><td>string</td><td>—</td></tr>
           <tr><td><code>isExplicit</code></td><td>boolean</td><td>—</td></tr>
@@ -934,9 +934,9 @@
         <span class="opt-id">#7</span>
         <span class="opt-pri pri-p3">P3</span>
       </div>
-      <div class="opt-title">Visibility.source 非枚举</div>
-      <div class="opt-desc">schema 是 z.string()，实际只用 experienced/informed/witnessed 三种，测试中还出现 self/rumor/told/explicit 等历史遗留值。建议改为 z.enum。</div>
-      <div class="opt-loc">world-graph.ts:73</div>
+      <div class="opt-title">✅ 已修复（2026-07-29）：Visibility.source 已改为枚举</div>
+      <div class="opt-desc">从 z.string() 改为 z.enum(["experienced","informed","witnessed"])，清理测试 fixtures 中的历史值。旧数据库历史值保留原样不迁移（用户决策）。</div>
+      <div class="opt-loc">types.ts:104</div>
     </div>
     <div class="opt-card p3">
       <div class="opt-card-header">

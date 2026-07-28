@@ -84,7 +84,8 @@ planner LLM 推导检索计划
   └─ mode="yolo":自动继续 ↓
 scheduler_commit:
   → state_changes 按实体写扩散(每实体一个 change 事件,旧 Fact 闭合)
-  → 自产自知可见性(角色自动看得见自己造成的变化)
+  → 自产自知可见性(角色自动看得见自己造成的变化,source="experienced")
+  → knowledge_gained 他盲修复(LLM 映射到 declarationId,写 source="informed" 的可见性)
   → relation_update 写入世界图
   → 渲染器生成正文 → 写入章节文件(带 eventId 锚点)
   → 项目记忆 memory.md 自动更新
@@ -114,7 +115,8 @@ scheduler_commit:
 - `scheduler_discard` - 丢弃 plan
 
 **渲染类**(直接调,绕过调度器,用于纯文本操作):
-- `render_append` / `render_modify` / `render_preview` / `render_check`
+- `render_append` / `render_modify` / `render_preview` / `render_check` / `render_rule_set`
+- `render_rule_set`:查看当前规则集.md 内容(渲染器规则,非角色规则集)
 - 仅当用户明确要"直接改文本"而不走角色池/调度器时使用
 
 **世界图查询/修改类**(直接调,辅助用户):
@@ -124,8 +126,10 @@ scheduler_commit:
 
 **其他**:
 - `import_novel` - 导入小说到世界图
+- `import_character_card` - 导入酒馆角色卡(.json/.png)
 - `open_visualizer` - 打开可视化界面
 - `role_interact` - 直接调角色池(绕过调度器,仅用于调试)
+- `role_rule_set` - 查看角色规则集.md 内容
 
 ## 9. plan 模式纪律(人在回路)
 

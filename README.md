@@ -51,7 +51,7 @@ commit ─ 状态变化写回世界图（含可见性）→ 渲染器生成正�
 git clone git@github.com:lmy414/pi-narrative-engine.git
 cd narrative-engine
 npm install && npm run build
-npm run doctor                       # 环境自检（7 项，缺什么告诉你）
+npm run doctor                       # 环境自检（8 项，缺什么告诉你）
 
 npm run init -- ../my-novel --name 我的小说    # 初始化小说工程
 cd ../my-novel/.pi/extensions/narrative-engine && npm install
@@ -73,6 +73,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 | [docs/novel-project-structure.md](docs/novel-project-structure.md) | 小说工程结构定义（novel.json / 目录 / git 策略） |
 | [docs/audits/2026-07-25-requirements-audit.md](docs/audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项 + 修复史） |
 | [docs/audits/2026-07-27-fix-plan.md](docs/audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段方案，已实施完毕） |
+| [docs/audits/2026-07-29-data-flow-audit.md](docs/audits/2026-07-29-data-flow-audit.md) | 数据流审计（dispatch/commit/数据库 schema/工具返回值，[HTML 渲染版](docs/audits/2026-07-29-data-flow-audit.html)） |
 | [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点（GPL 兼容性说明） |
 
 ## 子包
@@ -90,7 +91,8 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 ```bash
 npm run build      # src/*.ts → dist/（esbuild transform-only）
 npm run sync       # dist + packages + visualizer-ui → ../novel/.pi/extensions/
-npm run doctor     # 环境自检
+npm run dev        # sync --watch 模式（监听 dist/ 变化自动同步）
+npm run doctor     # 环境自检（8 项）
 npm run init -- <目录>  # 初始化小说工程
 ```
 
@@ -104,7 +106,7 @@ CI：ubuntu / windows / macos × node 20/22，每次 push 全量跑。
 
 **分支策略**：日常开发在 `feat/*` 分支，master 无独有提交时定期 fast-forward 合并回 `master`
 （`git checkout master && git merge --ff-only <feat分支> && git push`）。
-当前工作分支：`feat/role-pool`。
+当前工作分支：`master`。
 
 ## License
 
