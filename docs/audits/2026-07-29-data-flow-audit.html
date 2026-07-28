@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>叙事引擎数据流审计（2026-07-29）</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .nav {
+    position: sticky;
+    top: 0;
+    background: rgba(13, 17, 23, 0.95);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    z-index: 100;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .nav h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  .nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .nav a:hover { color: var(--accent); background: rgba(88, 166, 255, 0.1); }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  section { margin-bottom: 48px; scroll-margin-top: 80px; }
+  h2 {
+    font-size: 22px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+  h3 { font-size: 16px; color: var(--accent); margin-top: 24px; }
+  h4 { font-size: 14px; color: var(--text-dim); margin-top: 16px; margin-bottom: 8px; }
+
+  /* 流水线图 */
+  .pipeline {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .pipeline-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    min-width: 1200px;
+  }
+  .stage {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    position: relative;
+    min-width: 140px;
+  }
+  .stage::after {
+    content: "→";
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-size: 18px;
+    z-index: 1;
+  }
+  .stage:last-child::after { display: none; }
+  .stage-title {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .stage-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .stage-llm {
+    display: inline-block;
+    background: rgba(188, 140, 255, 0.15);
+    color: var(--purple);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .stage-db {
+    display: inline-block;
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--green);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .stage-io {
+    font-size: 11px;
+    color: var(--text-dim);
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    margin-top: 6px;
+  }
+  .stage-io code { color: var(--orange); font-family: "JetBrains Mono", Consolas, monospace; }
+
+  /* 表格 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  th {
+    background: var(--panel-2);
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  td code, th code {
+    color: var(--orange);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+  }
+  tr:hover td { background: rgba(88, 166, 255, 0.03); }
+
+  /* DB Schema 卡片 */
+  .schema-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .schema-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .schema-card-header {
+    background: var(--panel-2);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .schema-card-header .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .badge-fts { background: rgba(210, 153, 34, 0.2); color: var(--yellow); }
+  .badge-vec { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+  .badge-none { background: rgba(139, 148, 158, 0.15); color: var(--text-dim); }
+  .schema-card table { border: none; font-size: 12px; }
+  .schema-card th, .schema-card td { padding: 6px 10px; }
+
+  /* 优化点卡片 */
+  .opt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .opt-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-dim);
+    border-radius: 6px;
+    padding: 14px;
+  }
+  .opt-card.p1 { border-left-color: var(--red); }
+  .opt-card.p2 { border-left-color: var(--yellow); }
+  .opt-card.p3 { border-left-color: var(--accent); }
+  .opt-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .opt-id { font-weight: 700; font-size: 14px; }
+  .opt-pri {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .pri-p1 { background: rgba(248, 81, 73, 0.2); color: var(--red); }
+  .pri-p2 { background: rgba(210, 153, 34, 0.2); color: var(--yellow); }
+  .pri-p3 { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+  .opt-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .opt-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+  .opt-loc {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    background: var(--panel-2);
+    padding: 4px 8px;
+    border-radius: 3px;
+    word-break: break-all;
+  }
+  .opt-loc a { color: var(--accent); text-decoration: none; }
+
+  /* commit 步骤时间线 */
+  .timeline {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .timeline-item {
+    display: flex;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .timeline-item:last-child { border-bottom: none; }
+  .timeline-step {
+    min-width: 80px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--purple);
+  }
+  .timeline-content { flex: 1; }
+  .timeline-action { font-size: 13px; margin-bottom: 4px; }
+  .timeline-db {
+    display: inline-block;
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--green);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+  }
+  .timeline-code {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    margin-top: 4px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .note {
+    background: rgba(88, 166, 255, 0.05);
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin: 12px 0;
+  }
+  .note.warn {
+    background: rgba(248, 81, 73, 0.05);
+    border-left-color: var(--red);
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <h1>叙事引擎数据流审计</h1>
+  <a href="#overview">全景</a>
+  <a href="#dispatch">dispatch 流水线</a>
+  <a href="#commit">commit 写扩散</a>
+  <a href="#schema">数据库 Schema</a>
+  <a href="#tools">工具返回值</a>
+  <a href="#memory">memory.md</a>
+  <a href="#dualtemporal">双时态</a>
+  <a href="#optimization">优化点</a>
+</nav>
+
+<div class="container">
+
+<section id="overview">
+  <h2>0. 全景：yolo 模式端到端数据流</h2>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-dot" style="background:var(--purple)"></span>LLM 调用</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>数据库写入</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--orange)"></span>数据结构</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--accent)"></span>阶段</div>
+  </div>
+
+  <div class="pipeline">
+    <div class="pipeline-row">
+      <div class="stage">
+        <div class="stage-title">阶段 0</div>
+        <div class="stage-name">初始化</div>
+        <div class="stage-io">生成 <code>traceId</code><br><code>eventId</code><br><code>planId</code><br><code>chapterPath</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">阶段 1</div>
+        <div class="stage-name">planner LLM</div>
+        <div class="stage-llm">LLM #1 · temp=0.3</div>
+        <div class="stage-io">输入: <code>instruction</code><br><code>characterIds</code><br>输出: <code>RetrievalPlan</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">阶段 2</div>
+        <div class="stage-name">检索执行</div>
+        <div class="stage-io">6 种检索派发<br>按 <code>assignTo</code> 分配<br>输出: <code>FactSnapshot[]</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">阶段 2.5</div>
+        <div class="stage-name">属主名解析</div>
+        <div class="stage-io"><code>wg.getEntityAt</code><br>填入 <code>ownerName</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">阶段 3</div>
+        <div class="stage-name">角色池演绎</div>
+        <div class="stage-llm">LLM #2 · temp=0.7</div>
+        <div class="stage-io">串行 + PriorAction<br>输出: <code>RoleAgentOutput[]</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">阶段 4-5</div>
+        <div class="stage-name">缓存 / 分支</div>
+        <div class="stage-io">plan: 返回等审阅<br>yolo: 自动 commit ↓</div>
+      </div>
+    </div>
+  </div>
+
+  <h4 style="margin-top:24px">commit 写扩散（yolo 模式自动进入）</h4>
+  <div class="pipeline">
+    <div class="pipeline-row">
+      <div class="stage">
+        <div class="stage-title">步骤 4.2</div>
+        <div class="stage-name">processEvent(change)</div>
+        <div class="stage-db">EventLog + Fact 表</div>
+        <div class="stage-io">闭合旧 Fact<br>写入新 Fact</div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">步骤 4.2.5</div>
+        <div class="stage-name">增量写 embedding</div>
+        <div class="stage-db">Fact.embedding</div>
+        <div class="stage-io">P0-5 修复<br>失败不阻断</div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">步骤 4.3</div>
+        <div class="stage-name">自产自知</div>
+        <div class="stage-db">Visibility 表</div>
+        <div class="stage-io"><code>source="experienced"</code><br>confidence=1</div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">步骤 4.4</div>
+        <div class="stage-name">他盲修复</div>
+        <div class="stage-llm">LLM #3 · knowledgeMapper</div>
+        <div class="stage-db">Visibility 表</div>
+        <div class="stage-io"><code>source="informed"</code><br>P0-3 修复</div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">步骤 5</div>
+        <div class="stage-name">relation 写入</div>
+        <div class="stage-db">Relation 表</div>
+        <div class="stage-io"><code>wg.addRelation</code></div>
+      </div>
+      <div class="stage">
+        <div class="stage-title">步骤 7</div>
+        <div class="stage-name">渲染章节</div>
+        <div class="stage-llm">LLM #4 · temp=0.7</div>
+        <div class="stage-db">章节文件</div>
+        <div class="stage-io">add/modify/insert</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>LLM 调用次数</strong>（yolo 模式，N=角色数）：plannerLlm ×1 + roleLlm ×N + knowledgeMapper ×N + renderLlm ×1 = <strong>2 + 2N 次</strong>
+  </div>
+</section>
+
+<section id="dispatch">
+  <h2>1. scheduler_dispatch 流水线</h2>
+
+  <h3>1.1 工具入参（StructuredEvent）</h3>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>storyTime</code></td><td>string</td><td>是</td><td><code>ch{NNN}.ev{NNN}</code>，如 <code>ch009.ev006</code></td></tr>
+      <tr><td><code>instruction</code></td><td>string</td><td>是</td><td>事件指令（主会话已加工）</td></tr>
+      <tr><td><code>characterIds</code></td><td>string[]</td><td>是</td><td>参与角色 entityId 列表</td></tr>
+      <tr><td><code>executionHints</code></td><td>string</td><td>否</td><td>用户特殊要求</td></tr>
+      <tr><td><code>mode</code></td><td>"plan"|"yolo"</td><td>否</td><td>缺省 <code>plan</code></td></tr>
+      <tr><td><code>chapterPath</code></td><td>string</td><td>否</td><td>缺省时由 storyTime 推断</td></tr>
+      <tr><td style="color:var(--red)"><code>locationId</code></td><td>string</td><td>否</td><td>⚠️ schema 收集但 plan/commit 全文未消费（优化点 #1）</td></tr>
+      <tr><td><code>intent</code></td><td>"add"|"modify"|"insert"</td><td>否</td><td>缺省 <code>add</code></td></tr>
+      <tr><td><code>targetEventId</code></td><td>string</td><td>否</td><td>modify/insert 必填</td></tr>
+      <tr><td><code>userInput</code></td><td>string</td><td>否</td><td>用户口述原文（写入 EventLog）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.2 RetrievalPlan（planner LLM 输出）</h3>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>items[].type</code></td><td>enum</td><td><code>character_view</code> / <code>entity_snapshot</code> / <code>relations</code> / <code>search_text</code> / <code>search_vector</code> / <code>search_hybrid</code></td></tr>
+      <tr><td><code>items[].params.entityId</code></td><td>string</td><td>character_view/entity_snapshot/relations 用</td></tr>
+      <tr><td><code>items[].params.query</code></td><td>string</td><td>search_* 用</td></tr>
+      <tr><td><code>items[].params.nodeType</code></td><td>enum</td><td>Entity / Fact / Relation / Visibility</td></tr>
+      <tr><td><code>items[].params.limit</code></td><td>integer</td><td>—</td></tr>
+      <tr><td><code>items[].params.fieldPath</code></td><td>string</td><td>缺省 "embedding"</td></tr>
+      <tr><td><code>items[].params.modalityFilter</code></td><td>array</td><td>fact/belief/hypothesis</td></tr>
+      <tr><td><code>items[].params.recordedAsOf</code></td><td>string</td><td>双时态检索（retcon 隔离）</td></tr>
+      <tr><td><code>items[].assignTo</code></td><td>string[]</td><td>检索结果分配给哪些角色（信息差第一层）</td></tr>
+      <tr><td><code>items[].label</code></td><td>string</td><td>语义标签（注入角色 prompt 作小标题）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.3 检索派发对照表</h3>
+  <table>
+    <thead><tr><th>RetrievalItem.type</th><th>调用</th><th>nodeType 缺省</th><th>用 embedding？</th></tr></thead>
+    <tbody>
+      <tr><td><code>character_view</code></td><td><code>wg.getCharacterView</code></td><td>—</td><td>否</td></tr>
+      <tr><td><code>entity_snapshot</code></td><td><code>wg.getEntityAt</code></td><td>—</td><td>否</td></tr>
+      <tr><td><code>relations</code></td><td><code>wg.getRelations</code></td><td>—</td><td>否</td></tr>
+      <tr><td><code>search_text</code></td><td><code>wg.search.fulltext</code></td><td>"Fact"</td><td>否</td></tr>
+      <tr><td><code>search_vector</code></td><td><code>embedder.embed</code> → <code>wg.search.vector</code></td><td>"Entity"</td><td>是</td></tr>
+      <tr><td><code>search_hybrid</code></td><td><code>embedder.embed</code> → <code>wg.search.hybrid</code></td><td>"Fact"</td><td>是</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <strong>无 dedup</strong>：同一 declarationId 可能跨多条 RetrievalItem 被命中并多次注入角色提示词，浪费 token（Pending Gap #11）
+  </div>
+
+  <h3>1.4 RoleAgentOutput（角色池输出）</h3>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>actor</code></td><td>string</td><td>人类可读名字（渲染器用）</td></tr>
+      <tr><td><code>characterId</code></td><td>string</td><td>entityId（world-graph 用）</td></tr>
+      <tr><td><code>action</code></td><td>string</td><td>可观察行动</td></tr>
+      <tr><td><code>target</code></td><td>string?</td><td>行动对象</td></tr>
+      <tr><td><code>emotion</code></td><td>string?</td><td>角色情绪</td></tr>
+      <tr><td><code>relation_update</code></td><td>{target, label}[]?</td><td>target = 对方 characterId</td></tr>
+      <tr><td><code>thought</code></td><td>string?</td><td>内心独白（其他角色不可见）</td></tr>
+      <tr><td><code>knowledge_gained</code></td><td>string[]?</td><td>获得的知识</td></tr>
+      <tr><td><code>state_changes</code></td><td>StateChange[]?</td><td>状态变更提议</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.5 返回值</h3>
+  <h4>plan 模式 DispatchPlanOutput</h4>
+  <table>
+    <tbody>
+      <tr><td><code>mode</code></td><td>"plan"</td></tr>
+      <tr><td><code>planId</code></td><td>string</td></tr>
+      <tr><td><code>eventId</code></td><td>string（渲染锚点）</td></tr>
+      <tr><td><code>chapterPath</code></td><td>string</td></tr>
+      <tr><td><code>outputs</code></td><td>RoleAgentOutput[]</td></tr>
+      <tr><td><code>errors</code></td><td>{characterId, error}[]</td></tr>
+      <tr><td><code>cast</code></td><td>{characterId, name, summary}[]</td></tr>
+      <tr><td><code>retrievalPlan</code></td><td>RetrievalPlan（透明展示 planner 推导结果）</td></tr>
+    </tbody>
+  </table>
+  <h4>yolo 模式 DispatchYoloOutput</h4>
+  <div class="note">在 plan 基础上追加 <code>commitResult: CommitResult</code>（见下节）</div>
+</section>
+
+<section id="commit">
+  <h2>2. scheduler_commit 写扩散（8 步流程）</h2>
+
+  <div class="timeline">
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 1</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>getPlan(planId)</code> 取 PlanResult</div>
+        <div class="timeline-code">commit.ts:80-92</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 2</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>extractStateChanges(outputs)</code> 扁平化 + 建立 <code>changeAuthors: Map&lt;entityId, Set&lt;characterId&gt;&gt;</code></div>
+        <div class="timeline-code">commit.ts:111-127</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 3</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>groupBy(stateChanges, c =&gt; c.entityId)</code></div>
+        <div class="timeline-code">commit.ts:130</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 4.1</div>
+      <div class="timeline-content">
+        <div class="timeline-action">查 invalidated：<code>wg.getEntityAt(entityId, storyTime)</code> 找同 property 未闭合 Fact</div>
+        <div class="timeline-code">commit.ts:146-164</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 4.2</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>wg.processEvent({type:"change", invalidated, newFacts})</code></div>
+        <span class="timeline-db">EventLog JSONL + Fact 表</span>
+        <div class="timeline-code">闭合旧 Fact validTo=storyTime，写入新 Fact validFrom=storyTime（不写 embedding/visibility）</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 4.2.5</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>embedder.embedFact(decl)</code> → <code>wg.updateFactEmbedding(declId, vec)</code></div>
+        <span class="timeline-db">Fact.embedding（512 维）</span>
+        <div class="timeline-code">P0-5 修复，失败不阻断</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 4.3</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>wg.setVisibility(knowerId, declId, {source:"experienced", confidence:1})</code></div>
+        <span class="timeline-db">Visibility 表</span>
+        <div class="timeline-code">自产自知，失败不阻断</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 4.4</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>knowledgeMapper(characterId, knowledgeItems, candidates)</code> → <code>wg.setVisibility(..., {source:"informed"})</code></div>
+        <span class="timeline-db">Visibility 表</span>
+        <div class="timeline-code">P0-3 修复，需 LLM 映射 + confidence≥0.5</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 5</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>extractRelations(outputs)</code> → <code>wg.addRelation(source, target, label, storyTime)</code></div>
+        <span class="timeline-db">Relation 表</span>
+        <div class="timeline-code">失败记入 failedRelations</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 6</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>toRoleOutputs(outputs)</code> 去掉 state_changes/characterId</div>
+        <div class="timeline-code">commit.ts:357-360</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 7</div>
+      <div class="timeline-content">
+        <div class="timeline-action">按 <code>event.intent</code> 分支渲染章节文件</div>
+        <span class="timeline-db">章节文件</span>
+        <div class="timeline-code">add=append / modify=modifyChapterSection / insert=insertChapterSection</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-step">步骤 8</div>
+      <div class="timeline-content">
+        <div class="timeline-action"><code>deletePlan(planId)</code>（部分成功也清理）</div>
+        <div class="timeline-code">commit.ts:389-392</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>CommitResult 返回值</h3>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>ok</code></td><td>boolean</td><td>写扩散+关系+渲染均成功才为 true</td></tr>
+      <tr><td><code>planId</code></td><td>string</td><td>—</td></tr>
+      <tr><td><code>eventId</code></td><td>string</td><td>渲染锚点</td></tr>
+      <tr><td><code>appliedEventIds</code></td><td>string[]</td><td>每个 entityId 一个 change 事件 ID</td></tr>
+      <tr><td><code>chapterPath</code></td><td>string</td><td>—</td></tr>
+      <tr><td><code>writtenText</code></td><td>string</td><td>渲染的正文</td></tr>
+      <tr><td><code>error</code></td><td>string?</td><td>ok=false 时聚合错误</td></tr>
+      <tr><td><code>failedEntityIds</code></td><td>string[]?</td><td>P0-4：写扩散失败的 entityId</td></tr>
+      <tr><td><code>failedRelations</code></td><td>Array?</td><td>P0-4：关系写入失败</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <strong>关键设计</strong>：modify/insert <strong>不撤销原事件的状态声明</strong>（Git revert 思路）。章节文件层面才做替换/插入，保留 Fact 时序索引完整性。
+  </div>
+</section>
+
+<section id="schema">
+  <h2>3. 数据库 Schema（4 张节点表 + 1 条边）</h2>
+
+  <div class="schema-grid">
+    <div class="schema-card">
+      <div class="schema-card-header">
+        <span>Entity 表</span>
+        <span class="badge badge-vec">embedding</span>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>类型</th><th>索引</th></tr></thead>
+        <tbody>
+          <tr><td><code>entityId</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>type</code></td><td>enum</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>summary</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>validFrom</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>validTo</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>embedding</code></td><td>vec(512)</td><td><span class="badge badge-vec">sqlite-vec</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-card-header">
+        <span>Fact 表</span>
+        <span><span class="badge badge-fts">FTS</span> <span class="badge badge-vec">embedding</span></span>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>类型</th><th>索引</th></tr></thead>
+        <tbody>
+          <tr><td><code>declarationId</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>entityId</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>property</code></td><td>searchable</td><td><span class="badge badge-fts">FTS zh</span></td></tr>
+          <tr><td><code>value</code></td><td>unknown</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>valueText</code></td><td>searchable?</td><td><span class="badge badge-fts">FTS zh</span></td></tr>
+          <tr><td><code>embedding</code></td><td>vec(512)?</td><td><span class="badge badge-vec">sqlite-vec</span></td></tr>
+          <tr><td><code>modality</code></td><td>enum</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>validFrom</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+          <tr><td><code>validTo</code></td><td>string</td><td><span class="badge badge-none">无</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-card-header">
+        <span>Relation 表</span>
+        <span class="badge badge-none">无索引</span>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>类型</th></tr></thead>
+        <tbody>
+          <tr><td><code>relationId</code></td><td>string</td></tr>
+          <tr><td><code>sourceId</code></td><td>string</td></tr>
+          <tr><td><code>targetId</code></td><td>string</td></tr>
+          <tr><td><code>label</code></td><td>string</td></tr>
+          <tr><td><code>validFrom</code></td><td>string</td></tr>
+          <tr><td><code>validTo</code></td><td>string</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-card-header">
+        <span>Visibility 表</span>
+        <span class="badge badge-none">无索引</span>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>visibilityId</code></td><td>string</td><td>—</td></tr>
+          <tr><td><code>characterId</code></td><td>string</td><td>持有可见性的角色</td></tr>
+          <tr><td><code>declarationId</code></td><td>string</td><td>外键 → Fact</td></tr>
+          <tr><td><code>state</code></td><td>enum</td><td>schema 只允许 "known"</td></tr>
+          <tr><td><code>confidence</code></td><td>number</td><td>0-1</td></tr>
+          <tr><td><code>source</code></td><td>string</td><td style="color:var(--red)">⚠️ 自由字符串，非枚举（优化点 #7）</td></tr>
+          <tr><td><code>validFrom</code></td><td>string</td><td>—</td></tr>
+          <tr><td><code>validTo</code></td><td>string</td><td>—</td></tr>
+          <tr><td><code>isExplicit</code></td><td>boolean</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Visibility.source 实际取值</h3>
+  <table>
+    <thead><tr><th>取值</th><th>写入位置</th><th>语义</th></tr></thead>
+    <tbody>
+      <tr><td><code>"experienced"</code></td><td>commit.ts:225</td><td>自产自知 state_change</td></tr>
+      <tr><td><code>"informed"</code></td><td>commit.ts:308</td><td>knowledge_gained 通过 LLM mapper 学到</td></tr>
+      <tr><td><code>"witnessed"</code></td><td>character-view.ts:64</td><td>inferVisibility 自动为 located_in 推导</td></tr>
+      <tr><td style="color:var(--text-dim)"><code>"self"/"rumor"/"told"/"explicit"</code></td><td>测试遗留</td><td>历史值，未清理</td></tr>
+    </tbody>
+  </table>
+
+  <h3>写入路径速查</h3>
+  <table>
+    <thead><tr><th>方法</th><th>落库表</th><th>触发点</th></tr></thead>
+    <tbody>
+      <tr><td><code>birthEntity</code></td><td>Entity + Fact</td><td>processEvent(birth) / 导入器</td></tr>
+      <tr><td><code>processEvent(change)</code></td><td>EventLog + Fact</td><td>commit 4.2 / world_event_apply / 导入器</td></tr>
+      <tr><td><code>processEvent(death)</code></td><td>Entity + Fact（级联闭合）</td><td>world_entity_kill / 导入器</td></tr>
+      <tr><td><code>addRelation</code></td><td>Relation</td><td>commit 5 / world_relation_add / 导入器</td></tr>
+      <tr><td><code>setVisibility</code></td><td>Visibility</td><td>commit 4.3/4.4 / world_visibility_set / 导入器</td></tr>
+      <tr><td><code>updateFactEmbedding</code></td><td>Fact.embedding</td><td>commit 4.2.5 / reembedAll</td></tr>
+      <tr><td><code>updateEntitySummary</code></td><td>Entity.summary</td><td style="color:var(--red)">⚠️ 不更新 embedding（优化点 #4）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <strong>业务字段无索引</strong>（优化点 #6）：所有 entityId / declarationId / characterId / sourceId / targetId / label / validFrom / validTo 均无索引，全表扫描后内存过滤。P3 性能优化项。
+  </div>
+</section>
+
+<section id="tools">
+  <h2>4. 工具返回值速查（31 个工具）</h2>
+
+  <h3>4.1 触发 LLM 的工具（7 个）</h3>
+  <table>
+    <thead><tr><th>工具</th><th>LLM 调用</th><th>返回关键字段</th></tr></thead>
+    <tbody>
+      <tr><td><code>scheduler_dispatch</code></td><td>plannerLlm ×1 + roleLlm ×N +（yolo 时 renderLlm ×1 + knowledgeMapper ×N）</td><td><code>planId/eventId/outputs[]/errors[]/cast[]/retrievalPlan</code></td></tr>
+      <tr><td><code>scheduler_commit</code></td><td>renderLlm ×1 + knowledgeMapper ×N</td><td><code>CommitResult{ok/appliedEventIds/writtenText/failedEntityIds?/failedRelations?}</code></td></tr>
+      <tr><td><code>role_interact</code></td><td>roleLlm ×N</td><td><code>InteractResult{outputs, errors}</code></td></tr>
+      <tr><td><code>render_append/modify</code></td><td>renderLlm ×1</td><td><code>RenderResult{ok/chapterPath/mode/eventId/writtenText/error?}</code></td></tr>
+      <tr><td><code>render_preview</code></td><td>renderLlm ×1</td><td><code>{ok, eventId, preview:true}</code> + 文本在 content</td></tr>
+      <tr><td><code>render_check</code></td><td>renderLlm ×1</td><td><code>violations</code> 清单</td></tr>
+      <tr><td><code>import_novel</code></td><td>内部多 LLM 子代理并行</td><td><code>{entityCount, eventCount, relationCount, visibilityCount, worldGraphDir, dumpPath}</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 纯数据库/文件操作的工具（24 个）</h3>
+  <table>
+    <thead><tr><th>工具</th><th>返回关键字段</th></tr></thead>
+    <tbody>
+      <tr><td><code>world_status</code></td><td><code>{currentStoryTime, entityCount, eventCount, recordedNow}</code></td></tr>
+      <tr><td><code>world_entity_get</code></td><td><code>{entityId, storyTime, snapshot: EntitySnapshot|null, error}</code></td></tr>
+      <tr><td><code>world_query</code></td><td><code>{results: EntitySearchResult[], count}</code></td></tr>
+      <tr><td><code>world_relations</code></td><td><code>{relations: Array&lt;...&gt;}</code></td></tr>
+      <tr><td><code>world_character_view</code></td><td><code>{view: StateDeclaration[], count}</code></td></tr>
+      <tr><td><code>world_event_chain</code></td><td><code>{events: EventRecord[], count}</code></td></tr>
+      <tr><td><code>world_story_times</code></td><td><code>{storyTimes: string[], count}</code></td></tr>
+      <tr><td><code>world_entity_history</code></td><td><code>{entities: [...], facts: [...]}</code>（含 createdAt/updatedAt）</td></tr>
+      <tr><td><code>world_event_apply</code></td><td><code>{ok, eventId}</code> + 触发 updateMemory</td></tr>
+      <tr><td><code>world_entity_create/kill/update_summary</code></td><td><code>{ok, ...入参字段}</code></td></tr>
+      <tr><td><code>world_relation_add/close</code></td><td><code>{ok, ...入参字段}</code></td></tr>
+      <tr><td><code>world_visibility_set/close/infer</code></td><td><code>{ok, ...入参字段}</code></td></tr>
+      <tr><td><code>import_character_card</code></td><td><code>{entityId, name, factCount, eventId}</code></td></tr>
+      <tr><td><code>open_visualizer</code></td><td><code>{ok, url?, port?, alreadyRunning?, error?}</code></td></tr>
+      <tr><td><code>scheduler_discard</code></td><td><code>{ok, planId}</code></td></tr>
+      <tr><td><code>render_rule_set / role_rule_set</code></td><td><code>{ok, length, exists}</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.3 关键返回结构</h3>
+  <h4>EntitySnapshot</h4>
+  <table>
+    <tbody>
+      <tr><td><code>entityId</code></td><td>string</td></tr>
+      <tr><td><code>type</code></td><td>character|location|item|concept</td></tr>
+      <tr><td><code>summary</code></td><td>string</td></tr>
+      <tr><td><code>validFrom / validTo</code></td><td>string（"Infinity" = 未闭合）</td></tr>
+      <tr><td><code>properties</code></td><td>StateDeclaration[]</td></tr>
+    </tbody>
+  </table>
+  <h4>EntitySearchResult（world_query 返回）</h4>
+  <table>
+    <tbody>
+      <tr><td><code>entityId</code></td><td>string</td></tr>
+      <tr><td><code>type</code></td><td>EntityType</td></tr>
+      <tr><td><code>score</code></td><td>number（0-1）</td></tr>
+      <tr><td><code>matchType</code></td><td>fulltext|vector|hybrid</td></tr>
+      <tr><td><code>snapshot</code></td><td>EntitySnapshot</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="memory">
+  <h2>5. memory.md 机制</h2>
+
+  <h3>路径与格式</h3>
+  <table>
+    <tbody>
+      <tr><td>路径</td><td><code>&lt;cwd&gt;/.pi/world-graph-v3/memory.md</code></td></tr>
+      <tr><td>写入方式</td><td><strong>全量覆盖</strong>（fs.writeFile，非追加）</td></tr>
+      <tr><td>注入方式</td><td><code>before_agent_start</code> 追加到 systemPrompt 末尾，每轮重读</td></tr>
+    </tbody>
+  </table>
+
+  <h3>内容结构（5 段）</h3>
+  <table>
+    <tbody>
+      <tr><td>1. 标题行</td><td><code># 项目记忆（narrative-engine 自动维护，请勿手改）</code></td></tr>
+      <tr><td>2. STORY_TIME_CONVENTION</td><td>全项目唯一权威定义（引用块）</td></tr>
+      <tr><td>3. 当前进度</td><td>当前 storyTime + 最近更新时间</td></tr>
+      <tr><td>4. 在场角色</td><td>最近事件涉及的实体（名字经 name Fact 消解）</td></tr>
+      <tr><td>5. 最近事件</td><td>最多 10 组，每条含 <code>storyTime | actors | 口述原文</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>触发点（4 处）</h3>
+  <table>
+    <thead><tr><th>触发点</th><th>条件</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>session_start 自愈</td><td>事件存在但 memory.md 缺失</td><td>重建</td></tr>
+      <tr><td>world_event_apply 后</td><td>无条件</td><td>失败仅 warn</td></tr>
+      <tr><td>scheduler_dispatch yolo</td><td>仅 yolo 模式</td><td>—</td></tr>
+      <tr><td style="color:var(--red)">scheduler_commit 后</td><td style="color:var(--red)">⚠️ 仅 result.ok === true</td><td>优化点 #2：部分成功时不更新</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="dualtemporal">
+  <h2>6. 双时态检索机制</h2>
+
+  <h3>两个时间轴</h3>
+  <table>
+    <thead><tr><th>时间轴</th><th>字段</th><th>格式</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>故事时间</td><td><code>storyTime</code> / <code>validFrom</code> / <code>validTo</code></td><td><code>ch009.ev006</code> / <code>"Infinity"</code></td><td>故事内时序，字典序可比较</td></tr>
+      <tr><td>事务时间</td><td><code>recordedAsOf</code> / <code>recordedNow</code></td><td><code>r1:0000000000000007:2026-07-25T...</code></td><td>SDK 内部墙钟坐标，<code>asOfRecorded</code> 重建该时点节点视图</td></tr>
+    </tbody>
+  </table>
+
+  <h3>支持 recordedAsOf 的查询</h3>
+  <table>
+    <thead><tr><th>API</th><th>支持</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>getEntityAt</code> / <code>getRelations</code> / <code>getVisibilityForCharacter</code> / <code>getAllDeclarationsAt</code> / <code>getCharacterView</code></td><td style="color:var(--green)">✅</td><td>走 SDK <code>asOfRecorded</code> 视图</td></tr>
+      <tr><td><code>wg.search.fulltext/vector/hybrid</code></td><td style="color:var(--red)">❌</td><td>SDK 透传，不感知时态。retrieve.ts 仅 console.warn 降级</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>限制</strong>：search_* 路径不支持 recordedAsOf，planner LLM 应优先用 character_view/entity_snapshot/relations 检索历史状态。
+  </div>
+</section>
+
+<section id="optimization">
+  <h2>7. 发现的优化点（10 项）</h2>
+
+  <h3 style="color:var(--red)">🔴 P1 影响功能正确性</h3>
+  <div class="opt-grid">
+    <div class="opt-card p1">
+      <div class="opt-card-header">
+        <span class="opt-id">#1</span>
+        <span class="opt-pri pri-p1">P1</span>
+      </div>
+      <div class="opt-title">StructuredEvent.locationId 未消费</div>
+      <div class="opt-desc">schema 声明"用于可见性推断"，但 plan.ts 与 commit.ts 全文未读取。主会话传入的地点信息丢失，inferVisibility 无法利用。</div>
+      <div class="opt-loc">types.ts:111 / plan.ts / commit.ts</div>
+    </div>
+    <div class="opt-card p1">
+      <div class="opt-card-header">
+        <span class="opt-id">#2</span>
+        <span class="opt-pri pri-p1">P1</span>
+      </div>
+      <div class="opt-title">scheduler_commit 部分成功时 memory.md 不更新</div>
+      <div class="opt-desc"><code>if (result.ok)</code> 条件过严。ok=false 但 appliedEventIds 非空时（部分 entityId 写入成功），memory.md 不更新，下轮检索"最近事件"展示滞后。建议改为 <code>if (result.appliedEventIds.length > 0)</code>。</div>
+      <div class="opt-loc">src/index.ts:1311</div>
+    </div>
+  </div>
+
+  <h3 style="color:var(--yellow)">🟡 P2 影响性能或数据一致性</h3>
+  <div class="opt-grid">
+    <div class="opt-card p2">
+      <div class="opt-card-header">
+        <span class="opt-id">#3</span>
+        <span class="opt-pri pri-p2">P2</span>
+      </div>
+      <div class="opt-title">retrieve.ts 无 dedup</div>
+      <div class="opt-desc">同一 declarationId 可能跨多条 RetrievalItem 被命中并多次注入角色提示词，浪费 token。建议在 dynamicFactsByCharacter 累加时按 declarationId 去重。</div>
+      <div class="opt-loc">plan.ts:154 注释 "当前不去重（Pending Gap #11）"</div>
+    </div>
+    <div class="opt-card p2">
+      <div class="opt-card-header">
+        <span class="opt-id">#4</span>
+        <span class="opt-pri pri-p2">P2</span>
+      </div>
+      <div class="opt-title">updateEntitySummary 不更新 embedding</div>
+      <div class="opt-desc">Entity.summary 变更后，Entity.embedding 仍是旧值，search_vector 检索结果不准。建议内联调 embedder.embedEntity + updateEntityEmbedding。</div>
+      <div class="opt-loc">world-graph.ts:325-332</div>
+    </div>
+    <div class="opt-card p2">
+      <div class="opt-card-header">
+        <span class="opt-id">#5</span>
+        <span class="opt-pri pri-p2">P2</span>
+      </div>
+      <div class="opt-title">processEvent 直接调用路径不写 embedding</div>
+      <div class="opt-desc">world_event_apply / visualizer POST /api/events / 导入器等直接调 processEvent 的路径，新 Fact 无 embedding。commit 路径由 4.2.5 步补写；导入器由阶段 8 reembedAll 补齐；world_event_apply 无补偿机制。</div>
+      <div class="opt-loc">world-graph.ts:413-425</div>
+    </div>
+    <div class="opt-card p2">
+      <div class="opt-card-header">
+        <span class="opt-id">#6</span>
+        <span class="opt-pri pri-p2">P2</span>
+      </div>
+      <div class="opt-title">业务字段无索引</div>
+      <div class="opt-desc">所有 entityId / declarationId / characterId / sourceId / targetId / label / validFrom / validTo 均无索引，全表扫描后内存过滤。数据量大时性能瓶颈。</div>
+      <div class="opt-loc">world-graph.ts:757-760 TODO</div>
+    </div>
+  </div>
+
+  <h3 style="color:var(--accent)">🟢 P3 代码质量与可维护性</h3>
+  <div class="opt-grid">
+    <div class="opt-card p3">
+      <div class="opt-card-header">
+        <span class="opt-id">#7</span>
+        <span class="opt-pri pri-p3">P3</span>
+      </div>
+      <div class="opt-title">Visibility.source 非枚举</div>
+      <div class="opt-desc">schema 是 z.string()，实际只用 experienced/informed/witnessed 三种，测试中还出现 self/rumor/told/explicit 等历史遗留值。建议改为 z.enum。</div>
+      <div class="opt-loc">world-graph.ts:73</div>
+    </div>
+    <div class="opt-card p3">
+      <div class="opt-card-header">
+        <span class="opt-id">#8</span>
+        <span class="opt-pri pri-p3">P3</span>
+      </div>
+      <div class="opt-title">CloseFact 方法不存在</div>
+      <div class="opt-desc">Fact 闭合只能通过 killEntity 级联或 processEvent(change) 间接闭合。无法单独闭合某条 Fact 而不闭合整个 Entity。</div>
+      <div class="opt-loc">world-graph.ts</div>
+    </div>
+    <div class="opt-card p3">
+      <div class="opt-card-header">
+        <span class="opt-id">#9</span>
+        <span class="opt-pri pri-p3">P3</span>
+      </div>
+      <div class="opt-title">project_memory.md 状态滞后</div>
+      <div class="opt-desc">#3（knowledge_gained 他盲）与 #15（commit 不写 embedding）仍标为 🔴 严重，但源码查证显示 P0-3+5+6 修复已落地（commit.ts 4.2.5 / 4.4 步已实现）。建议刷新移入"已闭环"。</div>
+      <div class="opt-loc">c:\Users\Mirror\.trae-cn\memory\projects\-d-claude-pi-ex\project_memory.md</div>
+    </div>
+    <div class="opt-card p3">
+      <div class="opt-card-header">
+        <span class="opt-id">#10</span>
+        <span class="opt-pri pri-p3">P3</span>
+      </div>
+      <div class="opt-title">executionHints 注入位置分散</div>
+      <div class="opt-desc">同一字段在 planner prompt 和 role-pool prompt 中都注入，格式不一致（planner 是 "执行建议: ..."，role-pool 是独立段落）。可能不一致。建议评估是否只需在 role-pool 注入。</div>
+      <div class="opt-loc">prompts.ts:115-116 / role-pool/src/prompts.ts:55-59</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+</body>
+</html>

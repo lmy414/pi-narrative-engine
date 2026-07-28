@@ -32,7 +32,7 @@ commit ─ 状态变化写回世界图（含可见性）→ 渲染器生成正�
 ✅ **功能链路可用**：小说导入 → 口述续写 → 四人混演已端到端验证（326+ 单测，三平台 CI）。
 ✅ **跨会话项目记忆**（2026-07-25）：`memory.md` 自动维护当前进度/在场角色/最近事件（含口述原文），新会话自动注入。
 ✅ **双时态检索**（2026-07-25）：故事时间 × 事务时间双轴查询（`recordedAsOf`），改写历史剧情不被新写入污染。
-✅ **AI 使用指南注入**（2026-07-25）：`engine-guide.md` 随主会话 prompt 注入，约束流水线/工具纪律。
+✅ **AI 使用指南注入**（2026-07-25 → 2026-07-28 重构）：原 `engine-guide.md` / `main-session.md` 强制注入 systemPrompt；2026-07-28 起合并抽离为单一 pi Skill（`src/skills/narrative-engine/SKILL.md`），通过 `resources_discover` 注册由 pi skill 机制按需 read 加载；`memory.md` 仍保留强制注入。
 ✅ **P0 修复**（2026-07-27）：双时态检索接入调度器 + commit 写 embedding + knowledge_gained 他盲可见性 + 部分成功语义（详见 [docs/audits/2026-07-27-fix-plan.md](docs/audits/2026-07-27-fix-plan.md)）。
 ✅ **调试管线**（2026-07-27）：DebugBus 环形缓冲 + SSE 端点 + 可视化"调试" tab，实时显示调度链 DAG（`PI_DEBUG=off` 可禁用）。
 

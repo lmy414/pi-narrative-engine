@@ -290,7 +290,7 @@ test("POST /api/visibility 设置，/api/visibility/close 闭合", async () => {
     characterId: "e1",
     declarationId: "decl-e1-mood-t2",
     confidence: 0.8,
-    source: "rumor",
+    source: "informed",
     storyTime: "t3",
   });
   assert.equal(set.ok, true);

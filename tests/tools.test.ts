@@ -198,7 +198,7 @@ test("world_visibility_set 逻辑: setVisibility 后 getCharacterView 返回", a
   await wg.setVisibility("macbeth", nameDecl.declarationId, {
     state: "known",
     confidence: 1.0,
-    source: "explicit",
+    source: "experienced",
     validFrom: "act1-scene1",
     isExplicit: true,
   });

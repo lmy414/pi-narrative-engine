@@ -45,8 +45,9 @@
 ┌──────────────────▼───────────────────────────────────────┐
 │  narrative-engine/src/index.ts                            │
 │  - session_start: 初始化 WorldGraph/Embedder/Search      │
-│    + 恢复 scheduler plan 缓存 + 加载 main-session.md      │
-│  - before_agent_start: 主会话 prompt 注入 systemPrompt    │
+│    + 恢复 scheduler plan 缓存                             │
+│  - resources_discover: 贡献 src/skills/ 给 pi skill 机制  │
+│  - before_agent_start: memory.md 注入 systemPrompt 末尾   │
 │  - 注册 18 个 world_* + open_visualizer                  │
 │  - 注册 import_novel + import_character_card（导入）      │
 │  - 注册 5 个 render_*（append/modify/preview/check/rule_set）│
@@ -167,8 +168,11 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 - **角色池**（2 个）：`role_interact` / `role_rule_set`（详见 `docs/plans/2026-07-24-role-pool-design.md`）
 - **调度器**（3 个）：`scheduler_dispatch` / `scheduler_commit` / `scheduler_discard`（详见 `docs/plans/2026-07-25-scheduler-design.md`）
 
-> **主会话 prompt**：`src/prompts/main-session.md` 在 `session_start` 加载、`before_agent_start`
-> 追加到 systemPrompt 末尾，定义意图分类 / mode 判断 / 五要素补全规则（不参与叙事，只做任务外包）。
+> **主会话 prompt**（2026-07-28 重构）：原 `src/prompts/main-session.md` + `engine-guide.md`
+> 已合并抽离为单一 pi Skill，位于 `src/skills/narrative-engine/SKILL.md`。
+> 通过 `resources_discover` 事件把 `SKILLS_DIR` 注册给 pi，pi skill 机制按 progressive disclosure
+> 把 name + description 注入 systemPrompt 的 `<available_skills>` 段，LLM 按需 read 加载完整内容。
+> 项目记忆 `memory.md` 仍由 `before_agent_start` 强制注入 systemPrompt 末尾（每轮重读）。
 > 运行时数据详见 `docs/novel-project-structure.md`。
 
 ### 4.1 状态查询
