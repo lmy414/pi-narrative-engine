@@ -106,6 +106,94 @@
         declarationId: declarationId,
         storyTime: storyTime
       });
+    },
+
+    /* ---------- 项目管理（unified-server /api/projects/*） ---------- */
+    projectsScan: function (root, maxDepth) {
+      return request("GET", "/projects/scan" + buildQuery({ root: root, maxDepth: maxDepth }));
+    },
+    projectMeta: function (dir) {
+      return request("GET", "/projects/meta" + buildQuery({ dir: dir }));
+    },
+    projectActive: function () {
+      return request("GET", "/projects/active");
+    },
+    projectActivate: function (dir) {
+      return request("POST", "/projects/activate", { dir: dir });
+    },
+    projectCreate: function (dir, name, force) {
+      return request("POST", "/projects/create", { dir: dir, name: name, force: force });
+    },
+    projectLaunchPi: function (dir, args) {
+      return request("POST", "/projects/launch-pi", { dir: dir, args: args });
+    },
+    projectOpenFolder: function (dir) {
+      return request("POST", "/projects/open-folder", { dir: dir });
+    },
+    projectClose: function (dir) {
+      return request("POST", "/projects/close", { dir: dir });
+    },
+
+    /* ---------- 文件编辑器（unified-server /api/files/*） ---------- */
+    filesTree: function () {
+      return request("GET", "/files/tree");
+    },
+    filesRead: function (path) {
+      return request("GET", "/files/read" + buildQuery({ path: path }));
+    },
+    filesWrite: function (path, content, baseMtime) {
+      return request("PUT", "/files/write", { path: path, content: content, baseMtime: baseMtime });
+    },
+    filesCreate: function (path) {
+      return request("POST", "/files/create", { path: path });
+    },
+    filesDelete: function (path) {
+      return request("POST", "/files/delete", { path: path });
+    },
+
+    /* ---------- 配置管理（unified-server /api/admin/*） ---------- */
+    adminConfig: function () {
+      return request("GET", "/admin/config");
+    },
+    adminConfigWrite: function (updates) {
+      return request("PUT", "/admin/config", updates);
+    },
+    adminPiStatus: function () {
+      return request("GET", "/admin/pi-status");
+    },
+    adminRulesets: function () {
+      return request("GET", "/admin/rulesets");
+    },
+    adminRulesetWrite: function (name, content) {
+      return request("PUT", "/admin/rulesets/" + encodeURIComponent(name), { content: content });
+    },
+    adminRulesetReset: function (name) {
+      return request("POST", "/admin/rulesets/" + encodeURIComponent(name) + "/reset", {});
+    },
+    adminDoctor: function () {
+      return request("GET", "/admin/doctor");
+    },
+    adminVersion: function () {
+      return request("GET", "/admin/version");
+    },
+    adminEmbedderStatus: function () {
+      return request("GET", "/admin/embedder/status");
+    },
+    adminEmbedderCacheClear: function () {
+      return request("POST", "/admin/embedder/cache/clear", {});
+    },
+    adminEmbedderWarmup: function () {
+      return request("POST", "/admin/embedder/warmup", {});
+    },
+    adminNovelJson: function () {
+      return request("GET", "/admin/novel-json");
+    },
+    adminNovelJsonWrite: function (fields) {
+      return request("PUT", "/admin/novel-json", fields);
+    },
+    /* 更新 SSE 流：返回 EventSource（调用方负责 close） */
+    adminUpdateStream: function (targetDir) {
+      return new EventSource(BASE + "/admin/update/stream" + buildQuery({ targetDir: targetDir }));
     }
   };
 

@@ -1,0 +1,70 @@
+/* tokens.css — 设计 token 基线（从原型页抽取，docs/plans/2026-07-29-app-architecture-design.md §11.7）
+ *
+ * 主题机制：:root 定义 light 值，.dark 覆盖为 dark 值；dark 为默认主题
+ * （index.html 根元素 class="dark"），light 切换为 P2。
+ * 阴影：原型为扁平设计（阴影 opacity 全 0），层级靠 border + 背景色差。
+ */
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #121212;
+  --primary-foreground: #fafafa;
+  --muted: #f5f5f5;
+  --muted-foreground: #858585;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --destructive: #e7000b;
+  --destructive-foreground: #ffffff;
+  --border: #e8e8e8;
+  --input: #e5e5e5;
+  --ring: #a1a1a1;
+
+  --chart-1: #91c5ff;
+  --chart-2: #3a81f6;
+  --chart-3: #2563ef;
+  --chart-4: #1a4eda;
+  --chart-5: #1f3fad;
+
+  --font-sans: Geist, ui-sans-serif, sans-serif, system-ui;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-serif: "DM Serif Display", ui-serif, serif;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #171717;
+  --card-foreground: #fafafa;
+  --popover: #262626;
+  --popover-foreground: #fafafa;
+  --primary: #e5e5e5;
+  --primary-foreground: #171717;
+  --muted: #262626;
+  --muted-foreground: #a1a1a1;
+  --accent: #404040;
+  --accent-foreground: #fafafa;
+  --destructive: #ff6467;
+  --destructive-foreground: #fafafa;
+  --border: #282828;
+  --input: #343434;
+  --ring: #6b6b6b;
+
+  /* 状态色（doctor / 依赖检查用，含深浅变体） */
+  --success: #62d178;
+  --success-strong: #8be59c;
+  --success-subtle: #14241a;
+  --success-foreground: #0a0a0a;
+  --error: #ff6166;
+  --error-strong: #ff9a9d;
+  --error-subtle: #2a1517;
+  --error-foreground: #0a0a0a;
+}

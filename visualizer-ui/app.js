@@ -1,9 +1,32 @@
-/* app.js — Vue 应用根：全局状态（storyTime / 选中实体 / 角色视角）与数据编排 */
+/* app.js — Vue 应用根：全局状态（storyTime / 选中实体 / 角色视角 / 活跃项目）与数据编排
+ *
+ * 阶段 2a 改动：
+ * - 全局原型导航条（proto-topbar，6 页），hash 路由（#/projects 等）
+ * - 活跃项目状态（activeProject）：unified-server 下经 /api/projects/active
+ *   获取；旧 standalone visualizer 无此端点（hasProjectApi=false），
+ *   回退单项目模式并隐藏新页面页签
+ * - 世界图数据在「激活项目后」加载；未激活时引导到项目管理页
+ */
 (function () {
   "use strict";
   var U = window.V3.util;
   var api = window.V3.api;
   var C = window.V3.components;
+
+  var NAV_TABS = [
+    { key: "projects", label: "项目管理", icon: "folder", proto: true },
+    { key: "workbench", label: "工作台", icon: "house", proto: false },
+    { key: "events", label: "事件链", icon: "send-horizontal", proto: false },
+    { key: "debug", label: "调试", icon: "mouse-pointer-click", proto: false },
+    { key: "editor", label: "文件编辑器", icon: "file", proto: true },
+    { key: "settings", label: "设置", icon: "settings", proto: true }
+  ];
+  var TAB_KEYS = NAV_TABS.map(function (t) { return t.key; });
+
+  function tabFromHash() {
+    var m = /^#\/([a-z]+)/.exec(window.location.hash || "");
+    return m && TAB_KEYS.indexOf(m[1]) >= 0 ? m[1] : null;
+  }
 
   var app = window.Vue.createApp({
     components: {
@@ -15,11 +38,18 @@
       EntityForm: C.EntityForm,
       EventTimeline: C.EventTimeline,
       HelpTour: C.HelpTour,
-      DebugView: C.DebugView
+      DebugView: C.DebugView,
+      ProjectsView: C.ProjectsView,
+      EditorView: C.EditorView,
+      SettingsView: C.SettingsView
     },
     data: function () {
       return {
-        mainTab: "workbench",        // workbench | events | debug
+        mainTab: "workbench",        // projects | workbench | events | debug | editor | settings
+        navTabs: NAV_TABS,
+        activeProject: null,         // { dir, name } | null
+        hasProjectApi: false,        // unified-server 才有多项目端点
+        toasts: [],                  // proto 页面 toast 队列
         storyTimes: [],
         storyTime: "",
         events: [],
@@ -101,11 +131,78 @@
     watch: {
       storyTime: function () { this.loadGraph(); },
       includeClosed: function () { this.loadGraph(); },
-      characterViewId: function () { this.loadCharacterView(); }
+      characterViewId: function () { this.loadCharacterView(); },
+      mainTab: function (tab) {
+        if (window.location.hash !== "#/" + tab) {
+          window.location.hash = "/" + tab;
+        }
+        // 世界图页签需要活跃项目；无项目时引导到项目管理页
+        if (this.hasProjectApi && !this.activeProject &&
+            (tab === "workbench" || tab === "events" || tab === "debug")) {
+          this.mainTab = "projects";
+        }
+      }
     },
-    mounted: function () { this.init(); },
+    mounted: function () {
+      var self = this;
+      window.addEventListener("hashchange", function () {
+        var tab = tabFromHash();
+        if (tab && tab !== self.mainTab) self.mainTab = tab;
+      });
+      this.init();
+    },
     methods: {
+      /* proto 页面 toast（新页面不依赖 Element Plus） */
+      toast: function (payload) {
+        var self = this;
+        var t = { id: Date.now() + Math.random(), message: payload.message, type: payload.type || "success" };
+        this.toasts.push(t);
+        setTimeout(function () {
+          self.toasts = self.toasts.filter(function (x) { return x.id !== t.id; });
+        }, 3200);
+      },
+      setTab: function (tab) { this.mainTab = tab; },
+      isWorldTab: function () {
+        return this.mainTab === "workbench" || this.mainTab === "events" || this.mainTab === "debug";
+      },
+      /* 项目激活成功：记录活跃项目并加载世界图 */
+      onActivated: function (dir) {
+        var self = this;
+        api.projectActive().then(function (data) {
+          self.activeProject = data.active;
+          self.init();
+          self.mainTab = "workbench";
+        }).catch(function () {
+          self.activeProject = { dir: dir, name: dir };
+          self.init();
+          self.mainTab = "workbench";
+        });
+      },
       init: function () {
+        var self = this;
+        // 先探测多项目能力：unified-server 有 /api/projects/active，
+        // 旧 standalone 没有（404）→ 回退单项目模式
+        api.projectActive().then(function (data) {
+          self.hasProjectApi = true;
+          self.activeProject = data.active;
+          if (!data.active) {
+            self.mainTab = "projects";
+            return;
+          }
+          var hashTab = tabFromHash();
+          if (hashTab) self.mainTab = hashTab;
+          self.loadWorld();
+        }).catch(function () {
+          self.hasProjectApi = false;
+          self.activeProject = null;
+          var hashTab = tabFromHash();
+          if (hashTab && (hashTab === "workbench" || hashTab === "events" || hashTab === "debug")) {
+            self.mainTab = hashTab;
+          }
+          self.loadWorld();
+        });
+      },
+      loadWorld: function () {
         var self = this;
         this.loading = true;
         Promise.all([api.status(), api.events()]).then(function (rs) {
@@ -183,14 +280,39 @@
       }
     },
     template: `
-      <header id="topbar">
+      <header class="proto-topbar" v-if="hasProjectApi">
+        <div class="proto-brand">
+          <span class="proto-brand-bar"></span>
+          <div>
+            <div class="proto-brand-name">World Graph</div>
+            <div class="proto-brand-sub">可视化 V3</div>
+          </div>
+        </div>
+        <nav class="tab-nav" aria-label="主导航">
+          <a v-for="t in navTabs" :key="t.key" class="tab-item"
+             :class="{ active: mainTab === t.key }" @click="setTab(t.key)">
+            <span :data-icon="t.icon"></span>{{ t.label }}
+          </a>
+        </nav>
+        <span class="tool-spacer"></span>
+        <div class="tool-group">
+          <button class="tool-btn ghost" @click="helpDialog = true">
+            <span data-icon="circle-question-mark"></span><span>帮助</span>
+          </button>
+        </div>
+      </header>
+
+      <header id="topbar" v-show="isWorldTab()">
         <div class="row">
-          <span class="brand">World Graph<span class="ver">可视化 V3</span></span>
-          <el-radio-group v-model="mainTab" size="small">
+          <span class="brand" v-if="!hasProjectApi">World Graph<span class="ver">可视化 V3</span></span>
+          <el-radio-group v-if="!hasProjectApi" v-model="mainTab" size="small">
             <el-radio-button value="workbench">工作台</el-radio-button>
             <el-radio-button value="events">事件链</el-radio-button>
             <el-radio-button value="debug">调试</el-radio-button>
           </el-radio-group>
+          <span v-if="hasProjectApi && activeProject" class="tb-label" style="font-weight:500">
+            {{ activeProject.name }}
+          </span>
           <span class="spacer"></span>
           <span class="tb-label">角色视角</span>
           <el-select v-model="characterViewId" size="small" style="width:150px" placeholder="关闭视角">
@@ -199,10 +321,14 @@
                        :label="(entityNames[c.entityId] || c.entityId) + '（' + c.entityId + '）'"></el-option>
           </el-select>
           <el-button size="small" @click="refresh">刷新</el-button>
-          <el-button size="small" @click="helpDialog = true">帮助</el-button>
+          <el-button v-if="!hasProjectApi" size="small" @click="helpDialog = true">帮助</el-button>
         </div>
         <timeline-bar v-model="storyTime" :story-times="storyTimes" :event-counts="eventCounts"></timeline-bar>
       </header>
+
+      <projects-view v-show="mainTab === 'projects'" v-if="hasProjectApi"
+                     :active="activeProject"
+                     @activated="onActivated" @toast="toast"></projects-view>
 
       <main id="main" v-show="mainTab === 'workbench'" v-loading="loading">
         <entity-list :entities="viewEntities" :relations="viewRelations"
@@ -236,8 +362,18 @@
 
       <debug-view v-show="mainTab === 'debug'"></debug-view>
 
+      <editor-view v-show="mainTab === 'editor'" v-if="hasProjectApi"
+                   :active="activeProject" @toast="toast"></editor-view>
+
+      <settings-view v-show="mainTab === 'settings'" v-if="hasProjectApi"
+                     :active="activeProject" @toast="toast"></settings-view>
+
       <entity-form v-model="entityDialog" :story-time="storyTime" @created="onCreated"></entity-form>
       <help-tour v-model="helpDialog"></help-tour>
+
+      <div class="proto-toast-wrap">
+        <div v-for="t in toasts" :key="t.id" class="proto-toast" :class="t.type">{{ t.message }}</div>
+      </div>
     `
   });
 
