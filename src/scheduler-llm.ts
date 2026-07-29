@@ -8,14 +8,16 @@
  * - renderLlm：调 makeRendererLlmCaller（来自 renderer-llm.ts）
  * - embedder：从 session 级 Embedder 实例注入
  *
- * 三种 LLM 配置从环境变量读取，优先级参考设计文档 §2.4：
- * - plannerLlm：PI_PLANNER_MODEL → PI_MODEL → deepseek-v4-flash
- * - roleLlm：   PI_ROLE_MODEL    → PI_MODEL → deepseek-v4-flash
- * - renderLlm： PI_RENDERER_MODEL → PI_MODEL → deepseek-v4-flash
+ * 2026-07-29 LLM 调用链改造：
+ * - makeSchedulerCtx 签名增加 ctx: ExtensionContext 参数
+ * - 4 路 caller 工厂改为接收 ctx，统一从 PI 本体获取模型与 API Key
+ * - 删除对 llm-config.ts 的依赖
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
  *
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §2.4
  */
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SchedulerCtx, SillyTavernCard, DebugBus } from "@pi/scheduler";
 import { defaultStaticCardLoader } from "@pi/scheduler";
 import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
@@ -26,7 +28,6 @@ import { makeKnowledgeMapperLlmCaller } from "./knowledge-mapper-llm.ts";
 import { loadPlannerRuleSet } from "./planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
-import { getLlmConfig } from "./llm-config.ts";
 import type { Embedder } from "./embedder.ts";
 
 /**
@@ -35,6 +36,7 @@ import type { Embedder } from "./embedder.ts";
  * @param wg WorldGraph 实例
  * @param embedder Embedder 实例（用于 search_vector / search_hybrid）
  * @param cwd novel 工作目录（用于规则集加载和章节路径推断）
+ * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry，用于构造 LLM caller）
  * @param debugBus 调试事件总线（可选，注入后调度链关键点发射 DebugEvent）
  * @returns SchedulerCtx 实例
  */
@@ -42,11 +44,17 @@ export async function makeSchedulerCtx(
   wg: WorldGraph,
   embedder: Embedder,
   cwd: string,
+  ctx: ExtensionContext,
   debugBus?: DebugBus,
 ): Promise<SchedulerCtx> {
-  const { model: plannerModel, apiKey: plannerApiKey } = getLlmConfig("planner");
-  const { model: roleModel, apiKey: roleApiKey } = getLlmConfig("role");
-  const { model: renderModel, apiKey: renderApiKey } = getLlmConfig("renderer");
+  // 4 路 LLM caller 全部复用 PI 的 ctx.model + ctx.modelRegistry
+  // caller 工厂内部一次性解析 auth，构造期间失败立即抛错
+  const [plannerLlm, roleLlm, renderLlm, knowledgeMapper] = await Promise.all([
+    makePlannerLlmCaller(ctx),
+    makeRoleLlmCaller(ctx),
+    makeRendererLlmCaller(ctx),
+    makeKnowledgeMapperLlmCaller(ctx),
+  ]);
 
   const [plannerRuleSet, roleRuleSet, renderRuleSet] = await Promise.all([
     loadPlannerRuleSet(cwd),
@@ -79,14 +87,13 @@ export async function makeSchedulerCtx(
 
   return {
     wg,
-    plannerLlm: makePlannerLlmCaller(plannerModel, plannerApiKey),
-    roleLlm: makeRoleLlmCaller(roleModel, roleApiKey),
-    renderLlm: makeRendererLlmCaller(renderModel, renderApiKey),
+    plannerLlm,
+    roleLlm,
+    renderLlm,
     embedder: embedderAdapter,
     // P0-3+6 修复（2026-07-27）：注入 knowledge mapper
-    // 复用 planner 模型配置（mapper 任务简单，无需独立模型；
-    // 如需独立可在 llm-config.ts 加 "knowledgeMapper" kind）
-    knowledgeMapper: makeKnowledgeMapperLlmCaller(plannerModel, plannerApiKey),
+    // 2026-07-29 改造：不再"复用 planner 配置"，统一从 ctx.model 取
+    knowledgeMapper,
     roleRuleSet,
     renderRuleSet,
     plannerRuleSet,

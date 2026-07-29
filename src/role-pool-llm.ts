@@ -7,10 +7,17 @@
  *   - complete 发起 LLM 请求，要求调用工具
  *   - validateToolCall 校验工具参数
  *   - 内置重试：LLM 偶发返回纯文本，在 caller 层重试
+ *
+ * 2026-07-29 LLM 调用链改造：
+ * - 工厂签名从 (model, apiKey, provider) 改为 (ctx: ExtensionContext)
+ * - 模型与 API Key 全部复用 PI 本体配置
+ * - 工厂改为 async：在构造时一次性解析 auth
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
  */
 
-import { complete, getModel, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
+import { complete, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RoleLlmCaller, RoleAgentOutput } from "@pi/role-pool";
 
 const MAX_NO_TOOL_RETRIES = 3;
@@ -60,23 +67,30 @@ export const characterActionTool: Tool = {
 /**
  * 创建基于 pi-ai 的角色池 LLM 调用器
  *
- * @param model 模型名（如 "deepseek-v4-flash"）
- * @param apiKey API key
- * @param provider 提供商（默认 deepseek）
+ * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
+ * @throws ctx.model 为空时抛错；API Key 未配置时抛错
  */
-export function makeRoleLlmCaller(
-  model: string,
-  apiKey: string,
-  provider: string = "deepseek",
-): RoleLlmCaller {
+export async function makeRoleLlmCaller(ctx: ExtensionContext): Promise<RoleLlmCaller> {
+  const model = ctx.model;
+  if (!model) {
+    throw new Error("角色池 LLM: ctx.model 为空（请在 PI 内配置模型）");
+  }
+  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok || !auth.apiKey) {
+    throw new Error(
+      auth.ok
+        ? `角色池 LLM: ${model.provider} 未配置 API Key`
+        : `角色池 LLM: 获取 API Key 失败: ${auth.error}`,
+    );
+  }
+  const apiKey = auth.apiKey;
+  const headers = auth.headers;
   const tools: Tool[] = [characterActionTool];
 
   return async (systemPrompt: string, userMessage: string): Promise<RoleAgentOutput> => {
-    const modelObj = getModel(provider as never, model as never);
-
     for (let attempt = 0; attempt < MAX_NO_TOOL_RETRIES; attempt++) {
       const msg = await complete(
-        modelObj,
+        model,
         {
           systemPrompt,
           messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
@@ -84,6 +98,7 @@ export function makeRoleLlmCaller(
         },
         {
           apiKey,
+          headers,
           maxTokens: 4000,
           temperature: 0.7,
         },

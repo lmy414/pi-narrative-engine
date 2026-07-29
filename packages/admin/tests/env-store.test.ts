@@ -1,0 +1,202 @@
+// packages/admin/tests/env-store.test.ts
+/**
+ * env-store.ts 测试
+ *
+ * 覆盖：
+ * - _parseEnvContent：注释/空行/kv/unknown 识别
+ * - readEnvFile：文件不存在/正常读取/只提取扩展专属变量
+ * - writeEnvFile：原地更新/追加新 key/删除 key/保留注释与未知字段/原子写
+ * - loadEnvFile：注入 process.env/不覆盖已存在值/文件不存在静默跳过
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import {
+  loadEnvFile,
+  readEnvFile,
+  writeEnvFile,
+  _parseEnvContent,
+  EXTENSION_ENV_KEYS,
+} from "../src/index.ts";
+
+test("_parseEnvContent: 识别空行/注释/kv/unknown", () => {
+  const content = [
+    "# 这是注释",
+    "",
+    "HF_ENDPOINT=https://hf-mirror.com",
+    "PI_DEBUG=off",
+    "PI_EMBEDDER_MODEL=Xenova/bge-small-zh-v1.5",
+    "OTHER_KEY=should_be_unknown",
+    "bad line without equals",
+    'QUOTED="value with spaces"',
+  ].join("\n");
+  const lines = _parseEnvContent(content);
+  assert.equal(lines.length, 8);
+  assert.equal(lines[0].type, "comment");
+  assert.equal(lines[1].type, "blank");
+  assert.equal(lines[2].type, "kv");
+  assert.equal(lines[2].key, "HF_ENDPOINT");
+  assert.equal(lines[2].value, "https://hf-mirror.com");
+  assert.equal(lines[5].type, "kv");
+  assert.equal(lines[5].key, "OTHER_KEY");
+  assert.equal(lines[6].type, "unknown");
+  assert.equal(lines[7].value, "value with spaces");
+});
+
+test("_parseEnvContent: 单引号去引号", () => {
+  const lines = _parseEnvContent("HF_ENDPOINT='https://hf-mirror.com'");
+  assert.equal(lines[0].value, "https://hf-mirror.com");
+});
+
+test("_parseEnvContent: 空值", () => {
+  const lines = _parseEnvContent("HF_ENDPOINT=");
+  assert.equal(lines[0].value, "");
+});
+
+test("readEnvFile: 文件不存在返回 exists=false", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const result = await readEnvFile(join(dir, ".env"));
+    assert.equal(result.exists, false);
+    assert.equal(result.lineCount, 0);
+    assert.deepEqual(result.values, {});
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readEnvFile: 只提取扩展专属变量", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await writeFile(
+      envPath,
+      [
+        "# 注释",
+        "DEEPSEEK_API_KEY=sk-xxx",
+        "HF_ENDPOINT=https://hf-mirror.com",
+        "PI_DEBUG=off",
+        "PI_EMBEDDER_MODEL=Xenova/bge-small-zh-v1.5",
+        "OTHER_VAR=should_not_appear",
+      ].join("\n"),
+      "utf8",
+    );
+    const result = await readEnvFile(envPath);
+    assert.equal(result.exists, true);
+    assert.equal(result.values.HF_ENDPOINT, "https://hf-mirror.com");
+    assert.equal(result.values.PI_DEBUG, "off");
+    assert.equal(result.values.PI_EMBEDDER_MODEL, "Xenova/bge-small-zh-v1.5");
+    assert.equal(result.values.DEEPSEEK_API_KEY, undefined);
+    assert.equal(result.values.OTHER_VAR, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeEnvFile: 文件不存在时创建", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    const result = await writeEnvFile(envPath, { HF_ENDPOINT: "https://hf-mirror.com" });
+    assert.equal(result.exists, true);
+    assert.equal(result.values.HF_ENDPOINT, "https://hf-mirror.com");
+    // 文件实际写入
+    const content = await readFile(envPath, "utf8");
+    assert.ok(content.includes("HF_ENDPOINT=https://hf-mirror.com"));
+    assert.ok(content.includes("# narrative-engine 扩展配置"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeEnvFile: 原地更新已存在的 key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await writeFile(
+      envPath,
+      ["# header", "HF_ENDPOINT=old", "OTHER=keep"].join("\n"),
+      "utf8",
+    );
+    const result = await writeEnvFile(envPath, { HF_ENDPOINT: "new" });
+    assert.equal(result.values.HF_ENDPOINT, "new");
+    const content = await readFile(envPath, "utf8");
+    assert.ok(content.includes("HF_ENDPOINT=new"));
+    assert.ok(content.includes("OTHER=keep"), "未知字段应保留");
+    assert.ok(content.includes("# header"), "注释应保留");
+    assert.ok(!content.includes("HF_ENDPOINT=old"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeEnvFile: 删除 key（传 undefined）", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await writeFile(envPath, "HF_ENDPOINT=to-delete\nPI_DEBUG=off", "utf8");
+    const result = await writeEnvFile(envPath, { HF_ENDPOINT: undefined });
+    assert.equal(result.values.HF_ENDPOINT, undefined);
+    assert.equal(result.values.PI_DEBUG, "off");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeEnvFile: 值含空格自动加引号", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await writeEnvFile(envPath, { HF_ENDPOINT: "https://hf mirror.com" });
+    const content = await readFile(envPath, "utf8");
+    assert.ok(content.includes('HF_ENDPOINT="https://hf mirror.com"'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadEnvFile: 注入 process.env 不覆盖已存在值", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await writeFile(
+      envPath,
+      ["HF_ENDPOINT=from-file", "PI_DEBUG=off"].join("\n"),
+      "utf8",
+    );
+    // 先设 process.env 模拟 shell 已设值
+    const oldValue = process.env.HF_ENDPOINT;
+    process.env.HF_ENDPOINT = "from-shell";
+    try {
+      await loadEnvFile(envPath);
+      assert.equal(process.env.HF_ENDPOINT, "from-shell", "不应覆盖 shell 已设值");
+      assert.equal(process.env.PI_DEBUG, "off");
+    } finally {
+      if (oldValue === undefined) delete process.env.HF_ENDPOINT;
+      else process.env.HF_ENDPOINT = oldValue;
+      delete process.env.PI_DEBUG;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadEnvFile: 文件不存在静默跳过", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    await loadEnvFile(join(dir, "nonexistent.env"));
+    // 不抛错即通过
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("EXTENSION_ENV_KEYS: 包含三个扩展专属变量", () => {
+  assert.equal(EXTENSION_ENV_KEYS.length, 3);
+  assert.ok(EXTENSION_ENV_KEYS.includes("HF_ENDPOINT"));
+  assert.ok(EXTENSION_ENV_KEYS.includes("PI_DEBUG"));
+  assert.ok(EXTENSION_ENV_KEYS.includes("PI_EMBEDDER_MODEL"));
+});

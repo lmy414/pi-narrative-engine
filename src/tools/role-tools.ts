@@ -4,24 +4,21 @@
  * 工具清单：
  *   role_interact  角色池串行演绎
  *   role_rule_set  查看角色规则集.md 内容
+ *
+ * 2026-07-29 LLM 调用链改造：
+ * - execute 接收第 5 个参数 piCtx: ExtensionContext
+ * - makeRoleLlmCaller 改为接收 piCtx，从 PI 本体获取模型与 API Key
+ * - 移除 getLlmConfig / getRoleLlmConfig 包装
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { interact as roleInteract, loadRoleRuleSet } from "@pi/role-pool";
 import { makeRoleLlmCaller } from "../role-pool-llm.ts";
-import { getLlmConfig } from "../llm-config.ts";
 import { type SessionState } from "../session-state.ts";
 
 export function registerRoleTools(pi: ExtensionAPI, state: SessionState): void {
-  // --------------------------------------------------------------------------
-  // 角色池 LLM 配置
-  // --------------------------------------------------------------------------
-
-  function getRoleLlmConfig(): { model: string; apiKey: string } {
-    return getLlmConfig("role");
-  }
-
   // --------------------------------------------------------------------------
   // role_interact
   // --------------------------------------------------------------------------
@@ -55,9 +52,8 @@ export function registerRoleTools(pi: ExtensionAPI, state: SessionState): void {
         }), { description: "动态层：角色当前可见的状态声明（调度器通过 world_character_view 预取）" }),
       }), { description: "演员表，按出场顺序排列" }),
     }),
-    async execute(_id, params) {
-      const { model, apiKey } = getRoleLlmConfig();
-      const llm = makeRoleLlmCaller(model, apiKey);
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      const llm = await makeRoleLlmCaller(piCtx);
       const ruleSet = await loadRoleRuleSet(state.sessionCwd ?? process.cwd());
 
       const result = await roleInteract(

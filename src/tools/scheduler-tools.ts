@@ -9,7 +9,7 @@
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §5
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   plan as schedulerPlan,
@@ -67,11 +67,11 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
         description: "用户口述原文（主会话透传用户原话，写入事件日志供项目记忆展示）",
       })),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
       const g = requireWg(state);
       const emb = requireEmbedder(state);
       const cwd = state.sessionCwd ?? process.cwd();
-      const ctx = await makeSchedulerCtx(g, emb, cwd, state.debugBus ?? undefined);
+      const schedCtx = await makeSchedulerCtx(g, emb, cwd, piCtx, state.debugBus ?? undefined);
 
       const event: StructuredEvent = {
         storyTime: params.storyTime,
@@ -86,7 +86,7 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
         userInput: params.userInput,
       };
 
-      const result = await schedulerPlan(event, ctx);
+      const result = await schedulerPlan(event, schedCtx);
 
       // 推进 storyTime 锚点（2026-07-25 修复：dispatch/commit 此前不更新
       // currentStoryTime，导致后续工具调用失去时间锚点）
@@ -127,13 +127,13 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
     parameters: Type.Object({
       planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
       const g = requireWg(state);
       const emb = requireEmbedder(state);
       const cwd = state.sessionCwd ?? process.cwd();
-      const ctx = await makeSchedulerCtx(g, emb, cwd, state.debugBus ?? undefined);
+      const schedCtx = await makeSchedulerCtx(g, emb, cwd, piCtx, state.debugBus ?? undefined);
 
-      const result = await schedulerCommit(params.planId, ctx);
+      const result = await schedulerCommit(params.planId, schedCtx);
 
       // 写扩散完成后更新项目记忆（失败不阻断 commit 结果）
       if (result.ok) {

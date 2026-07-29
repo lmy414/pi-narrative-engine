@@ -32,6 +32,8 @@ const srcDir = resolve(repoRoot, "dist");
 const srcPackageJson = resolve(repoRoot, "package.json");
 const srcPackagesDir = resolve(repoRoot, "packages");
 const srcUiDir = resolve(repoRoot, "visualizer-ui");
+// 2026-07-29 配置页改造：同步 templates/ 供 @pi/admin 的 resetRuleset 在运行时读取
+const srcTemplatesDir = resolve(repoRoot, "templates");
 
 const defaultTarget = resolve(repoRoot, "..", "novel", ".pi", "extensions", "narrative-engine");
 
@@ -132,7 +134,13 @@ async function sync(target) {
 		console.log(`[sync] 已复制 visualizer-ui/ → ${relative(repoRoot, resolve(target, "visualizer-ui"))}`);
 	}
 
-	// 5. 检查 node_modules 是否已存在
+	// 5. 复制 templates/（@pi/admin 的 resetRuleset 在运行时读取规则集模板）
+	if (existsSync(srcTemplatesDir)) {
+		await freshCopyDir(srcTemplatesDir, resolve(target, "templates"));
+		console.log(`[sync] 已复制 templates/ → ${relative(repoRoot, resolve(target, "templates"))}`);
+	}
+
+	// 6. 检查 node_modules 是否已存在
 	const targetNodeModules = resolve(target, "node_modules");
 	if (!existsSync(targetNodeModules)) {
 		console.log(`[sync] 提示：首次同步后请在目标目录运行 \`npm install\` 安装运行时依赖`);

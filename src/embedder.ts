@@ -31,6 +31,16 @@ import type { EntitySnapshot, StateDeclaration } from "@pi/world-graph";
 /** 默认向量模型 */
 const DEFAULT_MODEL = "Xenova/bge-small-zh-v1.5";
 
+/**
+ * 2026-07-29 配置页改造：支持 PI_EMBEDDER_MODEL 环境变量覆盖默认向量模型
+ *
+ * - 环境变量在 src/index.ts 的 session_start 阶段从 <小说工程>/.env 加载到 process.env
+ * - 必须在 new Embedder() 之前完成加载（构造时读 env）
+ * - 维度仍硬编码为 512（测试钉死），切换模型用户自负其责
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §4.1 / §8.4
+ */
+const EMBEDDER_MODEL = process.env.PI_EMBEDDER_MODEL?.trim() || DEFAULT_MODEL;
+
 /** 是否使用量化模型（更小更快，精度略降） */
 const USE_QUANTIZED = true;
 
@@ -56,7 +66,7 @@ export class Embedder {
   private model: string;
   private dim: number;
 
-  constructor(model: string = DEFAULT_MODEL, dim: number = 512) {
+  constructor(model: string = EMBEDDER_MODEL, dim: number = 512) {
     this.model = model;
     this.dim = dim;
   }

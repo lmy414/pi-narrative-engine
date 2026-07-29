@@ -11,11 +11,17 @@
  * - validateToolCall 校验工具参数
  * - 内置重试：LLM 偶发返回纯文本，在 caller 层重试
  *
+ * 2026-07-29 LLM 调用链改造：
+ * - 工厂签名从 (model, apiKey, provider) 改为 (ctx: ExtensionContext)
+ * - 不再"复用 planner 配置"——统一从 ctx.model 取
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
+ *
  * 设计依据：docs/audits/2026-07-27-fix-plan.md §五 阶段 3
  */
 
-import { complete, getModel, validateToolCall, Type } from "@earendil-works/pi-ai";
+import { complete, validateToolCall, Type } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KnowledgeMapperLlmCaller } from "@pi/scheduler";
 import { buildKnowledgeMapperSystemPrompt, buildKnowledgeMapperUserMessage } from "@pi/scheduler";
 
@@ -53,25 +59,33 @@ const knowledgeMapperTool: Tool = {
 /**
  * 创建基于 pi-ai 的 knowledge mapper LLM 调用器
  *
- * @param model 模型名（如 "deepseek-v4-flash"）
- * @param apiKey API key
- * @param provider 提供商（默认 deepseek）
+ * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
+ * @throws ctx.model 为空时抛错；API Key 未配置时抛错
  */
-export function makeKnowledgeMapperLlmCaller(
-  model: string,
-  apiKey: string,
-  provider: string = "deepseek",
-): KnowledgeMapperLlmCaller {
+export async function makeKnowledgeMapperLlmCaller(ctx: ExtensionContext): Promise<KnowledgeMapperLlmCaller> {
+  const model = ctx.model;
+  if (!model) {
+    throw new Error("knowledgeMapper LLM: ctx.model 为空（请在 PI 内配置模型）");
+  }
+  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok || !auth.apiKey) {
+    throw new Error(
+      auth.ok
+        ? `knowledgeMapper LLM: ${model.provider} 未配置 API Key`
+        : `knowledgeMapper LLM: 获取 API Key 失败: ${auth.error}`,
+    );
+  }
+  const apiKey = auth.apiKey;
+  const headers = auth.headers;
   const tools: Tool[] = [knowledgeMapperTool];
 
   return async (characterId, knowledgeItems, candidates) => {
-    const modelObj = getModel(provider as never, model as never);
     const systemPrompt = buildKnowledgeMapperSystemPrompt();
     const userMessage = buildKnowledgeMapperUserMessage(characterId, knowledgeItems, candidates);
 
     for (let attempt = 0; attempt < MAX_NO_TOOL_RETRIES; attempt++) {
       const msg = await complete(
-        modelObj,
+        model,
         {
           systemPrompt,
           messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
@@ -79,6 +93,7 @@ export function makeKnowledgeMapperLlmCaller(
         },
         {
           apiKey,
+          headers,
           maxTokens: 2000,
           temperature: 0.2, // 映射任务需要确定性，降低随机性
         },

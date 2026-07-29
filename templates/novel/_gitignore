@@ -12,6 +12,10 @@ node_modules/
 # 调度器 plan 缓存（临时态，TTL 1h）
 .pi/scheduler-plans/
 
+# 扩展专属配置（含 HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL，由 @pi/admin 管理）
+# 不存 API Key（API Key 由 PI 本体的 auth.json / 环境变量管）
+.env
+
 # 日志
 *.log
 

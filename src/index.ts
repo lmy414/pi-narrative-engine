@@ -45,6 +45,10 @@ import { registerRoleTools } from "./tools/role-tools.ts";
 import { registerSchedulerTools } from "./tools/scheduler-tools.ts";
 import { registerImportTools } from "./tools/import-tools.ts";
 import { registerVisualizerTool } from "./tools/visualizer-tools.ts";
+// 2026-07-29 配置页改造：session_start 最前加载扩展专属 .env（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL）
+// 必须在 new Embedder() 之前完成加载（embedder 构造时读 PI_EMBEDDER_MODEL / HF_ENDPOINT）
+// 设计依据：docs/plans/2026-07-29-config-ui-design.md §8.4 / 阶段1.7
+import { loadEnvFile } from "@pi/admin";
 
 // ============================================================================
 // 模块级状态（每次 session_start 重建字段）
@@ -86,6 +90,18 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     state.sessionCwd = ctx.cwd;
+
+    // 加载扩展专属 .env（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL）
+    // - 必须在 new Embedder() 之前完成（embedder 构造时读 env）
+    // - 不覆盖已存在的 process.env 值（shell 环境变量优先，符合 dotenv 约定）
+    // - 文件不存在时静默跳过
+    // 失败时不阻断 session（记 warning，让用户在 PI 内看到提示）
+    try {
+      await loadEnvFile(path.join(ctx.cwd, ".env"));
+    } catch (err) {
+      ctx.ui.notify(`[narrative-engine] .env 加载失败: ${err}`, "warning");
+    }
+
     const dir = resolveWorldGraphDir(ctx.cwd);
     await fs.mkdir(dir, { recursive: true });
     state.wg = await WorldGraph.create({

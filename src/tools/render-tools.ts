@@ -7,9 +7,15 @@
  *   render_preview  预览渲染结果（不写文件）
  *   render_check    检验章节文本是否符合规则集
  *   render_rule_set 查看当前规则集.md 内容
+ *
+ * 2026-07-29 LLM 调用链改造：
+ * - execute 接收第 5 个参数 piCtx: ExtensionContext
+ * - makeRendererLlmCaller 改为接收 piCtx，从 PI 本体获取模型与 API Key
+ * - 移除 getLlmConfig / getRendererLlmConfig 包装
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   loadRuleSet,
@@ -22,19 +28,10 @@ import {
 } from "@pi/renderer";
 import { makeRendererLlmCaller } from "../renderer-llm.ts";
 import { checkNarrative } from "../checker.ts";
-import { getLlmConfig } from "../llm-config.ts";
 import { type SessionState } from "../session-state.ts";
 import { RoleOutputSchema } from "./shared.ts";
 
 export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void {
-  // --------------------------------------------------------------------------
-  // 渲染器 LLM 配置（从环境变量读取，共享实现见 ../llm-config.ts）
-  // --------------------------------------------------------------------------
-
-  function getRendererLlmConfig(): { model: string; apiKey: string } {
-    return getLlmConfig("renderer");
-  }
-
   // --------------------------------------------------------------------------
   // render_append
   // --------------------------------------------------------------------------
@@ -52,9 +49,8 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       instruction: Type.String({ description: "叙事指令（自然语言）" }),
       payload: RoleOutputSchema,
     }),
-    async execute(_id, params) {
-      const { model, apiKey } = getRendererLlmConfig();
-      const llm = makeRendererLlmCaller(model, apiKey);
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      const llm = await makeRendererLlmCaller(piCtx);
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const cmd: RenderFileCommand = {
@@ -96,9 +92,8 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       instruction: Type.String({ description: "叙事指令（描述重写方向）" }),
       payload: RoleOutputSchema,
     }),
-    async execute(_id, params) {
-      const { model, apiKey } = getRendererLlmConfig();
-      const llm = makeRendererLlmCaller(model, apiKey);
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      const llm = await makeRendererLlmCaller(piCtx);
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const cmd: RenderFileCommand = {
@@ -140,9 +135,8 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       instruction: Type.String({ description: "叙事指令（自然语言）" }),
       payload: RoleOutputSchema,
     }),
-    async execute(_id, params) {
-      const { model, apiKey } = getRendererLlmConfig();
-      const llm = makeRendererLlmCaller(model, apiKey);
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      const llm = await makeRendererLlmCaller(piCtx);
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       let context = "";
@@ -194,9 +188,8 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       startEventId: Type.Optional(Type.String({ description: "target=range 时起点" })),
       endEventId: Type.Optional(Type.String({ description: "target=range 时终点（不包含）" })),
     }),
-    async execute(_id, params) {
-      const { model, apiKey } = getRendererLlmConfig();
-      const llm = makeRendererLlmCaller(model, apiKey);
+    async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      const llm = await makeRendererLlmCaller(piCtx);
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const result = await checkNarrative(
