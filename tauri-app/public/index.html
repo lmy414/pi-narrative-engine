@@ -51,9 +51,11 @@
     function retry() {
       if (Date.now() > deadline) {
         statusEl.className = "error";
-        statusEl.textContent =
-          "服务启动超时（60s）。请确认 Node 环境可用（开发模式需仓库已 npm install），" +
-          "或检查端口 " + PORT + " 是否被占用。";
+        statusEl.innerHTML =
+          "服务启动超时（60s）。请按以下顺序排查：<br>" +
+          "1. 安装目录下应存在 runtime/node.exe 与 server/main.js（缺失说明安装包资源未正确释放）；<br>" +
+          "2. 端口 " + PORT + " 是否被其他程序占用；<br>" +
+          "3. 开发模式需仓库已执行 npm install 且 tsx 可用。";
         return;
       }
       setTimeout(poll, 600);

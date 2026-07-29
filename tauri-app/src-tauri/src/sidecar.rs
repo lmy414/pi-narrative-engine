@@ -13,6 +13,17 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+/// 去除 Windows UNC 长路径前缀（\\?\）：tauri 的 resource_dir 返回 verbatim
+/// 路径，直接传给 node 会导致模块解析错乱（lstat 'D:' EISDIR）
+fn strip_unc(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
 pub struct SidecarHandle {
     child: Child,
     pub port: u16,
@@ -79,6 +90,7 @@ fn spawn_dev(port: u16) -> Result<Child, String> {
 }
 
 fn spawn_prod(port: u16, resource_dir: &Path) -> Result<Child, String> {
+    let resource_dir = strip_unc(resource_dir);
     let node_exe = if cfg!(windows) {
         resource_dir.join("runtime").join("node.exe")
     } else {
@@ -95,7 +107,7 @@ fn spawn_prod(port: u16, resource_dir: &Path) -> Result<Child, String> {
         .arg(entry)
         .arg("--port")
         .arg(port.to_string())
-        .current_dir(resource_dir)
+        .current_dir(&resource_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -140,8 +152,8 @@ mod tests {
         std::env::set_var("NE_SIDECAR", "prod");
         assert!(!is_dev_mode());
         std::env::remove_var("NE_SIDECAR");
-        // 无 env 时跟随构建 profile（cargo test 为 debug）
-        assert!(is_dev_mode());
+        // 无 env 时跟随构建 profile（debug→dev，release→prod）
+        assert_eq!(is_dev_mode(), cfg!(debug_assertions));
     }
 
     #[test]
@@ -151,6 +163,18 @@ mod tests {
         let root = repo_root().expect("应能定位仓库根");
         assert!(root.join("src").join("app").join("main.ts").exists());
         assert!(root.join("package.json").exists());
+    }
+
+    #[test]
+    fn strip_unc_removes_verbatim_prefix() {
+        let unc = Path::new(r"\\?\D:\apps\narrative-engine");
+        assert_eq!(strip_unc(unc), PathBuf::from(r"D:\apps\narrative-engine"));
+        // 普通路径不受影响
+        let normal = Path::new(r"D:\apps\x");
+        assert_eq!(strip_unc(normal), normal);
+        // Unix 风格路径不受影响
+        let unix = Path::new("/opt/app");
+        assert_eq!(strip_unc(unix), unix);
     }
 
     #[test]

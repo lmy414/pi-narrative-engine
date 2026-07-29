@@ -25,16 +25,21 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
-            let handle = sidecar::spawn_sidecar(resource_dir.as_deref())
-                .map_err(|e| {
-                    eprintln!("[tauri] sidecar 启动失败: {e}");
-                    e
-                })?;
-            let port = handle.port;
+            // sidecar 启动失败不应让应用闪退：存 None，由启动页超时提示引导排查
+            let handle = match sidecar::spawn_sidecar(resource_dir.as_deref()) {
+                Ok(h) => {
+                    let port = h.port;
+                    eprintln!("[tauri] 等待 sidecar 就绪: http://127.0.0.1:{port}/");
+                    Some(h)
+                }
+                Err(e) => {
+                    eprintln!("[tauri] sidecar 启动失败（应用继续运行，启动页将显示错误）: {e}");
+                    None
+                }
+            };
             app.manage(AppState {
-                sidecar: Mutex::new(Some(handle)),
+                sidecar: Mutex::new(handle),
             });
-            eprintln!("[tauri] 等待 sidecar 就绪: http://127.0.0.1:{port}/");
             Ok(())
         })
         .build(tauri::generate_context!())

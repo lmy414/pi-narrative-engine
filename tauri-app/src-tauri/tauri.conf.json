@@ -30,8 +30,9 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "resources": [
-      "resources/**/*"
-    ]
+    "resources": {
+      "resources/runtime/**/*": "runtime/",
+      "resources/server/**/*": "server/"
+    }
   }
 }
