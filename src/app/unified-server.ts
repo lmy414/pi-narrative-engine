@@ -48,6 +48,10 @@ export interface UnifiedServerOptions {
   embedder?: EmbedderLike | null;
   /** 调试事件总线（注入后启用 /api/debug/*） */
   debugBus?: DebugBus | null;
+  /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
+  appConfigDir?: string;
+  /** 应用内置扩展快照目录（extension update-check / reinstall 用） */
+  extensionSnapshotDir?: string;
 }
 
 export interface UnifiedServer {
@@ -72,6 +76,8 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
     templatesDir: opts.templatesDir ?? resolve(repoRoot, "templates", "novel"),
     piContext: opts.piContext ?? null,
     embedder: opts.embedder ?? null,
+    appConfigDir: opts.appConfigDir,
+    extensionSnapshotDir: opts.extensionSnapshotDir,
   };
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {

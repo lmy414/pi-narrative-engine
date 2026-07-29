@@ -55,6 +55,17 @@ export interface LaunchOptions {
   executable?: string;
   /** 新终端窗口标题，默认用项目名 */
   title?: string;
+  /**
+   * 扩展加载策略（应用化 §5.2.1）：
+   * - "enabled"（缺省）：正常加载扩展
+   * - "disabled"：拼 --no-extensions，PI 以纯净模式运行
+   */
+  extensionMode?: "enabled" | "disabled";
+  /**
+   * 显式扩展路径（应用内置扩展场景）：拼 `-e <path>`，
+   * 不依赖自动发现目录。extensionMode 为 "disabled" 时忽略。
+   */
+  extensionPath?: string;
 }
 
 /** 启动结果 */

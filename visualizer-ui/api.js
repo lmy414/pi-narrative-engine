@@ -191,6 +191,22 @@
     adminNovelJsonWrite: function (fields) {
       return request("PUT", "/admin/novel-json", fields);
     },
+    /* 应用配置与扩展管理（§5.1/§5.4） */
+    adminAppConfig: function () {
+      return request("GET", "/admin/app-config");
+    },
+    adminAppConfigWrite: function (updates) {
+      return request("PUT", "/admin/app-config", updates);
+    },
+    adminExtensionMode: function (mode) {
+      return request("PUT", "/admin/extension/mode", { mode: mode });
+    },
+    adminExtensionUpdateCheck: function () {
+      return request("GET", "/admin/extension/update-check");
+    },
+    adminExtensionReinstall: function (skipNpmInstall) {
+      return request("POST", "/admin/extension/reinstall", { skipNpmInstall: !!skipNpmInstall });
+    },
     /* 更新 SSE 流：返回 EventSource（调用方负责 close） */
     adminUpdateStream: function (targetDir) {
       return new EventSource(BASE + "/admin/update/stream" + buildQuery({ targetDir: targetDir }));

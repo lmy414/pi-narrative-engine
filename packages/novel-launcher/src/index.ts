@@ -46,7 +46,7 @@ export { NovelLauncherError } from "./types.ts";
 export { _readNovelJson, _countChapters, _discoverProjects } from "./discover.ts";
 
 // 启动内部实现
-export { _buildPiCommand, _spawnNewTerminal, _internals as _launchInternals } from "./launch.ts";
+export { _buildPiCommand, _buildExtensionArgs, _spawnNewTerminal, _internals as _launchInternals } from "./launch.ts";
 
 // 项目内部实现
 export { _resolveScript, _internals as _projectInternals } from "./project.ts";

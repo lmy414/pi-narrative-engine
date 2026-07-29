@@ -34,10 +34,15 @@ import {
   warmupEmbedder,
   readNovelJson,
   writeNovelJson,
+  readAppConfig,
+  writeAppConfig,
+  reinstallExtension,
+  checkExtensionUpdate,
   RULESET_NAMES,
   type RulesetName,
   type PiStatusContext,
   type EmbedderLike,
+  type AppConfigUpdates,
 } from "@pi/admin";
 import {
   discoverProjects,
@@ -45,6 +50,7 @@ import {
   createProject,
   launchPi,
   openInFileManager,
+  type LaunchOptions,
 } from "@pi/novel-launcher";
 import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
 import type { ProjectRegistry } from "./project-registry.ts";
@@ -59,6 +65,10 @@ export interface ExtApiContext {
   piContext: PiStatusContext | null;
   /** embedder 实例（embedder status/warmup 用，可为 null） */
   embedder: EmbedderLike | null;
+  /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
+  appConfigDir?: string;
+  /** 应用内置扩展快照目录（extension update-check / reinstall 用） */
+  extensionSnapshotDir?: string;
 }
 
 /** 错误 code → HTTP 状态映射（缺省 400） */
@@ -274,11 +284,21 @@ async function handleProjects(
   }
 
   // POST /api/projects/launch-pi — body { dir, args? }
+  // 扩展加载策略来自应用配置（§5.2/§5.4）：mode=disabled 拼 --no-extensions；
+  // useExplicitFlag=true 时用 -e 显式加载全局扩展目录
   if (sub === "launch-pi" && method === "POST") {
     const obj = requireBody(body, ["dir"]);
-    const result = await launchPi(String(obj.dir), {
+    const appConfig = await readAppConfig(ctx.appConfigDir);
+    const options: LaunchOptions = {
+      executable: appConfig.launcher.piExecutable || "pi",
+      extensionMode: appConfig.extension.mode,
+      extensionPath:
+        appConfig.extension.mode !== "disabled" && appConfig.extension.useExplicitFlag
+          ? appConfig.extension.globalPath
+          : undefined,
       args: Array.isArray(obj.args) ? obj.args.map(String) : undefined,
-    });
+    };
+    const result = await launchPi(String(obj.dir), options);
     ok(res, result);
     return;
   }
@@ -416,6 +436,81 @@ async function handleAdmin(
       ok(res, await writeNovelJson(requireActiveDir(ctx), obj));
       return;
     }
+  }
+
+  // GET/PUT /api/admin/app-config — 应用级配置（无需活跃项目）
+  if (sub === "app-config" && segments.length === 2) {
+    if (method === "GET") {
+      ok(res, await readAppConfig(ctx.appConfigDir));
+      return;
+    }
+    if (method === "PUT") {
+      const obj = requireBody(body, []);
+      const updates: AppConfigUpdates = {};
+      if (obj.extension && typeof obj.extension === "object") {
+        updates.extension = obj.extension as AppConfigUpdates["extension"];
+      }
+      if (obj.launcher && typeof obj.launcher === "object") {
+        updates.launcher = obj.launcher as AppConfigUpdates["launcher"];
+      }
+      if (obj.embedder && typeof obj.embedder === "object") {
+        updates.embedder = obj.embedder as AppConfigUpdates["embedder"];
+      }
+      ok(res, await writeAppConfig(updates, ctx.appConfigDir));
+      return;
+    }
+  }
+
+  // PUT /api/admin/extension/mode — body { mode: "enabled" | "disabled" }（屏蔽扩展开关）
+  if (sub === "extension" && name === "mode" && method === "PUT") {
+    const obj = requireBody(body, ["mode"]);
+    const mode = String(obj.mode);
+    const updated = await writeAppConfig(
+      { extension: { mode: mode as "enabled" | "disabled" } },
+      ctx.appConfigDir,
+    );
+    ok(res, updated.extension);
+    return;
+  }
+
+  // GET /api/admin/extension/update-check — 已安装版本 vs 快照版本
+  if (sub === "extension" && name === "update-check" && method === "GET") {
+    if (!ctx.extensionSnapshotDir) {
+      fail(res, 400, "MISSING_FIELD", "未配置扩展快照目录（extensionSnapshotDir）");
+      return;
+    }
+    const appConfig = await readAppConfig(ctx.appConfigDir);
+    ok(res, await checkExtensionUpdate(ctx.extensionSnapshotDir, appConfig.extension.globalPath));
+    return;
+  }
+
+  // POST /api/admin/extension/reinstall — 从快照重装全局扩展
+  // body { skipNpmInstall? }（流式输出为 P2，当前一次性 JSON 返回）
+  if (sub === "extension" && name === "reinstall" && method === "POST") {
+    if (!ctx.extensionSnapshotDir) {
+      fail(res, 400, "MISSING_FIELD", "未配置扩展快照目录（extensionSnapshotDir）");
+      return;
+    }
+    const obj = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    const appConfig = await readAppConfig(ctx.appConfigDir);
+    const result = await reinstallExtension(
+      ctx.extensionSnapshotDir,
+      appConfig.extension.globalPath,
+      { skipNpmInstall: obj.skipNpmInstall === true },
+    );
+    // 更新配置中的版本与重装时间
+    const check = await checkExtensionUpdate(ctx.extensionSnapshotDir, appConfig.extension.globalPath);
+    await writeAppConfig(
+      {
+        extension: {
+          version: check.current ?? "",
+          lastUpdated: new Date().toISOString(),
+        },
+      },
+      ctx.appConfigDir,
+    );
+    ok(res, result);
+    return;
   }
 
   fail(res, 404, "NOT_FOUND", `未找到路由 ${method} /api/${segments.join("/")}`);

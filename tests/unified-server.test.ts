@@ -23,6 +23,8 @@ import type { UnifiedServer } from "../src/app/unified-server.ts";
 let root: string;
 let projA: string;
 let projB: string;
+let snapshotDir: string;
+let appConfigDir: string;
 let registry: ProjectRegistry;
 let server: UnifiedServer;
 let base: string;
@@ -84,6 +86,17 @@ before(async () => {
   await makeProject(projA, "甲", "阿明");
   await makeProject(projB, "乙", "阿红");
 
+  // 应用配置目录与扩展快照（避免写入真实 %APPDATA%）
+  appConfigDir = join(root, "appconfig");
+  snapshotDir = join(root, "snapshot");
+  mkdirSync(join(snapshotDir, "dist"), { recursive: true });
+  writeFileSync(
+    join(snapshotDir, "package.json"),
+    JSON.stringify({ name: "narrative-engine", version: "9.9.9" }),
+    "utf8",
+  );
+  writeFileSync(join(snapshotDir, "dist", "index.js"), "// ext\n", "utf8");
+
   registry = new ProjectRegistry();
   server = await startUnifiedServer({
     registry,
@@ -91,6 +104,8 @@ before(async () => {
     repoRoot: root,
     templatesDir: join(root, "templates"),
     uiDir: join(root, "ui"),
+    appConfigDir,
+    extensionSnapshotDir: snapshotDir,
   });
   base = server.url;
 });
@@ -291,6 +306,65 @@ test("admin/update/stream: 无 targetDir 且能解析时返回 SSE 错误事件�
   assert.ok(first.startsWith("data: "));
   const evt = JSON.parse(first.slice("data: ".length));
   assert.equal(evt.stage, "error");
+});
+
+// ============ /api/admin/app-config 与扩展管理（§5.1/§5.4） ============
+
+test("admin/app-config: 读取默认配置 → 更新 → 回读", async () => {
+  const def = await api("/admin/app-config");
+  assert.equal(def.ok, true);
+  assert.equal(def.data.extension.mode, "enabled");
+  assert.equal(def.data.launcher.piExecutable, "pi");
+
+  const w = await sendJson("PUT", "/admin/app-config", {
+    launcher: { defaultScanRoots: [root] },
+  });
+  assert.equal(w.ok, true);
+  assert.equal(w.data.launcher.defaultScanRoots[0], root);
+
+  const back = await api("/admin/app-config");
+  assert.equal(back.data.launcher.defaultScanRoots[0], root);
+  assert.equal(back.data.extension.mode, "enabled", "未更新字段保留");
+});
+
+test("admin/extension/mode: 切换禁用 → 回读 → 恢复启用", async () => {
+  const off = await sendJson("PUT", "/admin/extension/mode", { mode: "disabled" });
+  assert.equal(off.ok, true);
+  assert.equal(off.data.mode, "disabled");
+
+  const cfg = await api("/admin/app-config");
+  assert.equal(cfg.data.extension.mode, "disabled");
+
+  const bad = await sendJson("PUT", "/admin/extension/mode", { mode: "bogus" });
+  assert.equal(bad.ok, false);
+
+  const on = await sendJson("PUT", "/admin/extension/mode", { mode: "enabled" });
+  assert.equal(on.data.mode, "enabled");
+});
+
+test("admin/extension/update-check: 未安装时 current 为 null", async () => {
+  const r = await api("/admin/extension/update-check");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.available, "9.9.9");
+  assert.equal(r.data.current, null);
+  assert.equal(r.data.updateAvailable, false);
+});
+
+test("admin/extension/reinstall: 从快照安装并更新配置版本", async () => {
+  const r = await sendJson("POST", "/admin/extension/reinstall", { skipNpmInstall: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.npmInstallRan, false);
+  assert.ok(r.data.copiedFiles >= 2, "package.json + dist/index.js");
+
+  // 安装后 update-check 应与快照同版
+  const check = await api("/admin/extension/update-check");
+  assert.equal(check.data.current, "9.9.9");
+  assert.equal(check.data.updateAvailable, false);
+
+  // app-config 的版本与重装时间已更新
+  const cfg = await api("/admin/app-config");
+  assert.equal(cfg.data.extension.version, "9.9.9");
+  assert.ok(cfg.data.extension.lastUpdated.includes("T"));
 });
 
 // ============ projects/close ============

@@ -57,6 +57,10 @@
         updateLines: [],
         updateRunning: false,
         updateSource: null,
+        // 扩展管理（§5.4）
+        extConfig: null,         // app-config 的 extension 段
+        extCheck: null,          // update-check 结果
+        extReinstalling: false,
         // 高级
         novelJson: null,
         novelForm: { name: "", chaptersDir: "", storyTimeFormat: "" },
@@ -98,7 +102,51 @@
         else if (this.section === "rulesets") this.loadRulesets();
         else if (this.section === "embedder") this.loadEmbedder();
         else if (this.section === "advanced") this.loadNovelJson();
-        // deps 手动触发（doctor 较慢，version 需要网络）
+        else if (this.section === "deps") this.loadExtension();
+        // deps 的 doctor 手动触发（较慢）
+      },
+      // ============ 扩展管理 ============
+      loadExtension: function () {
+        var self = this;
+        api.adminAppConfig().then(function (c) {
+          self.extConfig = c.extension || null;
+        }).catch(function () { self.extConfig = null; });
+      },
+      toggleExtension: function () {
+        var self = this;
+        if (!this.extConfig) return;
+        var next = this.extConfig.mode === "disabled" ? "enabled" : "disabled";
+        api.adminExtensionMode(next).then(function (ext) {
+          self.extConfig = ext;
+          self.toast(next === "disabled"
+            ? "扩展已禁用：下次启动 PI 为纯净模式（--no-extensions）"
+            : "扩展已启用：下次启动 PI 生效");
+        }).catch(function (err) {
+          self.toast("切换失败：" + err.message, "error");
+        });
+      },
+      checkExtension: function () {
+        var self = this;
+        api.adminExtensionUpdateCheck().then(function (r) {
+          self.extCheck = r;
+          self.toast(r.updateAvailable ? "快照有新版本：" + r.available : "已安装版本与快照一致");
+        }).catch(function (err) {
+          self.toast("检查失败：" + err.message, "error");
+        });
+      },
+      reinstallExtension: function () {
+        var self = this;
+        if (this.extReinstalling) return;
+        if (!window.confirm("从应用内置快照重装全局扩展（含 npm install，可能耗时较长）？")) return;
+        this.extReinstalling = true;
+        api.adminExtensionReinstall(false).then(function (r) {
+          self.extReinstalling = false;
+          self.toast("重装完成（复制 " + r.copiedFiles + " 个文件）");
+          self.loadExtension();
+        }).catch(function (err) {
+          self.extReinstalling = false;
+          self.toast("重装失败：" + err.message, "error");
+        });
       },
       // ============ 概览 ============
       loadOverview: function () {
@@ -478,6 +526,35 @@
                   </tbody>
                 </table>
                 <div v-else class="sec-desc">点击「重新检查」运行 8 项依赖自检。</div>
+              </div>
+              <div class="pcard settings-section">
+                <div class="sec-title">扩展管理（全局）</div>
+                <div class="ov-item"><span class="ov-label">运行模式</span>
+                  <span class="status-pill" :data-status="extConfig && extConfig.mode !== 'disabled' ? 'active' : 'inactive'">
+                    <span class="status-dot" :class="extConfig && extConfig.mode !== 'disabled' ? 'on' : 'off'"></span>
+                    {{ extConfig ? (extConfig.mode === 'disabled' ? '已禁用（纯净 PI）' : '已启用') : '…' }}
+                  </span>
+                </div>
+                <div class="ov-item"><span class="ov-label">已安装版本</span>
+                  <span class="ov-value">{{ extConfig && extConfig.version ? extConfig.version : '未安装' }}</span>
+                </div>
+                <div class="ov-item" v-if="extCheck"><span class="ov-label">快照版本</span>
+                  <span class="ov-value">{{ extCheck.available || '未知' }}
+                    <span v-if="extCheck.updateAvailable" class="status-pill" data-status="active">可更新</span>
+                  </span>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                  <button class="pbtn" :disabled="!extConfig" @click="toggleExtension">
+                    {{ extConfig && extConfig.mode === 'disabled' ? '启用扩展' : '禁用扩展' }}
+                  </button>
+                  <button class="pbtn" @click="checkExtension">检查更新</button>
+                  <button class="pbtn danger" :disabled="extReinstalling" @click="reinstallExtension">
+                    {{ extReinstalling ? '重装中…' : '重装扩展' }}
+                  </button>
+                </div>
+                <div class="sec-desc" style="margin-top:8px;margin-bottom:0">
+                  模式切换在下次启动 PI 时生效；重装从应用内置快照复制并执行 npm install。
+                </div>
               </div>
               <div class="pcard settings-section">
                 <div class="sec-title">扩展升级</div>

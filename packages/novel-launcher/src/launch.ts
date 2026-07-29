@@ -42,6 +42,19 @@ export function _buildPiCommand(executable: string, args: string[]): string {
   return [executable, ...args].map(_quoteArg).join(" ");
 }
 
+/**
+ * 按扩展加载策略拼 pi 启动参数（§5.2.2）
+ *
+ * - extensionMode "disabled" → ["--no-extensions"]（屏蔽自动发现）
+ * - 否则有 extensionPath → ["-e", path]（显式加载应用内置扩展）
+ * - 否则 []（走 ~/.pi/agent/extensions/ 或项目级自动发现）
+ */
+export function _buildExtensionArgs(options?: LaunchOptions): string[] {
+  if (options?.extensionMode === "disabled") return ["--no-extensions"];
+  if (options?.extensionPath) return ["-e", options.extensionPath];
+  return [];
+}
+
 /** spawn 一个终端进程，返回 pid；同步失败抛 NovelLauncherError */
 function _spawnTerminal(
   command: string,
@@ -153,7 +166,7 @@ export async function launchPi(
 ): Promise<LaunchResult> {
   const dir = resolve(projectDir);
   const executable = options?.executable ?? "pi";
-  const args = options?.args ?? [];
+  const args = [..._buildExtensionArgs(options), ...(options?.args ?? [])];
   let title = options?.title;
   if (!title) {
     try {
