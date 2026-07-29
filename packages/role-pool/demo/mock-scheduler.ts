@@ -18,7 +18,7 @@ import {
   type InteractCommand,
   type RoleAgentOutput,
   type RoleLlmCaller,
-  type RoleCtx,
+  type _RoleCtx,
 } from "../src/index.ts";
 
 // ============================================================================
@@ -163,7 +163,7 @@ async function main() {
   // --- 步骤 2: 调用角色池 ---
   const llm: RoleLlmCaller = makeMockLlm(scriptedOutputs);
   const ruleSet = `# 角色规则集\n\n## 扮演原则\n- 严格以角色第一人称视角行动\n- 行动需符合角色当前情绪与处境\n\n## 输出格式\n- 必须调用 character_action 工具\n- action 字段只描述可观察的外部行为`;
-  const ctx: RoleCtx = { llm, ruleSet };
+  const ctx: _RoleCtx = { llm, ruleSet };
 
   console.log("【2】调用 interact(cmd, ctx)...\n");
   const result = await interact(cmd, ctx);

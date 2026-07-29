@@ -13,62 +13,81 @@
  * 互不干扰，便于单测 mock 和生产环境分别配置。
  *
  * 详见 docs/plans/2026-07-25-scheduler-design.md
+ *
+ * 软隔离约定（2026-07-29）：
+ * - 无前缀 = 公共 API（扩展层引用）
+ * - _ 前缀 = 包内部实现，不保证稳定
  */
+
+// ============ 公共 API ============
 
 // Re-export 核心编排函数
 export { plan } from "./plan.ts";
 export { commit } from "./commit.ts";
 
-// Re-export 缓存与 discard（discard 是 plan.ts 不直接导出的对外接口）
-export {
-  discard,
-  getPlan,
-  setPlan,
-  deletePlan,
-  resetPlanCache,
-  planCacheSize,
-  loadAllPlans,
-  removePlansDir,
-} from "./cache.ts";
-
-// Re-export 检索执行器
-export { executeRetrievalItem } from "./retrieve.ts";
-
-// Re-export 章节路径推断
-export { resolveChapterPath } from "./chapter-resolver.ts";
+// Re-export discard + loadAllPlans（扩展层 session_start 使用）
+export { discard, loadAllPlans } from "./cache.ts";
 
 // Re-export 默认 staticCard 加载器
 export { defaultStaticCardLoader } from "./static-card-loader.ts";
 
-// Re-export planner 提示词模板 + knowledge mapper 提示词（P0-3+6，2026-07-27）
+// Re-export knowledge mapper 提示词模板（扩展层 knowledge-mapper-llm 引用）
 export {
-  buildPlannerSystemPrompt,
-  buildPlannerUserMessage,
   buildKnowledgeMapperSystemPrompt,
   buildKnowledgeMapperUserMessage,
 } from "./prompts.ts";
 
-// Re-export 工具函数
-export { randomId, groupBy } from "./utils.ts";
-
-// Re-export 调试事件总线（2026-07-27 新增）
-export { startSpan, newTraceId } from "./debug.ts";
-
-// Re-export 类型
+// Re-export 类型（扩展层引用）
 export type {
-  SillyTavernCard,
-  FactSnapshot,
   StructuredEvent,
   RetrievalPlan,
   RetrievalItem,
   PlannerLlmCaller,
   KnowledgeMapperLlmCaller,
-  PlanResult,
-  PlanOutput,
-  CommitResult,
   SchedulerCtx,
-  DispatchPlanOutput,
-  DispatchYoloOutput,
+  SillyTavernCard,
 } from "./types.ts";
 
-export type { DebugBus, DebugSpan, DebugEvent } from "./debug.ts";
+export type { DebugBus } from "./debug.ts";
+
+// ============ 内部导出（_ 前缀，软隔离） ============
+
+// 缓存操作（plan.ts / commit.ts 内部使用，测试经相对路径访问）
+export {
+  getPlan as _getPlan,
+  setPlan as _setPlan,
+  deletePlan as _deletePlan,
+  resetPlanCache as _resetPlanCache,
+  planCacheSize as _planCacheSize,
+  removePlansDir as _removePlansDir,
+} from "./cache.ts";
+
+// 检索执行器（commit.ts 内部使用）
+export { executeRetrievalItem as _executeRetrievalItem } from "./retrieve.ts";
+
+// 章节路径推断（commit.ts 内部使用）
+export { resolveChapterPath as _resolveChapterPath } from "./chapter-resolver.ts";
+
+// planner 提示词模板（planner-llm 经相对路径引用，非跨包稳定 API）
+export {
+  buildPlannerSystemPrompt as _buildPlannerSystemPrompt,
+  buildPlannerUserMessage as _buildPlannerUserMessage,
+} from "./prompts.ts";
+
+// 工具函数
+export { randomId as _randomId, groupBy as _groupBy } from "./utils.ts";
+
+// 调试事件总线（内部 span 控制）
+export { startSpan as _startSpan, newTraceId as _newTraceId } from "./debug.ts";
+
+// 内部类型
+export type {
+  FactSnapshot as _FactSnapshot,
+  PlanResult as _PlanResult,
+  PlanOutput as _PlanOutput,
+  CommitResult as _CommitResult,
+  DispatchPlanOutput as _DispatchPlanOutput,
+  DispatchYoloOutput as _DispatchYoloOutput,
+} from "./types.ts";
+
+export type { DebugSpan as _DebugSpan, DebugEvent as _DebugEvent } from "./debug.ts";

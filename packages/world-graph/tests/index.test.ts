@@ -5,9 +5,10 @@ import {
   EntityType,
   Modality,
   EventType,
-  INFRA_RELATIONS,
+  _INFRA_RELATIONS,
+  _VisibilityDeclaration,
 } from "../src/index.ts";
-import type { EventRecordInput, StateDeclaration, VisibilityDeclaration } from "../src/index.ts";
+import type { EventRecordInput, StateDeclaration } from "../src/index.ts";
 
 test("WorldGraph 类可导入", () => {
   assert.equal(typeof WorldGraph, "function");
@@ -19,9 +20,9 @@ test("EntityType/Modality/EventType 枚举可导入", () => {
   assert.equal(EventType.parse("birth"), "birth");
 });
 
-test("INFRA_RELATIONS 常量可导入且含 located_in", () => {
-  assert.ok(Array.isArray(INFRA_RELATIONS));
-  assert.ok(INFRA_RELATIONS.includes("located_in"));
+test("INFRA_RELATIONS 常量可导入且含 located_in（内部导出 _ 前缀）", () => {
+  assert.ok(Array.isArray(_INFRA_RELATIONS));
+  assert.ok(_INFRA_RELATIONS.includes("located_in"));
 });
 
 test("类型可导入（编译期检查）", () => {
@@ -32,7 +33,7 @@ test("类型可导入（编译期检查）", () => {
     declarationId: "d1", entityId: "x1", property: "p", value: "v",
     modality: "fact", validFrom: "t1", validTo: "Infinity",
   };
-  const vis: VisibilityDeclaration = {
+  const vis: _VisibilityDeclaration = {
     characterId: "c1", declarationId: "d1", state: "known",
     confidence: 1, source: "experienced", validFrom: "t1", validTo: "Infinity", isExplicit: true,
   };

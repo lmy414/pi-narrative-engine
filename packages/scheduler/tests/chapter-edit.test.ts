@@ -8,7 +8,7 @@ import path from "node:path";
 import { insertChapterSection } from "../src/chapter-edit.ts";
 import {
   ensureChapterFile,
-  appendToChapter,
+  _appendToChapter,
   CHAPTER_VERSION_MARKER,
 } from "@pi/renderer";
 
@@ -35,9 +35,9 @@ afterEach(async () => {
  */
 async function makeChapterWith3Events(): Promise<void> {
   await ensureChapterFile(chapterPath);
-  await appendToChapter(chapterPath, "evt_001", "第一段正文。");
-  await appendToChapter(chapterPath, "evt_002", "第二段正文。");
-  await appendToChapter(chapterPath, "evt_003", "第三段正文。");
+  await _appendToChapter(chapterPath, "evt_001", "第一段正文。");
+  await _appendToChapter(chapterPath, "evt_002", "第二段正文。");
+  await _appendToChapter(chapterPath, "evt_003", "第三段正文。");
 }
 
 test("insertChapterSection: 文件不存在时自动创建", async () => {

@@ -12,28 +12,13 @@
  * 角色规则集.md 是角色池的 AGENTS.md：
  * - 纯自由文本，原样注入 system prompt 开头
  * - 每次调用重读，不缓存
+ *
+ * 软隔离约定（2026-07-29）：
+ * - 无前缀 = 公共 API（scheduler 子包与扩展层引用）
+ * - _ 前缀 = 包内部实现，不保证稳定
  */
 
-// Re-export 类型
-export type {
-  SillyTavernCard,
-  FactSnapshot,
-  CastMember,
-  InteractCommand,
-  RoleAgentOutput,
-  StateChange,
-  PriorAction,
-  InteractResult,
-  InteractHooks,
-  RoleLlmCaller,
-  RoleCtx,
-} from "./types.ts";
-
-// Re-export 规则集加载
-export { loadRoleRuleSet } from "./rule-loader.ts";
-
-// Re-export 提示词模板（供调试/扩展）
-export { buildSystemPrompt, buildUserMessage } from "./prompts.ts";
+// ============ 公共 API ============
 
 // Re-export 核心编排函数
 export { interact } from "./role-pool.ts";
@@ -43,5 +28,35 @@ export {
   toRoleOutputs,
   extractStateChanges,
   extractRelations,
-  type RelationUpdate,
 } from "./transforms.ts";
+
+// Re-export 规则集加载
+export { loadRoleRuleSet } from "./rule-loader.ts";
+
+// Re-export 类型（scheduler 子包与扩展层引用）
+export type {
+  CastMember,
+  InteractCommand,
+  InteractHooks,
+  InteractResult,
+  RoleAgentOutput,
+  RoleLlmCaller,
+  StateChange,
+} from "./types.ts";
+
+// ============ 内部导出（_ 前缀，软隔离） ============
+
+export type {
+  SillyTavernCard as _SillyTavernCard,
+  FactSnapshot as _FactSnapshot,
+  PriorAction as _PriorAction,
+  RoleCtx as _RoleCtx,
+} from "./types.ts";
+
+export type { RelationUpdate as _RelationUpdate } from "./transforms.ts";
+
+// Re-export 提示词模板（仅调试/扩展用，非稳定 API）
+export {
+  buildSystemPrompt as _buildSystemPrompt,
+  buildUserMessage as _buildUserMessage,
+} from "./prompts.ts";
