@@ -209,6 +209,7 @@ function _runNpmInstall(cwd: string): Promise<void> {
     const child = _internals.spawn(cmd, ["install", "--omit=dev"], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
     });
     let stderr = "";
     child.stderr?.on("data", (c: Buffer) => { stderr += c.toString(); });

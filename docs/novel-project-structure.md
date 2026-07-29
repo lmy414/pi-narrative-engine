@@ -70,3 +70,40 @@ npm run init -- <目标目录> [--name <项目名>] [--force] [--skip-extension]
 ## 6. 多项目管理
 
 无全局注册表：每个小说工程是独立目录，`cd <dir> && pi` 即用。引擎会话内所有路径以 `ctx.cwd`（= 项目根）为锚解析。
+
+## 7. 应用级配置（v0.1.0-alpha.1 应用化后）
+
+应用内置模式下，Tauri 应用在平台应用数据目录维护一份**应用级配置**，与项目级 `novel.json` / `.env` 并行：
+
+| 平台 | 路径 |
+|------|------|
+| Windows | `%APPDATA%\narrative-engine\app-config.json` |
+| macOS | `~/Library/Application Support/narrative-engine/app-config.json` |
+| Linux | `~/.config/narrative-engine/app-config.json` |
+
+`app-config.json` 字段（详见 [api.md](api.md) §11.5 与 [app-mode.md](app-mode.md) §4）：
+
+```json
+{
+  "extension": {
+    "mode": "enabled",
+    "globalPath": "%APPDATA%\\narrative-engine\\extensions\\narrative-engine",
+    "useExplicitFlag": true,
+    "version": "0.1.0-alpha.1",
+    "lastUpdated": "2026-07-30T12:00:00.000Z"
+  },
+  "launcher": {
+    "piExecutable": "pi",
+    "defaultScanRoots": []
+  },
+  "embedder": {
+    "model": "Xenova/bge-small-zh-v1.5"
+  }
+}
+```
+
+**与项目级配置的关系**：
+- `novel.json` 描述项目本身（名称/路径/世界图目录），每个项目独立
+- `app-config.json` 描述应用级偏好（扩展加载策略/PI 路径/扫描根），全局共享
+- 项目级 `.env`（`DEEPSEEK_API_KEY` / `PI_MODEL` 等）仍由 PI 本体读取，应用级配置不覆盖
+- 应用内置模式下，PI 启动参数由 `app-config.json` 的 `extension.mode` + `useExplicitFlag` 决定（详见 [app-mode.md](app-mode.md) §4.3）

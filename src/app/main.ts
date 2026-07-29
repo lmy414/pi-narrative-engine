@@ -82,7 +82,9 @@ async function main(): Promise<void> {
     repoRoot: existsSync(resolve(__dirname, "templates")) ? __dirname : undefined,
     extensionSnapshotDir: existsSync(resolve(__dirname, "extension-snapshot"))
       ? resolve(__dirname, "extension-snapshot")
-      : undefined,
+      : existsSync(resolve(__dirname, "..", "..", "tauri-app", "src-tauri", "resources", "server", "extension-snapshot"))
+        ? resolve(__dirname, "..", "..", "tauri-app", "src-tauri", "resources", "server", "extension-snapshot")
+        : undefined,
   });
   console.log(`[app-server] 统一服务已启动: ${server.url}`);
   if (!embedder) {

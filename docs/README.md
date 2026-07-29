@@ -2,32 +2,38 @@
 
 > 本仓库全部文档的地图。三分法：**现行文档**（以代码为准持续维护）/
 > **设计文档**（已实施，保留作设计依据）/ **历史文档**（V2 及以前，概念溯源）。
+>
+> 变更记录见 [../CHANGELOG.md](../CHANGELOG.md)。
 
-## 📗 现行文档（先读这些）
+## 现行文档（先读这些）
 
 | 文档 | 内容 | 读者 |
 |------|------|------|
-| [../README.md](../README.md) | 项目门面：简介、架构、快速开始 | 所有人 |
-| [SETUP.md](SETUP.md) | 部署指南 + 已知坑 + 环境变量 + **pi 版本兼容性** | 部署者 |
+| [../README.md](../README.md) | 项目门面：简介、架构、快速开始（两种安装模式） | 所有人 |
+| [../CHANGELOG.md](../CHANGELOG.md) | 变更记录（v0.1.0-alpha.1 应用化更新） | 所有人 |
+| [app-mode.md](app-mode.md) | **应用内置模式安装指南**（Tauri 应用 / 首次重装扩展 / 应用配置 / 升级 / 故障排查） | 终端用户 |
+| [SETUP.md](SETUP.md) | 项目级 sync 模式部署指南 + 已知坑 + 环境变量 + pi 版本兼容性 | 部署者 |
 | [USAGE.md](USAGE.md) | 完整使用手册：口述创作 / plan-yolo / modify-insert / 导入 / 规则集 / FAQ | 创作者 |
-| [api.md](api.md) | 31 个 pi 工具 + 子包 API 完整参考（2026-07-28 更新至 P0 修复 + 调试管线 + §12 DebugBus） | 开发者 |
-| [novel-project-structure.md](novel-project-structure.md) | 小说工程结构定义 v1（novel.json / 目录 / git 策略 / init 流程） | 开发者 |
-| [THIRD-PARTY.md](THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点 | 合规/分发者 |
+| [api.md](api.md) | 31 个 pi 工具 + 子包 API + unified-server HTTP 端点完整参考（2026-07-30 更新至应用化） | 开发者 |
+| [novel-project-structure.md](novel-project-structure.md) | 小说工程结构定义 v1（novel.json / 目录 / git 策略 / 应用级配置） | 开发者 |
+| [THIRD-PARTY.md](THIRD-PARTY.md) | 第三方代码/依赖/许可证盘点（含 Tauri/Rust 依赖） | 合规/分发者 |
 | [audits/2026-07-25-requirements-audit.md](audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项核对 + 全部修复史） | 开发者 |
 | [audits/2026-07-27-fix-plan.md](audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段修复方案，已实施完毕） | 开发者 |
 | [audits/2026-07-29-data-flow-audit.md](audits/2026-07-29-data-flow-audit.md) | 数据流审计（dispatch/commit/数据库 schema/工具返回值，附 [HTML 渲染版](audits/2026-07-29-data-flow-audit.html)） | 开发者 |
 
-## 📐 设计文档（已实施，保留作设计依据）
+## 设计文档（已实施，保留作设计依据）
 
 | 文档 | 对应实现 | 关键内容 |
 |------|---------|---------|
+| [plans/2026-07-29-app-architecture-design.md](plans/2026-07-29-app-architecture-design.md) | `tauri-app/` + `src/app/` + `@pi/admin` + `@pi/novel-launcher` | **应用化架构设计**（Tauri 壳 + unified-server + 应用内置扩展 + sidecar 打包，已部分实施） |
+| [plans/2026-07-29-config-ui-design.md](plans/2026-07-29-config-ui-design.md) | `visualizer-ui/settings-view.js` + `@pi/admin` | 配置前端页面设计（LLM 复用 PI + 扩展专属配置，已部分实施） |
 | [plans/2026-07-25-scheduler-design.md](plans/2026-07-25-scheduler-design.md) | `packages/scheduler/` | 调度器 15 项决策、plan/commit 双阶段、planner LLM 检索计划 |
 | [plans/2026-07-24-role-pool-design.md](plans/2026-07-24-role-pool-design.md) | `packages/role-pool/` | 角色池 12 项决策、酒馆卡静态层 + 动态层双层注入 |
 | [plans/2026-07-24-role-pool.md](plans/2026-07-24-role-pool.md) | `packages/role-pool/` | 角色池实施计划（9 Tasks 历史） |
 | [plans/2026-07-24-renderer.md](plans/2026-07-24-renderer.md) | `packages/renderer/` | 渲染器规则集注入、锚点章节格式 |
-| [visualization-v3-design.md](visualization-v3-design.md) | `src/visualizer/` + `visualizer-ui/` | 现行可视化（快照浏览/查询过滤/字段编辑） |
+| [visualization-v3-design.md](visualization-v3-design.md) | `src/visualizer/` + `visualizer-ui/` | 现行可视化（快照浏览/查询过滤/字段编辑 + 应用化扩展页面） |
 
-## 📜 历史文档（概念溯源，勿当现行依据）
+## 历史文档（概念溯源，勿当现行依据）
 
 | 文档 | 价值 |
 |------|------|
@@ -40,6 +46,7 @@
 
 ## 维护约定
 
-1. **现行文档随代码改**：工具增删改 → 同步 api.md；流程变化 → 同步 USAGE.md
+1. **现行文档随代码改**：工具增删改 → 同步 api.md；流程变化 → 同步 USAGE.md；版本发布 → 写 CHANGELOG.md
 2. **设计文档不改**：实施后冻结，状态以头部横幅为准；后续演进写新的 plans/yyyy-mm-dd-*.md
 3. **新文档归位**：计划类 → `plans/`；核对类 → `audits/`；过时即移 `legacy/` 并加横幅
+4. **强一致性**：文档与实际项目状态必须一致，发现差异立即修正，不允许"文档说有但实际没有"或"实际有但文档没提"

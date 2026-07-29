@@ -2,6 +2,9 @@
 
 > 从零到可用的完整 checklist。遇到问题先跑 `npm run doctor` 自检。
 > 小说工程结构定义见 `docs/novel-project-structure.md`。
+>
+> **本文档描述项目级 sync 模式**（开发者从源码部署）。终端用户安装 Tauri 桌面应用见
+> [app-mode.md](app-mode.md)。
 
 ## 1. 前置要求
 
@@ -13,6 +16,8 @@
 | DeepSeek API key | — | `export DEEPSEEK_API_KEY=sk-...` |
 
 ## 2. 快速开始
+
+> **两种安装模式**：项目级 sync 模式（本节，开发者用）vs 应用内置模式（[app-mode.md](app-mode.md)，终端用户用）。
 
 > 💡 **推荐安装方式**：把本仓库链接丢给你已配置好的 pi，让它帮你完成安装与排错。
 > 以下手动步骤 pi 全部能代劳（自检、修绑定、配镜像），遇到问题让它跑 `npm run doctor` 即可。
@@ -37,6 +42,17 @@ cd <小说目录>/.pi/extensions/narrative-engine && npm install
 cd <小说目录> && pi
 # 然后直接口述剧情即可
 ```
+
+### 2.1 应用内置模式（Tauri 桌面应用，备选）
+
+如果你是终端用户（不想克隆源码、不想手动 npm install），可以下载 Tauri 安装器：
+
+1. 从 [Releases](https://github.com/lmy414/pi-narrative-engine/releases) 下载 `narrative-engine_0.1.0-alpha.1_x64-setup.exe`
+2. 双击安装，启动应用
+3. 按应用内提示完成首次扩展重装（从内置快照复制到 `%APPDATA%\narrative-engine\extensions\` 并自动 npm install）
+4. 在应用内扫描/新建项目，点击"启动 PI 创作"
+
+详细步骤见 [app-mode.md](app-mode.md)。
 
 ## 3. 已知坑（按踩坑频率排序）
 
@@ -98,6 +114,31 @@ export PI_MODEL=<你的模型名>
 ### 3.6 Windows 换行符
 
 git 会提示 LF→CRLF 警告，无害。可视化前端和渲染器都兼容。
+
+### 3.7 应用内置模式：扩展加载失败（Extension path does not exist）
+
+**症状**：应用内启动 PI 报 `Failed to load extension "C:\Users\...\AppData\Roaming\narrative-engine\extensions\narrative-engine": Extension path does not exist`。
+**根因**：应用首次启动时 `reinstallExtension` 未执行（或失败），全局扩展目录未创建 / 缺 node_modules。
+**修复**：在应用 settings 页点"重装扩展"，或调 HTTP API：
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:7421/api/admin/extension/reinstall" -Method POST -ContentType "application/json" -Body "{}"
+```
+
+### 3.8 应用内置模式：Windows spawn EINVAL
+
+**症状**：reinstall 端点返回 400 `spawn EINVAL`，全局扩展目录有文件但无 node_modules。
+**根因**：Windows 下 spawn `npm.cmd` 需 `shell: true`（Node.js 已知行为）。v0.1.0-alpha.1 已修复
+（`packages/admin/src/app-config.ts::_runNpmInstall` 补 `shell: process.platform === "win32"`），
+若旧版本遇到此问题，手动在 `%APPDATA%\narrative-engine\extensions\narrative-engine\` 跑 `npm install --omit=dev` 即可。
+
+### 3.9 应用内置模式：sidecar 启动失败
+
+**症状**：应用启动页超时提示 sidecar 未就绪。
+**根因**：端口 7421 被占用 / 内置 Node 运行时与原生模块版本不匹配 / 资源目录路径含 UNC 前缀。
+**修复**：
+- 检查端口：`netstat -ano | findstr :7421`，占用则用 `NE_PORT=<其他端口>` 环境变量改端口
+- 原生模块崩溃：需在目标平台重新执行 `npm run sidecar` 打包
+- UNC 前缀问题：v0.1.0-alpha.1 已修复（`sidecar.rs::strip_unc`）
 
 ## 4. 多平台差异
 

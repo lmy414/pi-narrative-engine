@@ -46,12 +46,13 @@ export function _buildPiCommand(executable: string, args: string[]): string {
  * 按扩展加载策略拼 pi 启动参数（§5.2.2）
  *
  * - extensionMode "disabled" → ["--no-extensions"]（屏蔽自动发现）
- * - 否则有 extensionPath → ["-e", path]（显式加载应用内置扩展）
+ * - 否则有 extensionPath → ["--no-extensions", "-e", path]
+ *   （屏蔽自动发现 + 显式加载应用内置扩展，避免项目级与全局扩展重复加载）
  * - 否则 []（走 ~/.pi/agent/extensions/ 或项目级自动发现）
  */
 export function _buildExtensionArgs(options?: LaunchOptions): string[] {
   if (options?.extensionMode === "disabled") return ["--no-extensions"];
-  if (options?.extensionPath) return ["-e", options.extensionPath];
+  if (options?.extensionPath) return ["--no-extensions", "-e", options.extensionPath];
   return [];
 }
 

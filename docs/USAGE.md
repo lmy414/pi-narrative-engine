@@ -126,6 +126,25 @@ plan 审阅时你会看到：检索计划 + 每个角色的 action / emotion / t
 
  http://localhost:7421/ ：按 storyTime 快照浏览实体/关系演变（两级时间轴：章节→事件）、搜索定位、事件链、角色视角、手动编辑（编辑产生 `source:"user"` 事件）。
 
+### 7.1 两种入口
+
+- **PI 内触发**：口述"打开可视化"，PI 调 `open_visualizer` 工具拉起 standalone 服务（端口 7421）并自动打开浏览器。
+- **Tauri 应用**：启动 Tauri 桌面应用，sidecar 自动拉起 unified-server（端口 7421），应用窗口内嵌 WebView 直接加载可视化前端。
+
+### 7.2 页面导航（v0.1.0-alpha.1 应用化后）
+
+| 页面 | 入口 | 功能 |
+|------|------|------|
+| 工作台 / 事件链 / 调试 | 顶部导航 | 原有三页（快照浏览 / 事件链 / 调试 DAG），Element Plus 旧体系 |
+| 项目管理 | "项目"页 | 扫描/新建/激活项目，启动 PI 创作（应用内置模式专属） |
+| 编辑器 | "编辑器"页 | 浏览项目文件树，读写章节文件/规则集/novel.json |
+| 设置 | "设置"页 | 编辑应用配置（扩展模式/PI 路径/扫描根/向量模型），重装扩展，检查更新 |
+| 更新流 | "更新"页 | git pull + 重建 + 重装扩展的 SSE 日志流（应用内置模式专属） |
+
+> **阶段 2b 未实施**：工作台/事件链/调试三页仍用 Element Plus 旧体系，与新增四页的原型设计体系共存，视觉不统一。
+
+### 7.3 调试 tab
+
 **调试 tab**（2026-07-27 新增）：顶部页签切换到"调试"后，前端订阅 SSE 流，按 `traceId` 聚合显示调度链 DAG——`scheduler_dispatch` / `scheduler_commit` 的每个内部阶段（plan / retrieve / role.turn × N / commit.step.4 × N / commit.step.4.4 / commit.step.5 / commit.step.7）都画成一个节点，按 `start→end` 时序连线。节点状态色编码：蓝色脉冲=进行中、绿色=成功、红色=出错。点节点看 payload / 耗时 / 错误详情。
 
 触发方式：开可视化后切到"调试"页签，然后说一句推进剧情（如"下一场：林冲在草料场"）。`scheduler_dispatch` 一跑就能看到 DAG 实时生长。
@@ -141,6 +160,8 @@ plan 审阅时你会看到：检索计划 + 每个角色的 action / emotion / t
 
 ## 9. 多项目管理
 
+### 9.1 项目级 sync 模式（开发者）
+
 一个目录 = 一个小说工程，无全局注册表：
 
 ```bash
@@ -150,6 +171,13 @@ cd ../小说B && pi   # 独立世界图、独立章节、独立规则集
 ```
 
 引擎升级：回 narrative-engine 跑 `npm run build && npm run sync -- --target <小说B>/.pi/extensions/narrative-engine`，然后 pi 里 `/reload`。
+
+### 9.2 应用内置模式（Tauri 应用）
+
+Tauri 应用内通过 `ProjectRegistry` 管理多项目：在"项目"页扫描/新建/激活项目，每个项目独立 WorldGraph 句柄。
+引擎升级走应用内重装扩展（settings 页 → 重装扩展，或 `POST /api/admin/extension/reinstall`），无需手动 sync。
+
+详细操作见 [app-mode.md](app-mode.md)。
 
 ## 10. FAQ
 
