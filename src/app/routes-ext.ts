@@ -87,6 +87,8 @@ const ERROR_STATUS: Record<string, number> = {
   MTIME_CONFLICT: 409,
   UPDATE_RUNNING: 409,
   NO_ACTIVE_PROJECT: 409,
+  MIGRATION_REQUIRED: 409,
+  PROJECT_OPEN: 409,
   EMBEDDER_UNAVAILABLE: 501,
 };
 
@@ -265,10 +267,19 @@ async function handleProjects(
   }
 
   // POST /api/projects/activate — body { dir }
+  // allowInit=true：新建项目无 world.db 时自动初始化空库（闭环：新建→激活→创作）
   if (sub === "activate" && method === "POST") {
     const obj = requireBody(body, ["dir"]);
-    const handle = await ctx.registry.setActive(String(obj.dir));
+    const handle = await ctx.registry.setActive(String(obj.dir), { allowInit: true });
     ok(res, { dir: handle.dir, name: handle.meta.name, forceFulltext: handle.forceFulltext });
+    return;
+  }
+
+  // POST /api/projects/migrate — body { dir }（schema 迁移：备份 + migrateSchema）
+  if (sub === "migrate" && method === "POST") {
+    const obj = requireBody(body, ["dir"]);
+    const result = await ctx.registry.migrateProject(String(obj.dir));
+    ok(res, result);
     return;
   }
 
@@ -278,6 +289,7 @@ async function handleProjects(
     const result = await createProject(String(obj.dir), {
       name: obj.name !== undefined ? String(obj.name) : undefined,
       force: obj.force === true,
+      templatesDir: ctx.templatesDir,
     });
     ok(res, result, 201);
     return;

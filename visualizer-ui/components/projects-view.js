@@ -65,6 +65,28 @@
           self.$emit("activated", p.dir);
         }).catch(function (err) {
           self.busyDir = "";
+          if (err.code === "MIGRATION_REQUIRED") {
+            // 旧库：引导一键迁移（先自动备份 world.db）
+            if (!window.confirm(
+              "项目「" + p.meta.name + "」的数据库 schema 过旧，需要迁移后才能使用。\n" +
+              "迁移前会自动备份 world.db。现在迁移吗？"
+            )) return;
+            self.busyDir = p.dir;
+            api.projectMigrate(p.dir).then(function (r) {
+              self.$emit("toast", {
+                message: "迁移完成（v" + r.fromVersion + " → v" + r.toVersion + "，已备份）",
+                type: "success"
+              });
+              return api.projectActivate(p.dir);
+            }).then(function () {
+              self.busyDir = "";
+              self.$emit("activated", p.dir);
+            }).catch(function (err2) {
+              self.busyDir = "";
+              self.$emit("toast", { message: "迁移失败：" + err2.message, type: "error" });
+            });
+            return;
+          }
           self.$emit("toast", { message: "激活失败：" + err.message, type: "error" });
         });
       },

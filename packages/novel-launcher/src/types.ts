@@ -80,7 +80,15 @@ export interface CreateOptions {
   name?: string;
   /** 覆盖已存在文件 */
   force?: boolean;
-  /** 跳过扩展同步 */
+  /**
+   * 模板目录（缺省为仓库 templates/novel；打包 sidecar 中由调用方
+   * 显式传入 server/templates/novel）
+   */
+  templatesDir?: string;
+  /**
+   * @deprecated 应用化后扩展为全局目录，不再同步项目级扩展，
+   * 本字段仅为兼容保留（行为上恒为跳过）
+   */
   skipExtension?: boolean;
 }
 

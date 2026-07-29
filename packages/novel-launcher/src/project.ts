@@ -2,14 +2,17 @@
 /**
  * 项目级操作：新建项目、启动可视化、在文件管理器中打开。
  *
- * 复用 narrative-engine 仓库现有脚本（以查档求证、复用存量为原则）：
- * - createProject  → scripts/init-novel.mjs（spawnSync 同步等待完成）
+ * - createProject → 内联实现（2026-07-30 库化：原 spawn scripts/init-novel.mjs
+ *   在打包 sidecar 中无脚本文件可用。模板目录默认仓库 templates/novel，
+ *   生产模式由调用方经 CreateOptions.templatesDir 显式传入）
  * - launchVisualizer → scripts/visualizer.mjs（spawn 新终端窗口运行）
  *
  * 仓库根定位：本文件位于 packages/novel-launcher/src/，向上 3 层即仓库根。
  */
 import { spawn, spawnSync } from "node:child_process";
-import { resolve, join, dirname } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve, join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   CreateOptions,
@@ -39,23 +42,67 @@ export function _resolveScript(name: string): string {
   return join(REPO_ROOT, "scripts", name);
 }
 
-/** 新建小说项目（复用 init-novel.mjs，同步等待完成） */
+/** 模板文件清单（源名 → 目标名；{{name}}/{{date}} 变量替换） */
+const TEMPLATE_FILES: Array<[string, string]> = [
+  ["novel.json", "novel.json"],
+  ["规则集.md", "规则集.md"],
+  ["planner 规则集.md", "planner 规则集.md"],
+  ["角色规则集.md", "角色规则集.md"],
+  ["_gitignore", ".gitignore"],
+  ["README.md", "README.md"],
+];
+
+/** 复制模板并变量替换；已存在且未 force 时跳过 */
+async function _copyTemplate(
+  templatesDir: string,
+  srcName: string,
+  destPath: string,
+  vars: Record<string, string>,
+  force: boolean,
+): Promise<void> {
+  if (existsSync(destPath) && !force) return;
+  let content = await readFile(join(templatesDir, srcName), "utf8");
+  for (const [k, v] of Object.entries(vars)) {
+    content = content.replaceAll(`{{${k}}}`, v);
+  }
+  await mkdir(dirname(destPath), { recursive: true });
+  await writeFile(destPath, content, "utf8");
+}
+
+async function _ensureGitkeep(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const keep = join(dir, ".gitkeep");
+  if (!existsSync(keep)) await writeFile(keep, "", "utf8");
+}
+
+/**
+ * 新建小说项目（内联实现，幂等）
+ *
+ * 创建：正文/、.pi/world-graph-v3/ 目录骨架 + 模板六件套
+ * （novel.json / 规则集三件套 / .gitignore / README.md）。
+ *
+ * 不再同步项目级扩展：应用化后扩展为全局目录（§4.2），
+ * CreateOptions.skipExtension 仅为兼容保留、行为上恒为跳过。
+ */
 export async function createProject(
   targetDir: string,
   options?: CreateOptions,
 ): Promise<CreateResult> {
   const dir = resolve(targetDir);
-  const scriptPath = _resolveScript("init-novel.mjs");
-  const args = [dir];
-  if (options?.name) args.push("--name", options.name);
-  if (options?.force) args.push("--force");
-  if (options?.skipExtension) args.push("--skip-extension");
-  const r = _internals.spawnSync(process.execPath, [scriptPath, ...args], { stdio: "inherit" });
-  if (r.status !== 0) {
+  const templatesDir = options?.templatesDir ?? join(REPO_ROOT, "templates", "novel");
+  if (!existsSync(templatesDir)) {
     throw new NovelLauncherError(
-      `创建项目失败（init-novel 退出码 ${r.status ?? "null"}）`,
-      "CREATE_FAILED",
+      `模板目录不存在: ${templatesDir}`,
+      "TEMPLATE_NOT_FOUND",
     );
+  }
+  const name = options?.name ?? basename(dir);
+  const vars = { name, date: new Date().toISOString().slice(0, 10) };
+
+  await _ensureGitkeep(join(dir, "正文"));
+  await _ensureGitkeep(join(dir, ".pi", "world-graph-v3"));
+  for (const [src, dest] of TEMPLATE_FILES) {
+    await _copyTemplate(templatesDir, src, join(dir, dest), vars, options?.force ?? false);
   }
   return { dir };
 }

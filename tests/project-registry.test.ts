@@ -110,6 +110,34 @@ test("openProject: world.db 缺失报 WORLD_DB_NOT_FOUND", async () => {
   });
 });
 
+test("openProject: allowInit 自动初始化空库（新项目闭环）", async () => {
+  const registry = new ProjectRegistry();
+  const handle = await registry.openProject(emptyProj, { allowInit: true });
+  assert.equal(handle.meta.name, "空");
+  // 空库：无实体无事件，但可正常查询
+  const status = await handle.wg.listStoryTimes();
+  assert.deepEqual(status, []);
+  await registry.closeAll();
+});
+
+test("setActive: allowInit 激活新项目后世界图可用", async () => {
+  const registry = new ProjectRegistry();
+  const handle = await registry.setActive(emptyProj, { allowInit: true });
+  assert.equal(registry.getActive(), handle);
+  // 初始化后可写入事件
+  await handle.wg.processEvent({
+    eventId: "evt-init-test",
+    type: "birth",
+    storyTime: "t1",
+    entityId: "e-new",
+    entityType: "character",
+    newFacts: [{ entityId: "e-new", property: "name", value: "新角色", modality: "fact" }],
+  });
+  const entities = await handle.wg.getAllEntities("t1");
+  assert.equal(entities.length, 1);
+  await registry.closeAll();
+});
+
 test("setActive: 激活并自动打开，getActive 返回活跃句柄", async () => {
   const registry = new ProjectRegistry();
   assert.equal(registry.getActive(), null);

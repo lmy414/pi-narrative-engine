@@ -121,6 +121,9 @@
     projectActivate: function (dir) {
       return request("POST", "/projects/activate", { dir: dir });
     },
+    projectMigrate: function (dir) {
+      return request("POST", "/projects/migrate", { dir: dir });
+    },
     projectCreate: function (dir, name, force) {
       return request("POST", "/projects/create", { dir: dir, name: name, force: force });
     },

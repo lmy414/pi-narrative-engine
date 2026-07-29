@@ -12,8 +12,10 @@
  * 释放 wg。非活跃项目保持打开以支持快速切回——若未来项目数膨胀再加 LRU。
  */
 import { existsSync } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { WorldGraph } from "@pi/world-graph";
+import type { MigrateResult } from "@pi/world-graph";
 import { getProjectMeta } from "@pi/novel-launcher";
 import type { NovelProjectMeta } from "@pi/novel-launcher";
 import { Search } from "../search.ts";
@@ -63,9 +65,12 @@ export class ProjectRegistry {
   /**
    * 打开项目（幂等：已打开则直接返回缓存句柄）
    *
-   * @throws RegistryError NOVEL_JSON_NOT_FOUND / WORLD_DB_NOT_FOUND
+   * 新建项目（无 world.db）在 options.allowInit=true 时自动初始化空库，
+   * 使「新建项目 → 激活 → 创作」闭环不依赖先在 PI 里跑过引擎。
+   *
+   * @throws RegistryError NOVEL_JSON_NOT_FOUND / WORLD_DB_NOT_FOUND / MIGRATION_REQUIRED
    */
-  async openProject(dir: string): Promise<ProjectHandle> {
+  async openProject(dir: string, options?: { allowInit?: boolean }): Promise<ProjectHandle> {
     const abs = resolve(dir);
     const cached = this.handles.get(abs);
     if (cached) return cached;
@@ -83,16 +88,33 @@ export class ProjectRegistry {
     const dbDir = join(abs, meta.worldGraphDir);
     const dbPath = join(dbDir, "world.db");
     if (!existsSync(dbPath)) {
-      throw new RegistryError(
-        `世界图数据库不存在: ${dbPath}（请先在 PI 会话中运行过叙事引擎）`,
-        "WORLD_DB_NOT_FOUND",
-      );
+      if (!options?.allowInit) {
+        throw new RegistryError(
+          `世界图数据库不存在: ${dbPath}（请先在 PI 会话中运行过叙事引擎）`,
+          "WORLD_DB_NOT_FOUND",
+        );
+      }
+      // 新建项目：WorldGraph.create 会初始化空库 schema（目录需先建好）
+      console.log(`[registry] 新项目初始化空世界图: ${dbPath}`);
+      await mkdir(dbDir, { recursive: true });
     }
 
-    const wg = await WorldGraph.create({
-      dbPath,
-      eventLogPath: join(dbDir, "events.jsonl"),
-    });
+    let wg: WorldGraph;
+    try {
+      wg = await WorldGraph.create({
+        dbPath,
+        eventLogPath: join(dbDir, "events.jsonl"),
+      });
+    } catch (err) {
+      const e = err as Error & { code?: string };
+      if (e.code === "MIGRATION_ERROR") {
+        throw new RegistryError(
+          `项目数据库 schema 过旧，需要迁移: ${e.message}`,
+          "MIGRATION_REQUIRED",
+        );
+      }
+      throw err;
+    }
     const handle: ProjectHandle = {
       dir: abs,
       meta,
@@ -102,6 +124,33 @@ export class ProjectRegistry {
     };
     this.handles.set(abs, handle);
     return handle;
+  }
+
+  /**
+   * 迁移项目数据库 schema（先备份 world.db，再执行 typegraph migrateSchema）
+   *
+   * 适用：openProject 报 MIGRATION_REQUIRED 的项目。迁移成功后项目即可激活。
+   *
+   * @returns 迁移前后版本号 + 备份文件路径
+   */
+  async migrateProject(dir: string): Promise<MigrateResult & { backupPath: string }> {
+    const abs = resolve(dir);
+    if (this.handles.has(abs)) {
+      throw new RegistryError("项目当前处于打开状态，请先关闭再迁移", "PROJECT_OPEN");
+    }
+    const meta = await getProjectMeta(abs);
+    const dbDir = join(abs, meta.worldGraphDir);
+    const dbPath = join(dbDir, "world.db");
+    if (!existsSync(dbPath)) {
+      throw new RegistryError(`世界图数据库不存在: ${dbPath}`, "WORLD_DB_NOT_FOUND");
+    }
+    const backupPath = `${dbPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    await copyFile(dbPath, backupPath);
+    const result = await WorldGraph.migrate({
+      dbPath,
+      eventLogPath: join(dbDir, "events.jsonl"),
+    });
+    return { ...result, backupPath };
   }
 
   /** 当前活跃项目（未设置时为 null） */
@@ -117,10 +166,13 @@ export class ProjectRegistry {
   /**
    * 切换活跃项目（未打开则先打开）
    *
+   * options.allowInit：新建项目无 world.db 时自动初始化空库（激活场景默认开启，
+   * 见 routes-ext 的 /api/projects/activate）
+   *
    * @throws RegistryError 同 openProject
    */
-  async setActive(dir: string): Promise<ProjectHandle> {
-    const handle = await this.openProject(dir);
+  async setActive(dir: string, options?: { allowInit?: boolean }): Promise<ProjectHandle> {
+    const handle = await this.openProject(dir, options);
     this.activeDir = handle.dir;
     return handle;
   }

@@ -72,90 +72,77 @@ test("_resolveScript 不同脚本名都能解析", async () => {
   assert.equal(dirA, dirB);
 });
 
-test("createProject 调用 init-novel.mjs 并透传参数", async () => {
-  const proj = await import("../src/project.ts");
-  const syncCalls: SpawnSyncCall[] = [];
-  proj._internals.spawnSync = ((
-    command: string,
-    args: string[],
-    options: Record<string, unknown>,
-  ) => {
-    syncCalls.push({ command, args, options });
-    return { status: 0 } as SpawnSyncReturns<Buffer>;
-  }) as typeof proj._internals.spawnSync;
+/** 造最小模板目录（六件套，含变量占位） */
+async function makeTemplates(root: string): Promise<string> {
+  const dir = join(root, "templates");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "novel.json"), JSON.stringify({ name: "{{name}}", createdAt: "{{date}}" }), "utf8");
+  await writeFile(join(dir, "规则集.md"), "# 规则 {{name}}\n", "utf8");
+  await writeFile(join(dir, "planner 规则集.md"), "# planner\n", "utf8");
+  await writeFile(join(dir, "角色规则集.md"), "# 角色\n", "utf8");
+  await writeFile(join(dir, "_gitignore"), ".env\n", "utf8");
+  await writeFile(join(dir, "README.md"), "# {{name}}\n", "utf8");
+  return dir;
+}
 
+test("createProject: 内联创建目录骨架与模板六件套（变量替换）", async () => {
+  const proj = await import("../src/project.ts");
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
+    const templatesDir = await makeTemplates(root);
     const dir = join(root, "new-project");
-    const result = await proj.createProject(dir, {
-      name: "新项目",
-      skipExtension: true,
-    });
+    const result = await proj.createProject(dir, { name: "新项目", templatesDir });
     assert.equal(result.dir, resolve(dir));
-    assert.equal(syncCalls.length, 1);
-    assert.ok(syncCalls[0].args[0].endsWith("init-novel.mjs"));
-    assert.ok(syncCalls[0].args.includes(resolve(dir)));
-    assert.ok(syncCalls[0].args.includes("--name"));
-    assert.ok(syncCalls[0].args.includes("新项目"));
-    assert.ok(syncCalls[0].args.includes("--skip-extension"));
-    assert.equal(syncCalls[0].options.stdio, "inherit");
+    const { existsSync } = await import("node:fs");
+    const { readFile } = await import("node:fs/promises");
+    // 目录骨架
+    assert.ok(existsSync(join(dir, "正文", ".gitkeep")));
+    assert.ok(existsSync(join(dir, ".pi", "world-graph-v3", ".gitkeep")));
+    // 模板六件套
+    for (const f of ["novel.json", "规则集.md", "planner 规则集.md", "角色规则集.md", ".gitignore", "README.md"]) {
+      assert.ok(existsSync(join(dir, f)), `缺少 ${f}`);
+    }
+    // 变量替换
+    const novelJson = JSON.parse(await readFile(join(dir, "novel.json"), "utf8"));
+    assert.equal(novelJson.name, "新项目");
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(novelJson.createdAt));
+    assert.ok((await readFile(join(dir, "README.md"), "utf8")).includes("新项目"));
+    // 不再同步项目级扩展
+    assert.ok(!existsSync(join(dir, ".pi", "extensions", "narrative-engine")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("createProject --force 透传", async () => {
+test("createProject: 幂等不覆盖，force 才覆盖", async () => {
   const proj = await import("../src/project.ts");
-  const syncCalls: SpawnSyncCall[] = [];
-  proj._internals.spawnSync = ((
-    command: string,
-    args: string[],
-    options: Record<string, unknown>,
-  ) => {
-    syncCalls.push({ command, args, options });
-    return { status: 0 } as SpawnSyncReturns<Buffer>;
-  }) as typeof proj._internals.spawnSync;
-
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
+    const templatesDir = await makeTemplates(root);
     const dir = join(root, "p");
-    await proj.createProject(dir, { force: true });
-    assert.ok(syncCalls[0].args.includes("--force"));
+    await proj.createProject(dir, { name: "甲", templatesDir });
+    const { writeFile: wf, readFile: rf } = await import("node:fs/promises");
+    await wf(join(dir, "README.md"), "手写内容\n", "utf8");
+    // 未 force：保留手写内容
+    await proj.createProject(dir, { name: "乙", templatesDir });
+    assert.equal(await rf(join(dir, "README.md"), "utf8"), "手写内容\n");
+    // force：模板覆盖
+    await proj.createProject(dir, { name: "丙", force: true, templatesDir });
+    assert.ok((await rf(join(dir, "README.md"), "utf8")).includes("丙"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("createProject 退出码非 0 抛 CREATE_FAILED", async () => {
+test("createProject: 模板目录不存在抛 TEMPLATE_NOT_FOUND", async () => {
   const proj = await import("../src/project.ts");
-  proj._internals.spawnSync = (() =>
-    ({ status: 2 }) as unknown as SpawnSyncReturns<Buffer>) as unknown as typeof proj._internals.spawnSync;
-
   const { NovelLauncherError } = await import("../src/types.ts");
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
     await assert.rejects(
-      () => proj.createProject(join(root, "p")),
+      () => proj.createProject(join(root, "p"), { templatesDir: join(root, "不存在") }),
       (err: Error) =>
-        err instanceof NovelLauncherError && err.code === "CREATE_FAILED",
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("createProject spawnSync null status 视为失败", async () => {
-  const proj = await import("../src/project.ts");
-  proj._internals.spawnSync = (() =>
-    ({ status: null }) as unknown as SpawnSyncReturns<Buffer>) as unknown as typeof proj._internals.spawnSync;
-
-  const { NovelLauncherError } = await import("../src/types.ts");
-  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
-  try {
-    await assert.rejects(
-      () => proj.createProject(join(root, "p")),
-      (err: Error) =>
-        err instanceof NovelLauncherError && err.code === "CREATE_FAILED",
+        err instanceof NovelLauncherError && err.code === "TEMPLATE_NOT_FOUND",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

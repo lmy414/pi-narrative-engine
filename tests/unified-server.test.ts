@@ -97,6 +97,20 @@ before(async () => {
   );
   writeFileSync(join(snapshotDir, "dist", "index.js"), "// ext\n", "utf8");
 
+  // 模板固件（createProject 内联实现需要）
+  const tplDir = join(root, "templates");
+  mkdirSync(tplDir, { recursive: true });
+  writeFileSync(
+    join(tplDir, "novel.json"),
+    JSON.stringify({ name: "{{name}}", engine: "narrative-engine", engineVersion: "0.1.0", worldGraphDir: ".pi/world-graph-v3", chaptersDir: "正文", storyTimeFormat: "ch{NNN}.ev{NNN}", createdAt: "{{date}}" }),
+    "utf8",
+  );
+  writeFileSync(join(tplDir, "规则集.md"), "# 规则\n", "utf8");
+  writeFileSync(join(tplDir, "planner 规则集.md"), "# planner\n", "utf8");
+  writeFileSync(join(tplDir, "角色规则集.md"), "# 角色\n", "utf8");
+  writeFileSync(join(tplDir, "_gitignore"), ".env\n", "utf8");
+  writeFileSync(join(tplDir, "README.md"), "# {{name}}\n", "utf8");
+
   registry = new ProjectRegistry();
   server = await startUnifiedServer({
     registry,
@@ -118,13 +132,14 @@ after(async () => {
 
 // ============ /api/projects/* ============
 
-test("projects/scan: 扫到两个项目", async () => {
+test("projects/scan: 扫到至少两个种子项目", async () => {
   const r = await api(`/projects/scan?root=${encodeURIComponent(root)}`);
   assert.equal(r.status, 200);
   assert.equal(r.ok, true);
-  assert.equal(r.data.projects.length, 2);
-  const names = r.data.projects.map((p: any) => p.meta.name).sort();
-  assert.deepEqual(names, ["乙", "甲"]); // 按 UTF-16 码元排序：乙(U+4E59) < 甲(U+7532)
+  assert.ok(r.data.projects.length >= 2);
+  const names = r.data.projects.map((p: any) => p.meta.name);
+  assert.ok(names.includes("甲"));
+  assert.ok(names.includes("乙"));
 });
 
 test("projects/scan: 缺 root 报 400 MISSING_FIELD", async () => {
@@ -169,7 +184,7 @@ test("projects/activate: 切换到乙后数据隔离", async () => {
   assert.equal(graph.data.entities[0].entityId, "e-乙");
 });
 
-test("projects/activate: 无 world.db 的项目报 WORLD_DB_NOT_FOUND", async () => {
+test("projects/activate: 无 world.db 的项目自动初始化空库（闭环）", async () => {
   const empty = join(root, "proj-empty");
   mkdirSync(empty, { recursive: true });
   writeFileSync(
@@ -177,12 +192,68 @@ test("projects/activate: 无 world.db 的项目报 WORLD_DB_NOT_FOUND", async ()
     JSON.stringify({ name: "空", engine: "narrative-engine", engineVersion: "0.1.0" }),
     "utf8",
   );
+  // 闭环设计：activate 允许初始化空库（新建→激活→创作）
   const r = await sendJson("POST", "/projects/activate", { dir: empty });
-  assert.equal(r.status, 404);
-  assert.equal(r.error?.code, "WORLD_DB_NOT_FOUND");
-  // 失败不应影响当前活跃项目
-  const active = await api("/projects/active");
-  assert.equal(active.data.active.name, "乙");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.name, "空");
+  const status = await api("/status");
+  assert.equal(status.ok, true);
+  assert.equal(status.data.entityCount, 0);
+  // 切回当前活跃项目，不影响后续测试
+  await sendJson("POST", "/projects/activate", { dir: projB });
+});
+
+// ============ 闭环：新建项目 → 激活（自动初始化空库）→ 世界图可用 ============
+
+test("闭环: create → activate(空库自动初始化) → status/graph 可用", async () => {
+  const newDir = join(root, "proj-new");
+  const created = await sendJson("POST", "/projects/create", { dir: newDir, name: "闭环测试" });
+  assert.equal(created.status, 201);
+
+  // 新项目无 world.db，activate 自动初始化
+  const act = await sendJson("POST", "/projects/activate", { dir: newDir });
+  assert.equal(act.ok, true);
+  assert.equal(act.data.name, "闭环测试");
+
+  const status = await api("/status");
+  assert.equal(status.ok, true);
+  assert.equal(status.data.entityCount, 0, "空库无实体");
+
+  // 写入事件后立即可读
+  const ev = await sendJson("POST", "/events", {
+    eventId: "evt-loop-1",
+    type: "birth",
+    storyTime: "ch001.ev001",
+    entityId: "e-loop",
+    entityType: "character",
+    summary: "闭环角色",
+    newFacts: [{ entityId: "e-loop", property: "name", value: "小闭", modality: "fact" }],
+  });
+  assert.equal(ev.ok, true);
+  const graph = await api("/graph?storyTime=ch001.ev001");
+  assert.equal(graph.data.entities.length, 1);
+
+  // 文件编辑器可用（模板已含规则集；正文目录为空）
+  const tree = await api("/files/tree");
+  assert.equal(tree.ok, true);
+
+  // 切回项目乙，不影响后续测试
+  await sendJson("POST", "/projects/activate", { dir: projB });
+});
+
+test("闭环: 模板目录缺失时 create 返回 TEMPLATE_NOT_FOUND", async () => {
+  // 本用例临时把模板目录改名验证错误路径，随后恢复
+  const { renameSync } = await import("node:fs");
+  const tplDir = join(root, "templates");
+  const bakDir = join(root, "templates-bak");
+  renameSync(tplDir, bakDir);
+  try {
+    const r = await sendJson("POST", "/projects/create", { dir: join(root, "x") });
+    assert.equal(r.status, 404);
+    assert.equal(r.error?.code, "TEMPLATE_NOT_FOUND");
+  } finally {
+    renameSync(bakDir, tplDir);
+  }
 });
 
 // ============ /api/files/*（在活跃项目乙上） ============

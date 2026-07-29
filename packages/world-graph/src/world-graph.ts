@@ -15,6 +15,7 @@ import {
   createSqliteBackend,
   generateSqliteMigrationSQL,
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
+import { getActiveSchema, migrateSchema } from "@nicia-ai/typegraph/schema";
 import { z } from "zod";
 import { EntityType, Modality, EventRecord, VisibilitySource } from "./types.ts";
 import type { StateDeclaration, VisibilityDeclaration, EventRecordInput } from "./types.ts";
@@ -97,6 +98,14 @@ export interface WorldGraphOptions {
   eventLogPath: string;
 }
 
+/** WorldGraph.migrate 返回的迁移结果 */
+export interface MigrateResult {
+  /** 迁移前激活的 schema 版本 */
+  fromVersion: number;
+  /** 迁移后的 schema 版本 */
+  toVersion: number;
+}
+
 export interface EntitySnapshot {
   entityId: string;
   type: EntityType;
@@ -147,14 +156,50 @@ export class WorldGraph {
    */
   static async create(opts: WorldGraphOptions): Promise<WorldGraph> {
     const db = new Database(opts.dbPath);
-    db.pragma("journal_mode = WAL");
-    loadSqliteVec(db);
-    const drizzleDb = drizzle(db);
-    db.exec(generateSqliteMigrationSQL());
-    const backend = createSqliteBackend(drizzleDb, { vector: sqliteVecStrategy });
-    const [store, _schemaResult] = await createStoreWithSchema(graph, backend, { history: true });
-    const eventLog = new EventLog(opts.eventLogPath);
-    return new WorldGraph(db, store, eventLog);
+    try {
+      db.pragma("journal_mode = WAL");
+      loadSqliteVec(db);
+      const drizzleDb = drizzle(db);
+      db.exec(generateSqliteMigrationSQL());
+      const backend = createSqliteBackend(drizzleDb, { vector: sqliteVecStrategy });
+      const [store, _schemaResult] = await createStoreWithSchema(graph, backend, { history: true });
+      const eventLog = new EventLog(opts.eventLogPath);
+      return new WorldGraph(db, store, eventLog);
+    } catch (err) {
+      // schema 校验失败（如 MIGRATION_ERROR）时释放句柄，避免占用 db 文件
+      db.close();
+      throw err;
+    }
+  }
+
+  /**
+   * 执行 schema 迁移（typegraph migrateSchema）
+   *
+   * 适用场景：旧版引擎创建的 world.db 在新版代码下 create 会抛
+   * MIGRATION_ERROR（schema 定义有变更）。本方法用当前 graph 定义提交
+   * 新 schema 版本，完成后 create 即可正常打开。
+   *
+   * 安全：调用方（ProjectRegistry.migrateProject）负责在调用前备份 db 文件。
+   *
+   * @returns 迁移前后的 schema 版本号
+   */
+  static async migrate(opts: WorldGraphOptions): Promise<MigrateResult> {
+    const db = new Database(opts.dbPath);
+    try {
+      db.pragma("journal_mode = WAL");
+      loadSqliteVec(db);
+      const drizzleDb = drizzle(db);
+      db.exec(generateSqliteMigrationSQL());
+      const backend = createSqliteBackend(drizzleDb, { vector: sqliteVecStrategy });
+      const active = await getActiveSchema(backend, graph.id);
+      if (!active) {
+        throw new Error("schema 未初始化，无需迁移（空库请直接 create）");
+      }
+      const toVersion = await migrateSchema(backend, graph, active.version);
+      return { fromVersion: active.version, toVersion };
+    } finally {
+      db.close();
+    }
   }
 
   close(): void {
