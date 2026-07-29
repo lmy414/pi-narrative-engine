@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Narrative Engine — 启动中</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: #0a0a0a;
+    color: #fafafa;
+    font-family: ui-sans-serif, sans-serif, system-ui;
+  }
+  .bar { width: 4px; height: 36px; border-radius: 2px; background: #2563ef; }
+  .name { font-size: 16px; font-weight: 600; }
+  .status { font-size: 13px; color: #a1a1a1; }
+  .error { color: #ff9a9d; max-width: 480px; text-align: center; line-height: 1.7; }
+</style>
+</head>
+<body>
+  <div class="bar"></div>
+  <div class="name">Narrative Engine</div>
+  <div class="status" id="status">正在启动叙事引擎服务…</div>
+  <script>
+    // sidecar 就绪轮询：/api/projects/active 返回即跳转
+    // 端口与 sidecar.rs 一致（NE_PORT 缺省 7421）
+    var PORT = 7421;
+    var BASE = "http://127.0.0.1:" + PORT;
+    var deadline = Date.now() + 60000;
+    var statusEl = document.getElementById("status");
+
+    function poll() {
+      fetch(BASE + "/api/projects/active", { method: "GET" })
+        .then(function (r) {
+          if (r.ok || r.status === 404 || r.status === 409) {
+            statusEl.textContent = "服务已就绪，正在进入…";
+            window.location.replace(BASE + "/");
+            return;
+          }
+          retry();
+        })
+        .catch(retry);
+    }
+    function retry() {
+      if (Date.now() > deadline) {
+        statusEl.className = "error";
+        statusEl.textContent =
+          "服务启动超时（60s）。请确认 Node 环境可用（开发模式需仓库已 npm install），" +
+          "或检查端口 " + PORT + " 是否被占用。";
+        return;
+      }
+      setTimeout(poll, 600);
+    }
+    poll();
+  </script>
+</body>
+</html>

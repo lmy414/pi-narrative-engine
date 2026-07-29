@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "default",
+  "description": "默认权限集（仅核心窗口能力；sidecar 由 Rust 侧 spawn，不经权限系统）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
