@@ -1,19 +1,24 @@
 /**
- * main.ts — unified-server 独立启动入口（由 scripts/app-server.mjs 以 tsx 拉起）
+ * main.ts — unified-server 独立启动入口
+ *
+ * 双模式：
+ * - 开发：scripts/app-server.mjs 以 tsx 拉起（路径自动探测）
+ * - 生产：esbuild 打包为 server/main.js，由 Tauri sidecar 以内置 Node 运行
+ *   （此时入口同级的 visualizer-ui/ templates/ extension-snapshot/ 为打包资源，
+ *   存在即显式传入，不存在回退开发模式自动探测）
  *
  * 用法：
  *   node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
- *
- * - --project 启动后立即激活的项目目录（可省略，稍后经
- *   POST /api/projects/activate 切换）
- * - --port    监听端口，默认 7421（仅 127.0.0.1）
- * - --embed   加载向量模型（Xenova/bge-small-zh-v1.5，首次下载较慢），
- *             启用 vector/hybrid 检索；不加载时检索强制 fulltext
+ *   node server/main.js          [--project <dir>] [--port 7421] [--embed]
  */
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Embedder } from "../embedder.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { startUnifiedServer } from "./unified-server.ts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface CliArgs {
   projectDir: string | null;
@@ -63,7 +68,22 @@ async function main(): Promise<void> {
     }
   }
 
-  const server = await startUnifiedServer({ registry, port: args.port, embedder });
+  const server = await startUnifiedServer({
+    registry,
+    port: args.port,
+    embedder,
+    // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
+    uiDir: existsSync(resolve(__dirname, "visualizer-ui"))
+      ? resolve(__dirname, "visualizer-ui")
+      : undefined,
+    templatesDir: existsSync(resolve(__dirname, "templates", "novel"))
+      ? resolve(__dirname, "templates", "novel")
+      : undefined,
+    repoRoot: existsSync(resolve(__dirname, "templates")) ? __dirname : undefined,
+    extensionSnapshotDir: existsSync(resolve(__dirname, "extension-snapshot"))
+      ? resolve(__dirname, "extension-snapshot")
+      : undefined,
+  });
   console.log(`[app-server] 统一服务已启动: ${server.url}`);
   if (!embedder) {
     console.log("[app-server] 未加载向量模型，检索使用 fulltext 模式（加 --embed 启用 hybrid）");
