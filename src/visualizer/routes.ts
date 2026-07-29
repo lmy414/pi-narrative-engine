@@ -46,6 +46,9 @@ function fail(res: ServerResponse, status: number, code: string, message: string
   send(res, status, { ok: false, data: null, error: { code, message } });
 }
 
+// 供 routes-ext.ts（unified-server 的 files/projects/admin 薄路由）复用
+export { ok as _ok, fail as _fail };
+
 /** storyTime 必填端点的参数提取，缺失时抛带 code 的错误 */
 function requireStoryTime(url: URL): string {
   const st = url.searchParams.get("storyTime");

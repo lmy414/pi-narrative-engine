@@ -99,6 +99,21 @@ export type {
   NovelJsonReadResult,
 } from "./novel-json.ts";
 
+// 工程内 markdown 文件通用读写（文件编辑器后端，§11.3）
+export {
+  listFileTree,
+  readProjectFile,
+  writeProjectFile,
+  createProjectFile,
+  deleteProjectFile,
+  READABLE_EXTS,
+  WRITABLE_EXTS,
+} from "./files.ts";
+export type {
+  FileTreeNode,
+  ProjectFileContent,
+} from "./files.ts";
+
 // ============ 公共类型与错误 ============
 
 export {
@@ -156,3 +171,6 @@ export {
 
 // novel-json 内部实现
 export { _normalizeNovelJson } from "./novel-json.ts";
+
+// files 内部实现
+export { _resolveSafePath } from "./files.ts";

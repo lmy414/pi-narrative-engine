@@ -62,7 +62,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /** 解析默认 uiDir：兼容开发/构建（上两级）与同步到扩展目录（上一级）两种布局 */
-function resolveDefaultUiDir(): string {
+export function resolveDefaultUiDir(): string {
   const candidates = [
     resolve(__dirname, "../../visualizer-ui"),
     resolve(__dirname, "../visualizer-ui"),
@@ -74,7 +74,7 @@ function resolveDefaultUiDir(): string {
 }
 
 /** 读取 POST 请求体（JSON），空体返回 null，解析失败抛错 */
-function readBody(req: IncomingMessage): Promise<unknown> {
+export function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolvePromise, rejectPromise) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
@@ -95,7 +95,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** 静态文件服务：防路径穿越，未知文件 404 */
-async function serveStatic(res: ServerResponse, uiDir: string, pathname: string): Promise<void> {
+export async function serveStatic(res: ServerResponse, uiDir: string, pathname: string): Promise<void> {
   const rel = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
   const filePath = normalize(join(uiDir, rel));
   if (!filePath.startsWith(normalize(uiDir))) {
