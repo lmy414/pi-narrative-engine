@@ -1,2 +1,5 @@
 src-tauri/target/
+src-tauri/gen/
+src-tauri/resources/runtime/
+src-tauri/resources/server/
 node_modules/

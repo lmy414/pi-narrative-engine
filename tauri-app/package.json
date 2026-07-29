@@ -6,6 +6,8 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
+    "sidecar": "node ../scripts/package-sidecar.mjs",
+    "prebuild": "node ../scripts/package-sidecar.mjs",
     "build": "tauri build"
   },
   "devDependencies": {
