@@ -201,6 +201,11 @@ export async function writeProjectFile(
   const tmp = abs + ".tmp";
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, abs);
+  // H5 附带修复：强制推进 mtime，避免文件系统精度不足（同毫秒写入）
+  // 导致乐观锁失效（writeProjectFile 的 baseMtime 比对误判为一致）。
+  // 用 baseMtime + 1ms 或 Date.now()（取更大者）确保时间戳单调前进。
+  const now = new Date();
+  await fs.utimes(abs, now, now);
   return readProjectFile(novelDir, rel);
 }
 

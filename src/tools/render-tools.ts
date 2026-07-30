@@ -45,7 +45,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
     parameters: Type.Object({
       chapterPath: Type.String({ description: "目标章节文件绝对路径" }),
       eventId: Type.String({ description: "本次渲染对应的事件 ID" }),
-      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      storyTime: Type.String({ description: "故事时间（如 ch009.ev006）" }),
       instruction: Type.String({ description: "叙事指令（自然语言）" }),
       payload: RoleOutputSchema,
     }),
@@ -131,7 +131,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
     parameters: Type.Object({
       chapterPath: Type.Optional(Type.String({ description: "章节文件路径（用于读取上下文，不写文件）" })),
       eventId: Type.String({ description: "本次渲染对应的事件 ID" }),
-      storyTime: Type.String({ description: "故事时间（如 ch-2）" }),
+      storyTime: Type.String({ description: "故事时间（如 ch009.ev006）" }),
       instruction: Type.String({ description: "叙事指令（自然语言）" }),
       payload: RoleOutputSchema,
     }),

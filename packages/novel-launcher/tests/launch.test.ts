@@ -128,7 +128,16 @@ test("launchPi 默认 title 从 novel.json 读取", async () => {
     assert.equal(result.pid, 11111);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.cwd, dir);
-    assert.ok(calls[0].args.includes("pi") || calls[0].command === "pi");
+    // 平台感知断言：macOS 走 osascript，pi 命令嵌在 -e 的 script 字符串内
+    // （'tell application "Terminal" to do script "cd ... && pi"'），
+    // args 无独立 "pi" token；其他平台 pi 是 spawn 的 command 或 args 独立 token。
+    if (process.platform === "darwin") {
+      assert.equal(calls[0].command, "osascript");
+      const script = calls[0].args.join(" ");
+      assert.ok(script.includes("pi"), `osascript script 应含 pi 命令，实际: ${script}`);
+    } else {
+      assert.ok(calls[0].args.includes("pi") || calls[0].command === "pi");
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

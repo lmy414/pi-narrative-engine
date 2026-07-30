@@ -186,8 +186,10 @@ export async function commit(
         // 4.2.5 P0-5 修复（2026-07-27）：为新增 Fact 生成 embedding
         //      commit 路径此前完全不写 embedding → search_vector 不命中新数据
         //      这里增量更新，失败不阻断 commit（与 4.3 setVisibility 同策略）
-        try {
-          for (const change of changes) {
+        //      H1 修复（2026-07-30）：try/catch 移入循环内，避免单条 embedFact 失败
+        //      导致同实体其余 property 的 embedding 全部丢失（静默数据丢失）
+        for (const change of changes) {
+          try {
             // declarationId 生成规则与 world-graph.processEvent 一致（见 4.3 步）
             const declarationId = `decl-${entityId}-${change.property}-${event.storyTime}`;
             const decl: StateDeclaration = {
@@ -202,12 +204,12 @@ export async function commit(
             };
             const vec = await ctx.embedder.embedFact(decl);
             await ctx.wg.updateFactEmbedding(declarationId, vec);
+          } catch (embedErr) {
+            // 单条 embedding 失败不阻断 commit（search_text 仍能命中 property/valueText）
+            console.warn(
+              `[commit] entityId ${entityId} property ${change.property} embedding 生成失败: ${(embedErr as Error).message}（不阻断 commit）`,
+            );
           }
-        } catch (embedErr) {
-          // embedding 失败不阻断 commit（search_text 仍能命中 property/valueText）
-          console.warn(
-            `[commit] entityId ${entityId} embedding 生成失败: ${(embedErr as Error).message}（不阻断 commit）`,
-          );
         }
 
         // 4.3 自产自知：为产生这些变更的角色写入新 Fact 的可见性

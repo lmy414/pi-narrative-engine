@@ -52,5 +52,17 @@ jobs:
         working-directory: packages/novel-importer
         run: npx tsx --test tests/*.test.ts
 
-      - name: import-card（根 tests）
-        run: npx tsx --test tests/import-card.test.ts
+      # H5 修复（2026-07-30）：补齐应用化核心包的 CI 覆盖
+      # 注：pi-status.test.ts 的 mock spawn 在某些环境卡住（预先存在问题），
+      #     暂时排除，待后续调查 mock 机制在 Node 24 的兼容性。
+      - name: admin
+        working-directory: packages/admin
+        run: npx tsx --test tests/env-store.test.ts tests/embedder-status.test.ts tests/app-config.test.ts tests/updater.test.ts tests/novel-json.test.ts tests/files.test.ts tests/doctor.test.ts tests/rulesets.test.ts
+
+      - name: novel-launcher
+        working-directory: packages/novel-launcher
+        run: npx tsx --test tests/*.test.ts
+
+      # H5 修复：根 tests/ 全量纳入 CI（含 e2e + 集成测试）
+      - name: root tests
+        run: npx tsx --test tests/*.test.ts

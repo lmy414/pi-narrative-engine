@@ -25,6 +25,27 @@ import {
   requireEmbedder,
 } from "../session-state.ts";
 
+/**
+ * storyTime 格式校验（H3 修复，2026-07-30）
+ *
+ * 强制 `ch<NNN>.ev<NNN>` 3 位零填充格式，保证字典序 == 故事时序。
+ * 拦截 `ch-<N>` 等格式，避免 `ch-10 < ch-2`（'1' < '2'）导致
+ * retrieve P0-1 时态过滤与 getEntityAt 双时态查询系统性失效。
+ *
+ * chapter-resolver 的兜底逻辑保留（供导入器等独立调用路径），
+ * 但调度器入口严格校验，确保主会话派发的事件时间格式正确。
+ */
+const STORY_TIME_PATTERN = /^ch\d{3}\.ev\d{3}$/;
+
+function validateStoryTime(storyTime: string): void {
+  if (!STORY_TIME_PATTERN.test(storyTime)) {
+    throw new Error(
+      `storyTime 格式非法："${storyTime}"。必须为 ch<NNN>.ev<NNN> 3 位零填充格式（如 ch009.ev006），` +
+      `保证字典序 == 故事时序。拒绝 ch-<N> 等格式（会导致 ch-10 < ch-2 的时序错乱）。`,
+    );
+  }
+}
+
 export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): void {
   // --------------------------------------------------------------------------
   // scheduler_dispatch
@@ -68,6 +89,9 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
       })),
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
+      // H3 修复（2026-07-30）：系统边界校验 storyTime 格式
+      validateStoryTime(params.storyTime);
+
       const g = requireWg(state);
       const emb = requireEmbedder(state);
       const cwd = state.sessionCwd ?? process.cwd();
@@ -136,7 +160,9 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
       const result = await schedulerCommit(params.planId, schedCtx);
 
       // 写扩散完成后更新项目记忆（失败不阻断 commit 结果）
-      if (result.ok) {
+      // H2 修复（2026-07-30）：原条件 `result.ok` 会在部分成功时跳过 memory 更新，
+      // 导致下一轮检索的"最近事件"展示滞后。改为只要有 appliedEventIds 就更新。
+      if (result.appliedEventIds.length > 0) {
         try {
           await updateMemory(g, cwd);
         } catch (err) {
