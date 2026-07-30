@@ -64,7 +64,37 @@ jobs:
           cargo install tauri-cli --version "^2.0.0" --locked
           cargo tauri build
 
-      # 5. 上传到 release
+      # 3.5 验证 sidecar main.js 格式（ESM，不能是 CJS）
+      #     历史 bug：package-sidecar 缺 format:"esm" 导致 CJS bundle 与
+      #     server/package.json 的 type:module 冲突，node 启动即崩
+      - name: Verify main.js format
+        run: |
+          MAIN_JS="tauri-app/src-tauri/resources/server/main.js"
+          echo "=== main.js size ==="
+          wc -c "$MAIN_JS"
+          echo "=== first 3 lines ==="
+          head -3 "$MAIN_JS"
+          echo "=== line 20 (历史 bug 点：CJS 这里是 Object.defineProperty(exports...)) ==="
+          sed -n '20p' "$MAIN_JS"
+          echo "=== format check ==="
+          if grep -q 'Object\.defineProperty(exports' "$MAIN_JS"; then
+            echo "ERROR: main.js is CJS format (exports defined) — will crash on Node ESM loader"
+            exit 1
+          else
+            echo "OK: main.js is ESM format (no exports global)"
+          fi
+          echo "=== import 语句数 ==="
+          grep -c '^import ' "$MAIN_JS" || echo "0"
+
+      # 3.6 上传 main.js 作为 artifact（便于事后排查包内文件格式）
+      - name: Upload main.js artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-main-js
+          path: tauri-app/src-tauri/resources/server/main.js
+          retention-days: 30
+
+      # 4. 上传到 release
       - name: Resolve release tag
         id: tag
         run: |
@@ -83,9 +113,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6. 校验上传结果（asset 数与大小）
+      # 5. 校验上传结果（asset 数与大小）
       - name: Verify upload
         run: |
           gh release view "${{ steps.tag.outputs.tag }}" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 6. 输出 setup.exe SHA256（供用户对比下载文件）
+      - name: Output setup.exe SHA256
+        run: |
+          SETUP_EXE=$(ls tauri-app/src-tauri/target/release/bundle/nsis/narrative-engine_*_x64-setup.exe)
+          echo "=== setup.exe SHA256 ==="
+          sha256sum "$SETUP_EXE"
+          echo "=== size ==="
+          ls -la "$SETUP_EXE" | awk '{print $5, "bytes =", $5/1024/1024, "MB"}'
