@@ -1,0 +1,91 @@
+name: build-windows
+
+# 重新打包 Windows NSIS 安装器并上传到指定 release。
+# 应用化阶段仅 Windows，原生绑定（better-sqlite3/sqlite-vec/onnxruntime-node）
+# 必须在目标平台构建（见 scripts/package-sidecar.mjs:22 注释）。
+#
+# 触发方式：
+# - workflow_dispatch：手动触发，可指定 release_tag 与 clobber（覆盖已有 asset）
+# - push tag v*：打 tag 自动触发
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "目标 release tag（已存在，资产将被覆盖）"
+        required: true
+        default: "v0.1.0-alpha.1"
+      clobber:
+        description: "覆盖同名 asset（true 强制覆盖）"
+        required: false
+        default: "true"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows NSIS
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-app
+
+      # 1. 仓库根依赖（含 esbuild 等 devDep，package-sidecar 需要）
+      - run: npm install
+
+      # 2. 构建扩展 dist/（package-sidecar 的 extension-snapshot 依赖此产物）
+      - name: Build dist/
+        run: npm run build
+
+      # 3. Tauri 构建 NSIS
+      #    tauri.conf.json 的 beforeBuildCommand 会自动执行 package-sidecar.mjs
+      #    （打包 runtime/node.exe + server/main.js + 原生绑定 node_modules）
+      - name: Build Tauri app
+        working-directory: tauri-app
+        run: |
+          cargo install tauri-cli --version "^2.0.0" --locked
+          cargo tauri build
+
+      # 5. 上传到 release
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload NSIS to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: tauri-app/src-tauri/target/release/bundle/nsis/narrative-engine_*_x64-setup.exe
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 6. 校验上传结果（asset 数与大小）
+      - name: Verify upload
+        run: |
+          gh release view "${{ steps.tag.outputs.tag }}" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
