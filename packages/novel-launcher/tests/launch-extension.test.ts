@@ -29,13 +29,13 @@ test("_buildExtensionArgs: disabled 时忽略 extensionPath", () => {
   );
 });
 
-test("_buildExtensionArgs: extensionPath 拼 -e", () => {
+test("_buildExtensionArgs: extensionPath 拼 --no-extensions + -e", () => {
   assert.deepEqual(
     _buildExtensionArgs({ extensionPath: "/ext/narrative-engine" }),
-    ["-e", "/ext/narrative-engine"],
+    ["--no-extensions", "-e", "/ext/narrative-engine"],
   );
   assert.deepEqual(
     _buildExtensionArgs({ extensionMode: "enabled", extensionPath: "D:\\ext\\ne" }),
-    ["-e", "D:\\ext\\ne"],
+    ["--no-extensions", "-e", "D:\\ext\\ne"],
   );
 });

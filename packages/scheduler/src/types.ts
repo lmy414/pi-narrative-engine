@@ -86,7 +86,7 @@ export interface FactSnapshot {
  * 角色提示词时透传给 role-pool。
  */
 export interface StructuredEvent {
-  /** 故事时间（如 ch-2） */
+  /** 故事时间（如 ch009.ev006，3 位零填充保证字典序 == 故事时序） */
   storyTime: string;
   /** 事件指令（自然语言，主会话已加工） */
   instruction: string;

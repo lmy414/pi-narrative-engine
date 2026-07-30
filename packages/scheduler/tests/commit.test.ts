@@ -597,6 +597,45 @@ test("commit: embedFact 抛错时不阻断 commit", async () => {
   assert.equal(result.appliedEventIds.length, 1);
 });
 
+// H1 修复（2026-07-30）：try/catch 移入循环内，单条 embedFact 失败不影响其余 property
+test("commit: H1 - 多 state_change 第 1 条 embedFact 抛错时其余仍写入 embedding", async () => {
+  const { wg, updateFactEmbeddingCalls } = makeMockWg();
+  const ctx = makeMockCtx(wg);
+  // mock embedder.embedFact：仅 mood 抛错，其余正常
+  (ctx as any).embedder = {
+    embed: async () => [0, 0, 0],
+    embedEntity: async () => [0, 0, 0],
+    embedFact: async (decl: { property: string }) => {
+      if (decl.property === "mood") {
+        throw new Error("mock mood embedding 失败");
+      }
+      return [0, 1, 0];
+    },
+  };
+  const plan = makePlan({ intent: "add", storyTime: "ch-2" });
+  plan.roleResult.outputs[0].state_changes = [
+    { entityId: "e_lin", property: "mood", value: "怒", modality: "fact" },
+    { entityId: "e_lin", property: "location", value: "山神庙", modality: "fact" },
+  ];
+  setPlan("plan_h1_partial_embed_fail", plan);
+
+  const result = await commit("plan_h1_partial_embed_fail", ctx);
+
+  // commit 主链路应成功（embedding 失败不阻断）
+  assert.equal(result.ok, true, `expected ok, error=${result.error}`);
+  // 关键断言：location 的 embedding 仍被写入（H1 修复前会被跳过）
+  assert.equal(
+    updateFactEmbeddingCalls.length,
+    1,
+    "第 1 条 mood 失败后，第 2 条 location 的 embedding 应仍被写入",
+  );
+  assert.equal(
+    updateFactEmbeddingCalls[0].declarationId,
+    "decl-e_lin-location-ch-2",
+    "应只写入 location 的 embedding",
+  );
+});
+
 test("commit: updateFactEmbedding 抛错时不阻断 commit", async () => {
   const { wg, processEventCalls } = makeMockWg();
   // mock wg.updateFactEmbedding 抛错
