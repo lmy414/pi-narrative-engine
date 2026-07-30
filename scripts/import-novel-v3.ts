@@ -102,8 +102,9 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   if (!opts.worldGraph) {
-    // 缺省指向 novel/.pi/world-graph-v3（与扩展运行时一致）
-    opts.worldGraph = path.resolve("d:\\claude\\pi-ex\\novel\\.pi\\world-graph-v3");
+    // M4b 修复（2026-07-30）：改为相对路径（原硬编码开发者本机 Windows 路径）
+    // 缺省指向 <cwd>/novel/.pi/world-graph-v3（与扩展运行时一致）
+    opts.worldGraph = path.resolve("novel", ".pi", "world-graph-v3");
   }
 
   // API key 读取顺序：命令行 → ~/.pi/agent/auth.json → 环境变量

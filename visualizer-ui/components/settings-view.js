@@ -245,6 +245,9 @@
         }).catch(function (err) {
           self.toast("读取向量模型状态失败：" + err.message, "error");
         });
+        // M21 修复：向量模型子页复用 configForm 保存 PI_EMBEDDER_MODEL，
+        // 必须先 loadConfig 填充 HF_ENDPOINT/PI_DEBUG，否则 saveConfig 会用空串覆盖
+        this.loadConfig();
       },
       clearCache: function () {
         var self = this;

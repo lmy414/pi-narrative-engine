@@ -73,9 +73,7 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
       chapterPath: Type.Optional(Type.String({
         description: "章节文件路径（缺省时调度器从 storyTime 推断）",
       })),
-      locationId: Type.Optional(Type.String({
-        description: "地点 ID（可选，用于可见性推断）",
-      })),
+      // M4a 修复：删除 locationId 参数（死字段，调度器未消费）
       intent: Type.Optional(Type.Union([
         Type.Literal("add"),
         Type.Literal("modify"),
@@ -104,7 +102,7 @@ export function registerSchedulerTools(pi: ExtensionAPI, state: SessionState): v
         executionHints: params.executionHints,
         mode: params.mode,
         chapterPath: params.chapterPath,
-        locationId: params.locationId,
+        // M4a 修复：不传 locationId（已从 StructuredEvent 删除）
         intent: params.intent,
         targetEventId: params.targetEventId,
         userInput: params.userInput,

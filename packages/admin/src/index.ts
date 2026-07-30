@@ -176,6 +176,7 @@ export {
 // updater 内部实现
 export {
   _checkWorkingTreeClean,
+  _compareSemver,
   _internals as _updaterInternals,
 } from "./updater.ts";
 

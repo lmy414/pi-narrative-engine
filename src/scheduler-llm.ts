@@ -62,20 +62,10 @@ export async function makeSchedulerCtx(
     loadRuleSet(cwd),
   ]);
 
-  // 包装 embedder 为 SchedulerCtx.embedder 接口
-  // P0-5 修复（2026-07-27）：扩展 adapter 透传 embedEntity/embedFact，
-  // commit.ts 4.2.5 步增量写 embedding 时调用
-  // Embedder 类（src/embedder.ts）已实现全部三个方法，这里显式包装保持
-  // 与现有代码风格一致，便于单测 mock
-  const embedderAdapter: {
-    embed(text: string): Promise<number[]>;
-    embedEntity(snap: EntitySnapshot): Promise<number[]>;
-    embedFact(decl: StateDeclaration): Promise<number[]>;
-  } = {
-    embed: (text: string) => embedder.embed(text),
-    embedEntity: (snap: EntitySnapshot) => embedder.embedEntity(snap),
-    embedFact: (decl: StateDeclaration) => embedder.embedFact(decl),
-  };
+  // M3 修复（2026-07-30）：删除冗余的 embedderAdapter 包装
+  // Embedder 类已实现 embed/embedEntity/embedFact 三方法，
+  // TypeScript structural typing 自动满足 SchedulerCtx.embedder 接口。
+  // mock 应在测试侧注入，不应在装配层加运行时包装。
 
   // 默认 staticCardLoader：从 Entity+Facts 重组
   const staticCardLoader = async (
@@ -90,7 +80,7 @@ export async function makeSchedulerCtx(
     plannerLlm,
     roleLlm,
     renderLlm,
-    embedder: embedderAdapter,
+    embedder,
     // P0-3+6 修复（2026-07-27）：注入 knowledge mapper
     // 2026-07-29 改造：不再"复用 planner 配置"，统一从 ctx.model 取
     knowledgeMapper,

@@ -488,7 +488,7 @@ export class WorldGraph {
     opts: {
       state: "known";
       confidence: number;
-      source: string;
+      source: VisibilitySource; // M1 修复（2026-07-30）：从 string 收窄为枚举
       validFrom: string;
       isExplicit: boolean;
     },
