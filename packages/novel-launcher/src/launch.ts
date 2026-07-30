@@ -100,7 +100,10 @@ function _spawnDarwin(
   title: string,
 ): number {
   const piCmd = _buildPiCommand(executable, args);
-  const shellCmd = `cd '${cwd}' && ${piCmd}`;
+  // M30 修复（2026-07-30）：对 cwd 内的单引号做 POSIX shell 转义，
+  // 避免项目路径含单引号时构造命令注入（如 x'; rm -rf ~; echo '）
+  const safeCwd = cwd.replace(/'/g, "'\\''");
+  const shellCmd = `cd '${safeCwd}' && ${piCmd}`;
   // osascript 字符串用双引号，内部双引号与反斜杠需转义
   const osaString = shellCmd.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const script = `tell application "Terminal" to do script "${osaString}"`;
@@ -135,9 +138,11 @@ function _spawnLinux(
   }
   if (terminal === "xterm") {
     const piCmd = _buildPiCommand(executable, args);
+    // M30 修复：同 _spawnDarwin，对 cwd 单引号做 POSIX shell 转义
+    const safeCwd = cwd.replace(/'/g, "'\\''");
     return _spawnTerminal(
       terminal,
-      ["-e", `cd '${cwd}' && ${piCmd}`],
+      ["-e", `cd '${safeCwd}' && ${piCmd}`],
       { cwd, detached: true, stdio: "ignore" },
     );
   }

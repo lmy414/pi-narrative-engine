@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../public",
     "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "node ../scripts/package-sidecar.mjs"
   },
   "app": {
     "windows": [

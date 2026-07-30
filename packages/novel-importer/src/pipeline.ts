@@ -211,11 +211,20 @@ export async function runImportPipeline(
       }))
     : [];
 
-  if (resumeFromStage <= 1 || chapters.length === 0) {
+  // M4c 修复（2026-07-30）：resume 时 dump 不保留全文（content=""），
+  // 若不重读 EPUB，阶段 3 的空章节检查会对所有章节命中 → 0 事件。
+  // 修复：当 chapters 无 content 时（从 dump 加载的情况），无条件重读 EPUB。
+  if (resumeFromStage <= 1 || chapters.length === 0 || !chapters.some((c) => c.content)) {
     notify(1, "EPUB 分章", `读取 ${options.epubPath}`);
-    chapters = await readChaptersFromEpub(options.epubPath, {
+    const epubChapters = await readChaptersFromEpub(options.epubPath, {
       chapterFilter: options.chapters,
     });
+    // resume 时保留 dump 的 chapterId/title（可能被阶段 1.5 修正过），只填充 content
+    if (chapters.length > 0 && chapters.length === epubChapters.length) {
+      chapters = chapters.map((c, i) => ({ ...c, content: epubChapters[i].content }));
+    } else {
+      chapters = epubChapters;
+    }
     notify(1, "EPUB 分章", `识别 ${chapters.length} 章`, {
       done: chapters.length,
       total: chapters.length,

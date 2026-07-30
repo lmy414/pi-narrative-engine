@@ -276,6 +276,25 @@ export async function* runUpdate(
 }
 
 /**
+ * 简易 semver 比较（M16 修复）
+ *
+ * 仅按 `.` 分隔的数字段逐段比较，避免字典序导致 0.1.10 < 0.1.2 的误判。
+ * parseInt 会忽略段内的非数字后缀（如 "2-alpha" → 2），足以处理常见 tag。
+ *
+ * @returns 负数 a<b，0 相等，正数 a>b
+ */
+export function _compareSemver(a: string, b: string): number {
+  const pa = a.replace(/^v/, "").split(".").map((s) => parseInt(s, 10));
+  const pb = b.replace(/^v/, "").split(".").map((s) => parseInt(s, 10));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = Number.isNaN(pa[i]) ? 0 : (pa[i] ?? 0);
+    const nb = Number.isNaN(pb[i]) ? 0 : (pb[i] ?? 0);
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+/**
  * 查询本地与远程版本对比（best-effort）
  *
  * - 本地版本：读 repoRoot/package.json 的 version
@@ -323,13 +342,15 @@ export async function compareVersions(repoRoot: string): Promise<{
         .map((l) => l.trim())
         .filter((l) => l.includes("refs/tags/"))
         .map((l) => l.replace(/^.*refs\/tags\//, "").replace(/\^\{\}$/, ""))
+        // M15 修复：支持 v 前缀 tag（v0.1.2 → 0.1.2）
+        .map((t) => t.replace(/^v/, ""))
         .filter((t) => /^\d+\.\d+\.\d+/.test(t));
       if (tags.length === 0) {
         resolveVer(null);
         return;
       }
-      // 简单字典序比较（语义版本格式一致时等价于版本比较）
-      tags.sort();
+      // M16 修复：语义化版本比较，避免 0.1.10 < 0.1.2 的字典序错误
+      tags.sort(_compareSemver);
       resolveVer(tags[tags.length - 1]);
     });
   });

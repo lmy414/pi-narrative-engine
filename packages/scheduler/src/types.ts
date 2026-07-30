@@ -107,8 +107,9 @@ export interface StructuredEvent {
   mode?: "plan" | "yolo";
   /** 章节文件路径（缺省时调度器从 storyTime 推断） */
   chapterPath?: string;
-  /** 地点 ID（可选，用于可见性推断；缺省时不触发额外推断） */
-  locationId?: string;
+  // M4a 修复（2026-07-30）：删除 locationId 死字段
+  // 原字段声明"用于可见性推断"但 plan/commit 全文未消费，属过度工程/死字段。
+  // 如未来需要可见性推断接线，再重新添加该字段。
   /** 事件意图（缺省 add；modify/insert 留作 Pending Gap #4） */
   intent?: "add" | "modify" | "insert";
   /** modify/insert 模式下的目标事件 ID */
