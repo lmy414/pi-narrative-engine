@@ -4,9 +4,9 @@
  *
  * 依据：docs/plans/2026-07-31-orchestrator-standalone-research.md §8.1
  *
- * 职责：从 ExtensionContext 构造 LlmConfig（model + apiKey + headers）。
- * 编排器 / 子代理 / caller 工厂只依赖 LlmConfig / AgentRuntime，不依赖 ExtensionContext。
- * 未来离开 PI 时，只需替换本文件（如 createRuntimeFromConfig 从 env 构造），
+ * 职责：从 ExtensionContext 构造 LlmConfig（pi-ai 原生配置：provider + model + apiKey）。
+ * 编排器 / 子代理 / caller 工厂只依赖 LlmConfig（pi-ai 形态），不依赖 ExtensionContext。
+ * 未来离开 PI 时，只需替换本文件（如 loadLlmConfigFromEnv 从 env 构造），
  * agent 代码零修改。
  */
 

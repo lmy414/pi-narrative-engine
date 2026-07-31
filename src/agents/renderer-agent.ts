@@ -10,29 +10,32 @@
 
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentRuntime } from "../orchestrator/llm-config.ts";
+import { streamSimple } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import { createRenderResultTool } from "./tools.ts";
 
 /**
  * 创建渲染器子代理
  *
- * @param rt AgentRuntime
+ * @param model pi-ai Model（LlmConfigStore.getModel 产出）
+ * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt 渲染系统提示词（渲染规则集）
  * @param messages 初始消息（角色产出 + 扩散结果 + 章节上下文）
  */
 export function createRendererAgent(
-  rt: AgentRuntime,
+  model: Model<any>,
+  apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
-      model: rt.model,
+      model,
       tools: [createRenderResultTool()],
       messages,
     },
-    streamFn: rt.streamFn,
-    getApiKey: rt.getApiKey,
+    streamFn: streamSimple,
+    getApiKey: async () => apiKey,
   });
 }

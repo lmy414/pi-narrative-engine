@@ -18,7 +18,8 @@
 
 import type { StructuredEvent } from "@pi/scheduler";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentRuntime, LlmConfigStore } from "./orchestrator/llm-config.ts";
+import type { Model } from "@earendil-works/pi-ai";
+import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
 import { createPlannerAgent } from "./agents/planner-agent.ts";
 import { createRoleAgent } from "./agents/role-agent.ts";
 import { createReasoningAgent } from "./agents/reasoning-agent.ts";
@@ -117,13 +118,15 @@ export class Orchestrator {
 
   /** 运行一次事件编排（plan 或 yolo） */
   async run(event: StructuredEvent): Promise<OrchestratorResult> {
-    const plannerRt = await this.opts.llmStore.getRuntime("planner");
+    const plannerModel = this.opts.llmStore.getModel("planner");
+    const plannerKey = this.opts.llmStore.getApiKey("planner");
     const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // 1. planner 子代理：产出检索计划
     const planner = createPlannerAgent(
-      plannerRt,
+      plannerModel,
+      plannerKey,
       _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
     );
@@ -137,7 +140,8 @@ export class Orchestrator {
     const errors: { characterId: string; error: string }[] = [];
     const cast: { characterId: string; name: string; summary: string }[] = [];
     const priorOutputs: RoleAgentOutput[] = [];
-    const roleRt = await this.opts.llmStore.getRuntime("role");
+    const roleModel = this.opts.llmStore.getModel("role");
+    const roleKey = this.opts.llmStore.getApiKey("role");
 
     for (const characterId of event.characterIds) {
       const card = await this.opts.staticCardLoader(characterId);
@@ -158,7 +162,7 @@ export class Orchestrator {
         });
       }
 
-      const roleAgent = createRoleAgent(roleRt, roleSystemPrompt, userMessages);
+      const roleAgent = createRoleAgent(roleModel, roleKey, roleSystemPrompt, userMessages);
       const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
       try {
         await roleAgent.prompt("");
@@ -185,12 +189,14 @@ export class Orchestrator {
     let render: RenderOutput | undefined;
     if (event.mode === "yolo") {
       diffusion = await this.runReasoning(
-        await this.opts.llmStore.getRuntime("reasoning"),
+        this.opts.llmStore.getModel("reasoning"),
+        this.opts.llmStore.getApiKey("reasoning"),
         event,
         outputs,
       );
       render = await this.runRenderer(
-        await this.opts.llmStore.getRuntime("renderer"),
+        this.opts.llmStore.getModel("renderer"),
+        this.opts.llmStore.getApiKey("renderer"),
         event,
         outputs,
         diffusion,
@@ -213,12 +219,14 @@ export class Orchestrator {
 
   /** 可见推理子代理 */
   private async runReasoning(
-    rt: AgentRuntime,
+    model: Model<any>,
+    apiKey: string,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
   ): Promise<DiffusionOutput> {
     const reasoning = createReasoningAgent(
-      rt,
+      model,
+      apiKey,
       "你是叙事引擎的状态扩散推理代理。消费所有角色产出，推理哪些状态变化应写入世界图。" +
         SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [
@@ -238,13 +246,15 @@ export class Orchestrator {
 
   /** 渲染器子代理 */
   private async runRenderer(
-    rt: AgentRuntime,
+    model: Model<any>,
+    apiKey: string,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
     const renderer = createRendererAgent(
-      rt,
+      model,
+      apiKey,
       "你是叙事引擎的渲染代理。把角色产出渲染为章节正文。" + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [
         {

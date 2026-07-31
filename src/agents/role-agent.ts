@@ -15,29 +15,32 @@
 
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentRuntime } from "../orchestrator/llm-config.ts";
+import { streamSimple } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import { createCharacterActionTool } from "./tools.ts";
 
 /**
  * 创建角色子代理（无状态，单事件实例）
  *
- * @param rt AgentRuntime
+ * @param model pi-ai Model（LlmConfigStore.getModel 产出）
+ * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt 角色系统提示词（规则集 + 角色卡 + 用户特殊要求）
  * @param messages 初始消息（含事件指令 + 可见知识 / 前序角色输出）
  */
 export function createRoleAgent(
-  rt: AgentRuntime,
+  model: Model<any>,
+  apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
-      model: rt.model,
+      model,
       tools: [createCharacterActionTool()],
       messages,
     },
-    streamFn: rt.streamFn,
-    getApiKey: rt.getApiKey,
+    streamFn: streamSimple,
+    getApiKey: async () => apiKey,
   });
 }
