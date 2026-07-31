@@ -9,13 +9,13 @@
  *
  * 或直接以 MCP stdio server 被外部进程拉起（Codex / Claude Desktop / PI 子进程等）。
  *
- * 2026-08-01：模型/key 改为探测链（loadLlmConfig）——
- * - key：NE_LLM_API_KEY → provider 标准 env（OPENAI_API_KEY 等）→ Codex auth.json
- * - 模型：NE_LLM_PROVIDER/NE_LLM_MODEL → MCP 客户端名映射（codex→openai 等）
- * 因此 MCP 配置里无需写模型与 key；接入 Codex/Claude 等客户端时自动复用其现有凭据。
+ * 2026-08-01（用户决策）：LLM 配置改为**独立配置中心**（LlmConfigStore），
+ * 不复用 MCP 客户端凭据——外部模块 / pi 适配器经代码 API 注入各 slot
+ * （planner=调度器 / role=角色扮演 / reasoning / renderer）的 provider/model/apiKey；
+ * 未注入的 slot 回退 default → env（NE_LLM_* / DEEPSEEK_API_KEY 等）兜底。
  */
 
-import { createRuntimeFromConfig, loadLlmConfig } from "../src/orchestrator/llm-config.ts";
+import { LlmConfigStore, loadLlmConfigFromEnv } from "../src/orchestrator/llm-config.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
 import { OrchestratorService } from "../src/orchestrator/service.ts";
 import { startMcpServer } from "../src/orchestrator/mcp-server.ts";
@@ -25,17 +25,19 @@ import { loadRuleSet } from "@pi/renderer";
 import type { SillyTavernCard } from "@pi/scheduler";
 
 async function main(): Promise<void> {
-  // 1. LLM 配置（探测链源）→ AgentRuntime，懒加载：
-  //    MCP 握手后才能拿到客户端名，runtime 延迟到首次 run 时构造
-  const runtimeProvider = async (clientName?: string) => {
-    const config = await loadLlmConfig({ clientName });
-    const keyPreview = `${config.apiKey.slice(0, 4)}…${config.apiKey.slice(-4)}`;
+  // 1. 独立 LLM 配置中心：各 slot 可经 setConfig/setRuntime 注入，未注入走 env 兜底
+  const llmStore = new LlmConfigStore();
+  try {
+    const envCfg = loadLlmConfigFromEnv();
     console.error(
-      `[narrative-orchestrator] LLM 配置: clientName=${clientName ?? "(未识别)"} ` +
-        `provider=${config.model.provider} model=${config.model.name} key=${keyPreview}`,
+      `[narrative-orchestrator] env 兜底可用: ${envCfg.model.provider}/${envCfg.model.name}（各 slot 可经 LlmConfigStore 覆盖）`,
     );
-    return createRuntimeFromConfig(config);
-  };
+  } catch (err) {
+    console.error(
+      `[narrative-orchestrator] 提示: env 无可用 key（${err instanceof Error ? err.message : err}）。` +
+        "请经 LlmConfigStore.setConfig 注入各 slot，或设置 NE_LLM_API_KEY / DEEPSEEK_API_KEY 等。",
+    );
+  }
 
   // 2. 规则集（从 novel 工作目录加载；缺省用当前目录，文件不存在时返回空串）
   const cwd = process.env.NE_NOVEL_CWD ?? process.cwd();
@@ -53,7 +55,7 @@ async function main(): Promise<void> {
 
   // 4. 装配：Orchestrator → OrchestratorService → MCP stdio server
   const orchestrator = new Orchestrator({
-    runtimeProvider,
+    llmStore,
     cwd,
     plannerRuleSet,
     roleRuleSet,
@@ -62,7 +64,7 @@ async function main(): Promise<void> {
   });
   const service = new OrchestratorService(orchestrator);
 
-  console.error(`[narrative-orchestrator] MCP stdio server 启动（cwd=${cwd}，模型按客户端名/探测链确定）`);
+  console.error(`[narrative-orchestrator] MCP stdio server 启动（cwd=${cwd}）`);
   await startMcpServer(service);
 }
 

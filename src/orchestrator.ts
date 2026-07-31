@@ -18,7 +18,7 @@
 
 import type { StructuredEvent } from "@pi/scheduler";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentRuntime } from "./orchestrator/llm-config.ts";
+import type { AgentRuntime, LlmConfigStore } from "./orchestrator/llm-config.ts";
 import { createPlannerAgent } from "./agents/planner-agent.ts";
 import { createRoleAgent } from "./agents/role-agent.ts";
 import { createReasoningAgent } from "./agents/reasoning-agent.ts";
@@ -85,11 +85,11 @@ export interface OrchestratorResult {
 /** 编排器构造选项 */
 export interface OrchestratorOptions {
   /**
-   * 懒加载 runtime 提供者：MCP 握手后才能拿到客户端名（clientInfo.name），
-   * 而握手发生在进程启动之后，因此 runtime 延迟到首次 run 时构造。
-   * clientName 经 setClientName 注入（dispatch 前由服务层刷新）。
+   * 独立 LLM 配置中心：planner/role/reasoning/renderer 各 slot 经 API 注入
+   * 各自的 provider/model/apiKey（用户可独立设置"角色扮演用什么模型、
+   * 调度器用什么模型"）；未配置的 slot 回退 default → env 兜底。
    */
-  runtimeProvider: (clientName?: string) => Promise<AgentRuntime>;
+  llmStore: LlmConfigStore;
   cwd: string;
   plannerRuleSet: string;
   roleRuleSet: string;
@@ -109,27 +109,21 @@ const SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX =
  * 推理不写世界图、渲染不写文件。全部产出经子代理 tool call 收集，供阶段 2 接线。
  */
 export class Orchestrator {
-  private clientName: string | undefined;
   private readonly opts: OrchestratorOptions;
 
   constructor(opts: OrchestratorOptions) {
     this.opts = opts;
   }
 
-  /** 注入 MCP 客户端名（服务层在每次 dispatch 前刷新） */
-  setClientName(clientName: string | undefined): void {
-    this.clientName = clientName;
-  }
-
   /** 运行一次事件编排（plan 或 yolo） */
   async run(event: StructuredEvent): Promise<OrchestratorResult> {
-    const rt = await this.opts.runtimeProvider(this.clientName);
+    const plannerRt = await this.opts.llmStore.getRuntime("planner");
     const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // 1. planner 子代理：产出检索计划
     const planner = createPlannerAgent(
-      rt,
+      plannerRt,
       _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
     );
@@ -143,6 +137,7 @@ export class Orchestrator {
     const errors: { characterId: string; error: string }[] = [];
     const cast: { characterId: string; name: string; summary: string }[] = [];
     const priorOutputs: RoleAgentOutput[] = [];
+    const roleRt = await this.opts.llmStore.getRuntime("role");
 
     for (const characterId of event.characterIds) {
       const card = await this.opts.staticCardLoader(characterId);
@@ -163,7 +158,7 @@ export class Orchestrator {
         });
       }
 
-      const roleAgent = createRoleAgent(rt, roleSystemPrompt, userMessages);
+      const roleAgent = createRoleAgent(roleRt, roleSystemPrompt, userMessages);
       const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
       try {
         await roleAgent.prompt("");
@@ -189,8 +184,17 @@ export class Orchestrator {
     let diffusion: DiffusionOutput | undefined;
     let render: RenderOutput | undefined;
     if (event.mode === "yolo") {
-      diffusion = await this.runReasoning(rt, event, outputs);
-      render = await this.runRenderer(rt, event, outputs, diffusion);
+      diffusion = await this.runReasoning(
+        await this.opts.llmStore.getRuntime("reasoning"),
+        event,
+        outputs,
+      );
+      render = await this.runRenderer(
+        await this.opts.llmStore.getRuntime("renderer"),
+        event,
+        outputs,
+        diffusion,
+      );
     }
 
     return {

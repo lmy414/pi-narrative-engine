@@ -28,11 +28,6 @@ export async function startMcpServer(service: OrchestratorService): Promise<void
     version: "0.1.0",
   });
 
-  // 客户端名注入：initialize 握手完成后 getClientVersion() 即填充
-  // （SDK server/index.js _oninitialize 存 _clientVersion；getClientVersion 官方读取器）
-  // 工具调用发生在握手之后（协议保证），故每次工具调用读取必然有值
-  service.attachClientInfoProvider(() => server.server.getClientVersion()?.name);
-
   server.tool(
     "scheduler_dispatch",
     "调度器派发事件：planner 推导检索计划 → 角色演绎（plan 模式返回；yolo 模式全链路）",

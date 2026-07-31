@@ -1,18 +1,18 @@
 // src/orchestrator/llm-config.ts
 /**
- * llm-config.ts — LlmConfig / AgentRuntime 抽象（SDK 模式解耦点）
+ * llm-config.ts — LlmConfig / AgentRuntime 抽象 + 独立 LLM 配置中心（SDK 模式解耦点）
  *
  * 依据：docs/plans/2026-07-31-orchestrator-standalone-research.md §5.1
  *
  * 分层：
  * - AgentRuntime：子代理设计 §3.1 的解耦接口（model / streamFn / getApiKey），零 PI 依赖
- * - LlmConfig：SDK 模式配置源——从独立配置（env/凭据文件/客户端名）构造 AgentRuntime，
- *   替代 PI 适配器（pi-adapter.ts）
- * - loadLlmConfig：配置探测链（2026-08-01 新增，替代 loadLlmConfigFromEnv）
- *
- * 探测链（支持"外部服务注入凭据"，无需在 MCP 配置里写模型/key）：
- *   模型：显式 NE_LLM_PROVIDER / NE_LLM_MODEL → MCP 客户端名映射 → 缺省 deepseek
- *   key：  NE_LLM_API_KEY → provider 标准 env（OPENAI_API_KEY 等）→ Codex auth.json
+ * - LlmConfig：独立配置源——provider/model/apiKey，经 API 注入，替代 PI 适配器
+ * - LlmConfigStore：LLM 配置中心（2026-08-01 新增）——
+ *   外部模块 / pi 适配器经代码 API 注入各子代理角色（slot）的配置，
+ *   支持"角色扮演用什么模型、调度器（planner）用什么模型"独立设置，每 slot 独立 key。
+ *   设计决策（用户澄清 2026-08-01）：不复用 MCP 客户端凭据（移除客户端名映射
+ *   / Codex auth.json 探测），改为独立配置 + env 兜底。
+ * - loadLlmConfigFromEnv：env 配置源（无显式注入时的兜底）
  *
  * 2026-07-31 复核修正：
  * - provider 用 KnownProvider 字面量类型（非裸 string），保留 getModel 第一参数类型安全
@@ -20,10 +20,7 @@
  *   运行时 string 无法静态匹配；且 MODELS 类型不被 pi-ai exports 导出，无法引用窄化
  */
 
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { getModel, streamSimple } from "@earendil-works/pi-ai";
+import { getModel, getEnvApiKey, streamSimple } from "@earendil-works/pi-ai";
 import type { KnownProvider, Model } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 
@@ -34,7 +31,7 @@ export interface AgentRuntime {
   getApiKey: (provider: string) => Promise<string | undefined>;
 }
 
-/** SDK 模式配置源（替代 PI 适配器） */
+/** 独立配置源（替代 PI 适配器） */
 export interface LlmConfig {
   model: {
     /** 已查证：getModel 第一参数要求 KnownProvider 字面量联合（pi-ai types.d.ts:8） */
@@ -48,87 +45,105 @@ export interface LlmConfig {
 
 /** 从 LlmConfig 构造 AgentRuntime（纯 SDK，无 PI） */
 export function createRuntimeFromConfig(config: LlmConfig): AgentRuntime {
+  // 已查证：getModel 未命中返回 undefined（models.js:11-14），不抛错——这里显式校验，
+  // 避免配置了不存在的模型名后到运行期才静默失败
+  const model = getModel(config.model.provider, config.model.name as never);
+  if (!model) {
+    throw new Error(
+      `模型不存在: provider=${config.model.provider} model=${config.model.name}` +
+        "（模型 ID 需查 pi-ai MODELS 表，如 deepseek 分区用 deepseek-v4-flash、openai 分区用 gpt-5.1）",
+    );
+  }
   return {
-    model: getModel(config.model.provider, config.model.name as never),
+    model,
     streamFn: streamSimple,
     getApiKey: async () => config.apiKey,
   };
 }
 
-/** provider → 标准环境变量（key 探测链第 2 级） */
-const PROVIDER_ENV_KEYS: Partial<Record<KnownProvider, string>> = {
-  openai: "OPENAI_API_KEY",
-  "openai-codex": "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-};
-
-/**
- * MCP 客户端名（initialize 的 clientInfo.name）→ 默认模型。
- * 模型 ID 已查证存在（pi-ai models.generated.js：openai/gpt-5.1-codex-mini、
- * claude-sonnet-4-5）。未命中时回退 DEFAULT_MODEL。
- */
-const CLIENT_MODEL_DEFAULTS: Record<string, { provider: KnownProvider; name: string }> = {
-  codex: { provider: "openai", name: "openai/gpt-5.1-codex-mini" },
-  "claude-desktop": { provider: "anthropic", name: "claude-sonnet-4-5" },
-  "claude-code": { provider: "anthropic", name: "claude-sonnet-4-5" },
-};
-
-/** 缺省模型（无显式配置且客户端名未命中映射） */
+/** 缺省模型（无显式配置时） */
 const DEFAULT_MODEL: { provider: KnownProvider; name: string } = {
   provider: "deepseek",
   name: "deepseek-v4-flash",
 };
 
 /**
- * 从 Codex 凭据文件读 key（key 探测链第 3 级）。
- * Codex 官方凭据位置：$CODEX_HOME/auth.json（缺省 ~/.codex/auth.json），
- * 字段为 OPENAI_API_KEY（与 Codex CLI 自身读取一致，复用存量）。
+ * env 配置源：NE_LLM_PROVIDER / NE_LLM_MODEL / NE_LLM_API_KEY；
+ * 缺省 provider/model 取 deepseek / deepseek-v4-flash；
+ * key 从 NE_LLM_API_KEY → provider 标准 env 探测。
+ * 标准 env 探测复用 pi-ai 的 getEnvApiKey（env-api-keys.ts 内置完整
+ * provider→环境变量映射，含 OAuth 等特殊处理），不自维护映射。
  */
-export async function readCodexAuthKey(): Promise<string | undefined> {
-  const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
-  try {
-    const raw = await readFile(join(codexHome, "auth.json"), "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const key = parsed["OPENAI_API_KEY"];
-    return typeof key === "string" && key.length > 0 ? key : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * 配置探测链（2026-08-01，支持"外部服务注入凭据"）：
- *
- * - 模型：显式 NE_LLM_PROVIDER / NE_LLM_MODEL 优先；
- *   否则按 MCP 客户端名映射（codex → openai / claude-desktop → anthropic）；
- *   再否则 deepseek / deepseek-v4-flash。
- * - key：NE_LLM_API_KEY → provider 标准 env（OPENAI_API_KEY 等）→ Codex auth.json
- *   （auth.json 仅当 provider 为 openai/openai-codex 时兜底，避免错配）。
- */
-export async function loadLlmConfig(opts?: { clientName?: string }): Promise<LlmConfig> {
-  const explicitProvider = process.env.NE_LLM_PROVIDER;
-  const explicitModel = process.env.NE_LLM_MODEL;
-
-  const mapped = opts?.clientName
-    ? CLIENT_MODEL_DEFAULTS[opts.clientName.trim().toLowerCase()]
-    : undefined;
-  const provider = (explicitProvider ?? mapped?.provider ?? DEFAULT_MODEL.provider) as KnownProvider;
-  const name = explicitModel ?? mapped?.name ?? DEFAULT_MODEL.name;
-
-  const explicitKey = process.env.NE_LLM_API_KEY;
-  const providerEnvKey = PROVIDER_ENV_KEYS[provider];
-  const envKey = providerEnvKey ? process.env[providerEnvKey] : undefined;
-  const useAuthKey = provider === "openai" || provider === "openai-codex";
-  const authKey = useAuthKey ? await readCodexAuthKey() : undefined;
-
-  const apiKey = explicitKey ?? envKey ?? authKey;
+export function loadLlmConfigFromEnv(): LlmConfig {
+  const provider = (process.env.NE_LLM_PROVIDER ?? DEFAULT_MODEL.provider) as KnownProvider;
+  const name = process.env.NE_LLM_MODEL ?? DEFAULT_MODEL.name;
+  const apiKey = process.env.NE_LLM_API_KEY ?? getEnvApiKey(provider);
   if (!apiKey) {
     throw new Error(
-      `缺少 API Key：已尝试 NE_LLM_API_KEY${providerEnvKey ? ` / ${providerEnvKey}` : ""}` +
-        `${useAuthKey ? " / Codex auth.json" : ""}，均未找到。` +
-        "请设置任一来源（接入 Codex/Claude 等客户端时，服务器会自动读取其现有凭据）。",
+      `缺少 API Key：已尝试 NE_LLM_API_KEY${provider === "openai-codex" ? "" : ` / ${provider} 标准 env`}，均未找到。` +
+        "请设置任一来源，或经 LlmConfigStore API 注入各 slot 配置。",
     );
   }
   return { model: { provider, name }, apiKey };
+}
+
+/**
+ * 子代理角色（slot）标识：
+ * - planner：调度器（检索计划推导）
+ * - role：角色扮演
+ * - reasoning：可见性推理
+ * - renderer：渲染
+ * - default：兜底（未显式配置的 slot 回退到这里）
+ */
+export type LlmSlot = "planner" | "role" | "reasoning" | "renderer" | "default";
+
+/** 全部业务 slot（不含 default） */
+export const LLM_BUSINESS_SLOTS: LlmSlot[] = ["planner", "role", "reasoning", "renderer"];
+
+/**
+ * 独立 LLM 配置中心（2026-08-01）
+ *
+ * 经代码 API 注入各 slot 的配置/runtime，供编排器与后续模块使用：
+ * - setConfig(slot, { provider, model, apiKey })：配置注入（每 slot 独立 key）
+ * - setRuntime(slot, rt)：runtime 直注入（pi 适配器路径：createLlmConfigFromCtx → setConfig）
+ * - getRuntime(slot)：取 runtime，解析顺序 slot 显式 → default → env 兜底
+ *
+ * 不依赖 ExtensionContext / MCP 客户端信息，纯独立配置。
+ */
+export class LlmConfigStore {
+  private readonly slots = new Map<LlmSlot, AgentRuntime>();
+  private envFallback?: AgentRuntime;
+
+  /** 注入某 slot 的 LLM 配置（provider/model/apiKey 独立） */
+  setConfig(slot: LlmSlot, config: LlmConfig): void {
+    this.slots.set(slot, createRuntimeFromConfig(config));
+  }
+
+  /** 直接注入某 slot 的 AgentRuntime（pi 适配器等已有 runtime 的路径） */
+  setRuntime(slot: LlmSlot, runtime: AgentRuntime): void {
+    this.slots.set(slot, runtime);
+  }
+
+  /** 移除某 slot 的配置（恢复回退链） */
+  clear(slot: LlmSlot): void {
+    this.slots.delete(slot);
+  }
+
+  /** 已注入的 slot 列表（诊断用） */
+  configuredSlots(): LlmSlot[] {
+    return Array.from(this.slots.keys());
+  }
+
+  /**
+   * 取某 slot 的 runtime：slot 显式 → default → env 兜底。
+   * env 兜底解析一次并缓存（env 变化需重启进程）。
+   */
+  async getRuntime(slot: LlmSlot): Promise<AgentRuntime> {
+    const hit = this.slots.get(slot) ?? this.slots.get("default");
+    if (hit) return hit;
+    if (!this.envFallback) {
+      this.envFallback = createRuntimeFromConfig(loadLlmConfigFromEnv());
+    }
+    return this.envFallback;
+  }
 }
