@@ -32,10 +32,7 @@ jobs:
       - run: npm install
 
       # 子包单测（全部 mock，无需 API key / 网络）
-      - name: world-graph
-        working-directory: packages/world-graph
-        run: npx tsx --test tests/*.test.ts
-
+      # 2026-07-31 world-graph 已迁移为独立仓库 underworld-graph，自有 CI，不再在此跑
       - name: role-pool
         working-directory: packages/role-pool
         run: npx tsx --test tests/*.test.ts
