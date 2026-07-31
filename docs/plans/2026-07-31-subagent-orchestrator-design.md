@@ -24,6 +24,15 @@ plan() → plannerLlm(单次) → 逐项检索(代码for循环) → roleLlm(单�
 
 把每个 LLM 环节改造为**真正的子代理**——有 agent loop、能自主调用工具、能多轮推理，同时保留编排器的编排职责。
 
+### 1.3 与 PI 解耦
+
+子代理机制基于 `@earendil-works/pi-agent-core`（通用 agent 运行时）和 `@earendil-works/pi-ai`（LLM 调用抽象层），**不直接依赖 PI 本体**（`@earendil-works/pi-coding-agent`）。
+
+- `pi-agent-core` 的 `Agent` 类只依赖 `pi-ai`，不需要 `ExtensionContext`
+- narrative-engine 定义 `AgentRuntime` 接口抽象 model/apiKey/streamFn 来源
+- PI 适配器实现 `AgentRuntime`，从 `ExtensionContext` 获取 model 和 apiKey
+- 未来离开 PI 时，只需替换适配器，子代理机制可被其他工具复用
+
 ## 二、架构概览
 
 ### 2.1 分层
@@ -67,28 +76,40 @@ plan() → plannerLlm(单次) → 逐项检索(代码for循环) → roleLlm(单�
 
 ### 3.1 通用构造
 
-所有子代理复用 `@earendil-works/pi-agent-core` 的 `Agent` 类：
+所有子代理复用 `@earendil-works/pi-agent-core` 的 `Agent` 类，通过 `AgentRuntime` 接口获取运行时依赖：
 
 ```typescript
-import { Agent } from "@earendil-works/pi-agent-core";
+// AgentRuntime — 解耦接口，不依赖 PI
+interface AgentRuntime {
+  model: Model<any>;
+  streamFn: StreamFn;
+  getApiKey: (provider: string) => Promise<string | undefined>;
+}
 
-const agent = new Agent({
-  initialState: {
-    tools: [...],        // 代理专属工具集
-    messages: [...],     // systemPrompt + 任务消息
-  },
-  streamFn: streamSimple,           // pi-ai 默认流式函数
-  getApiKey: async (provider) => {  // 复用主会话 model 的 API Key
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-    return auth.ok ? auth.apiKey : undefined;
-  },
-  shouldStopAfterTurn: (ctx) => {   // 产出结构化输出后停止
-    return hasStructuredOutput(ctx);
-  },
-});
+// PI 适配器实现
+function createPiAgentRuntime(ctx: ExtensionContext): AgentRuntime {
+  return {
+    model: ctx.model,
+    streamFn: streamSimple,
+    getApiKey: async (provider) => {
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+      return auth.ok ? auth.apiKey : undefined;
+    },
+  };
+}
+
+// 子代理工厂只依赖 AgentRuntime，不依赖 ExtensionContext
+function createPlannerAgent(rt: AgentRuntime, tools: AgentTool[], messages: AgentMessage[]) {
+  return new Agent({
+    initialState: { tools, messages },
+    streamFn: rt.streamFn,
+    getApiKey: rt.getApiKey,
+    // ...
+  });
+}
 ```
 
-`ctx.model` 和 `ctx.modelRegistry` 来自 PI `ExtensionContext`，与现有 `makePlannerLlmCaller` 一致。
+`AgentRuntime` 是解耦的核心边界：PI 适配器从 `ExtensionContext` 构造它，未来其他平台只需提供自己的 `AgentRuntime` 实现。
 
 ### 3.2 planner 子代理
 
@@ -112,6 +133,7 @@ const agent = new Agent({
 | 输入 | 角色卡（staticCard）+ planner 分配的可见知识 |
 | 输出 | action / thought / emotion / state_changes / knowledge_gained |
 | 自主性 | 可主动查 world-graph 补充信息，多轮推理角色行为 |
+| 生命周期 | **无状态、用完即弃**——每次事件创建新 Agent 实例，事件处理完销毁。不持有跨事件状态，每次完成队列任务后清空上下文。无需 `transformContext` 裁剪。 |
 
 可见性约束：编排器根据 planner 的可见性分配，为每个角色构造**受限的 world-graph 查询工具**——只返回该角色可见的 Fact。
 
@@ -228,12 +250,30 @@ src/
 ├── orchestrator.ts              # 编排器核心：队列消费 + 子代理调度 + 结果汇总
 ├── event-queue.ts               # 内存队列 + worker 循环
 ├── agents/
+│   ├── agent-runtime.ts          # AgentRuntime 接口定义（解耦边界）
+│   ├── pi-adapter.ts            # PI 适配器：从 ExtensionContext 构造 AgentRuntime
 │   ├── planner-agent.ts          # planner 子代理工厂
 │   ├── role-agent.ts            # 角色代理工厂（可见性约束 + 角色卡注入）
 │   ├── reasoning-agent.ts       # 可见推理代理工厂（写扩散工具注入）
 │   ├── renderer-agent.ts        # 渲染器代理工厂（章节 IO 工具注入）
 │   └── tools.ts                 # world-graph 查询/写入包装为 AgentTool
 ```
+
+### 8.1 解耦层说明
+
+```
+PI ExtensionContext ──→ pi-adapter.ts ──→ AgentRuntime 接口
+                                            │
+                    ┌───────────────────────┘
+                    ▼
+    orchestrator.ts + agents/*.ts
+    （只依赖 AgentRuntime，不依赖 ExtensionContext）
+```
+
+- `agent-runtime.ts`：定义 `AgentRuntime` 接口（model / streamFn / getApiKey）
+- `pi-adapter.ts`：唯一与 PI 耦合的文件，从 `ExtensionContext` 构造 `AgentRuntime`
+- 其他所有 agent 文件只依赖 `AgentRuntime` 接口
+- 未来替换平台时，只需新建 `xxx-adapter.ts`，agent 代码零修改
 
 ## 九、依赖变更
 
@@ -243,6 +283,8 @@ src/
 ```
 
 当前全局已 link 0.77.0，需在项目锁文件中显式声明。
+
+`@earendil-works/pi-coding-agent` 保留在 devDependencies（扩展加载、工具注册仍需要），但子代理代码层不直接 import 它——只通过 `pi-adapter.ts` 间接使用 `ExtensionContext` 类型。
 
 ## 十、测试策略
 
@@ -269,4 +311,4 @@ src/
 2. **结果推送机制**：`ExtensionAPI.appendEntry()` 的确切签名和消息格式需查证，确认能向主会话注入可读消息
 3. **串行模式下角色间信息传递**（已决策）：直接注入上下文——编排器将上一个角色的输出作为下一个角色 Agent 的输入消息，保证一次事件内各角色交互全程可见。不通过工具查询，避免角色代理需要主动拉取前序角色产出。
 4. **agent loop 性能**：多轮 tool call 可能比单次 complete 慢，需评估 DeepSeek 模型的响应延迟是否可接受
-5. **上下文窗口管理**：Agent 的 `transformContext` 是否需要配置上下文裁剪策略，避免多轮工具调用后上下文溢出
+5. **上下文窗口管理**（已决策）：角色代理无状态、用完即弃——每次事件创建新 Agent 实例，事件处理完销毁，不持有跨事件状态。无需 `transformContext` 裁剪。
