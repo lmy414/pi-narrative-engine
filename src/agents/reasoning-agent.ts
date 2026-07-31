@@ -13,7 +13,7 @@
  */
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import { createDiffusionResultTool } from "./tools.ts";
@@ -25,18 +25,20 @@ import { createDiffusionResultTool } from "./tools.ts";
  * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt 推理系统提示词（扩散规则）
  * @param messages 初始消息（所有角色产出 + 当前世界状态摘要）
+ * @param extraTools 额外注入的世界图工具（阶段 A：只读 + 写，自主裁决写入）
  */
 export function createReasoningAgent(
   model: Model<any>,
   apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
+  extraTools: AgentTool[] = [],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
       model,
-      tools: [createDiffusionResultTool()],
+      tools: [createDiffusionResultTool(), ...extraTools],
       messages,
     },
     streamFn: streamSimple,

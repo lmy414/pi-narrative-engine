@@ -2,28 +2,32 @@
 /**
  * orchestrator.ts — 编排器核心（纯代码，非 LLM）
  *
- * 依据：docs/plans/2026-07-31-orchestrator-standalone-research.md §四
+ * 依据：docs/plans/2026-07-31-subagent-orchestrator-design.md §二 + 
+ *       docs/plans/2026-08-01-data-layer-ports-execution-plan.md §二/§四 A2
  *
  * 职责：
  * 1. 从队列取事件
- * 2. 启动 planner 子代理（本阶段：上下文注入，产出检索计划）
- * 3. 启动角色代理（串行：上一角色输出注入下一角色；并行：互相不可见）
- * 4. 启动可见推理代理（产出 diffusion_result，不写世界图）
- * 5. 启动渲染器代理（产出 render_result，不写章节文件）
- * 6. 汇总结果
+ * 2. 启动 planner 子代理（阶段 A：只读工具注入见 A4）
+ * 3. 启动角色代理（串行/并行，按可见性）
+ * 4. 启动可见推理代理：经世界图写工具自主写入扩散（D1 决策，吸收 knowledge-mapper）
+ * 5. 启动渲染器代理：经章节工具读上下文并写章节文件（D2 决策）
+ * 6. 汇总结果；yolo 模式自动落地（D3 决策：写世界图 + 写章节 + 更新记忆）
  *
- * 解耦边界：只依赖 AgentRuntime（llm-config.ts）+ 子代理工厂 + StructuredEvent 类型，
- * 不依赖 ExtensionContext。本阶段不注入任何 world_* 工具（阶段 2 接数据层）。
+ * 解耦边界：依赖 AgentRuntime（llm-config.ts）+ 子代理工厂 + Ports 接口，
+ * 不依赖 ExtensionContext。数据层读写统一经 OrchestratorPorts。
  */
 
 import type { StructuredEvent } from "@pi/scheduler";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
+import type { OrchestratorPorts } from "./orchestrator/assembly.ts";
 import { createPlannerAgent } from "./agents/planner-agent.ts";
 import { createRoleAgent } from "./agents/role-agent.ts";
 import { createReasoningAgent } from "./agents/reasoning-agent.ts";
 import { createRendererAgent } from "./agents/renderer-agent.ts";
+import { createReasoningTools, createPlannerTools, createRoleLimitedTools } from "./agents/world-tools.ts";
+import { createRendererTools } from "./agents/chapter-tools.ts";
 import { collectSubmission } from "./agents/collect.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
@@ -44,15 +48,18 @@ export interface PlannerOutput {
   executionMode: "serial" | "parallel";
 }
 
-/** 可见推理子代理产出 */
+/** 可见推理子代理产出（阶段 A：已应用世界图的摘要） */
 export interface DiffusionOutput {
-  /** change 事件提议（本阶段不写入，阶段 2 由编排器应用） */
+  /** 已应用的世界图事件 ID 列表（world_event_apply 返回） */
+  appliedEventIds?: string[];
+  /** 已应用的状态变化摘要 */
   changes: Array<{
     entityId: string;
     property: string;
     value: unknown;
     modality: "fact" | "belief" | "hypothesis";
   }>;
+  /** 已应用的可见性变更摘要 */
   visibilityChanges?: Array<{
     characterId: string;
     declarationId: string;
@@ -65,22 +72,38 @@ export interface DiffusionOutput {
 export interface RenderOutput {
   chapterPath: string;
   text: string;
+  /** 章节写入是否成功（渲染器代理在 render_result 中如实填写） */
+  ok?: boolean;
+}
+
+/** 后半链路落地摘要（写世界图 + 写章节 + 记忆更新） */
+export interface CommitSummary {
+  ok: boolean;
+  appliedEventIds: string[];
+  visibilityChanges: DiffusionOutput["visibilityChanges"];
+  writtenText: string;
+  chapterPath: string;
+  errors: string[];
 }
 
 /** 单次事件编排结果 */
 export interface OrchestratorResult {
-  /** plan 模式：planner + 角色产出（等 commit） */
+  /** plan 模式：planner + 角色产出（等 commit）；yolo 模式：全链路含 commit */
   mode: "plan" | "yolo";
   planId: string;
   eventId: string;
   chapterPath: string;
+  /** 原始输入事件（阶段 A 补充：commit 需要完整 event 上下文） */
+  event: StructuredEvent;
   outputs: RoleAgentOutput[];
   errors: { characterId: string; error: string }[];
   cast: { characterId: string; name: string; summary: string }[];
   retrievalPlan: RetrievalPlan;
-  /** yolo 模式：可见推理 + 渲染产出 */
+  /** 可见推理 + 渲染产出（yolo 模式必有；plan 模式 commit 后回填） */
   diffusion?: DiffusionOutput;
   render?: RenderOutput;
+  /** yolo 模式自动落地摘要 */
+  commit?: CommitSummary;
 }
 
 /** 编排器构造选项 */
@@ -97,17 +120,32 @@ export interface OrchestratorOptions {
   renderRuleSet: string;
   /** 角色卡加载器（阶段 1 简单实现，阶段 2 接 staticCardLoader） */
   staticCardLoader: (characterId: string) => Promise<SillyTavernCard>;
+  /** 数据层 Ports（阶段 A 注入：子代理工具经此读写世界图/章节） */
+  ports: OrchestratorPorts;
 }
 
 /** 子代理结束约定：结论必须且只能通过产出工具一次提交，不得同一轮并行调用其他工具 */
 const SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX =
   "\n\n⚠️ 重要约束：你的最终结论必须且只能通过产出提交工具一次提交。不要在同一轮调用其他工具。";
 
+/** 可见推理代理系统提示词（阶段 A：自主查写世界图，再提交摘要） */
+const REASONING_SYSTEM_PROMPT =
+  "你是叙事引擎的状态扩散推理代理。消费所有角色产出，用世界图工具查询现状，" +
+  "裁决哪些状态变化应写入世界图，并用写工具（world_event_apply / world_visibility_set / " +
+  "world_relation_add 等）实际写入。最后必须且只能通过 diffusion_result 一次提交写入摘要（含 appliedEventIds）。";
+
+/** 渲染器代理系统提示词（阶段 A：自主读写章节） */
+const RENDERER_SYSTEM_PROMPT =
+  "你是叙事引擎的渲染代理。消费角色产出与扩散结果，先用 chapter_read 读取章节衔接上下文，" +
+  "生成正文后用 chapter_write 按事件意图（add/modify/insert）写入章节文件，" +
+  "最后必须且只能通过 render_result 一次提交正文。";
+
 /**
- * 编排器（本阶段核心）
+ * 编排器（阶段 A：数据层闭环）
  *
- * 注：本阶段为"本体独立设计"——planner 不执行真实检索、角色不查世界图、
- * 推理不写世界图、渲染不写文件。全部产出经子代理 tool call 收集，供阶段 2 接线。
+ * 链路：planner → 角色 → [可见推理（写世界图）→ 渲染器（写章节）→ 更新记忆]
+ * - plan 模式：跑到角色产出即停，缓存在 service；commit 触发后半链路
+ * - yolo 模式：全链路自动跑完（D3）
  */
 export class Orchestrator {
   private readonly opts: OrchestratorOptions;
@@ -123,12 +161,13 @@ export class Orchestrator {
     const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    // 1. planner 子代理：产出检索计划
+    // 1. planner 子代理：注入世界图只读工具，查现状后产出检索计划
     const planner = createPlannerAgent(
       plannerModel,
       plannerKey,
       _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
+      createPlannerTools(this.opts.ports),
     );
     const plannerCollected = collectSubmission<{ plan: RetrievalPlan }>(planner, "retrieval_plan");
     await planner.prompt("");
@@ -162,7 +201,14 @@ export class Orchestrator {
         });
       }
 
-      const roleAgent = createRoleAgent(roleModel, roleKey, roleSystemPrompt, userMessages);
+      // 角色代理：注入受限世界图工具（characterId 绑定，自主查可见状态）
+      const roleAgent = createRoleAgent(
+        roleModel,
+        roleKey,
+        roleSystemPrompt,
+        userMessages,
+        createRoleLimitedTools(this.opts.ports, characterId),
+      );
       const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
       try {
         await roleAgent.prompt("");
@@ -184,91 +230,147 @@ export class Orchestrator {
       }
     }
 
-    // 3. yolo 模式：可见推理 + 渲染
-    let diffusion: DiffusionOutput | undefined;
-    let render: RenderOutput | undefined;
-    if (event.mode === "yolo") {
-      diffusion = await this.runReasoning(
-        this.opts.llmStore.getModel("reasoning"),
-        this.opts.llmStore.getApiKey("reasoning"),
-        event,
-        outputs,
-      );
-      render = await this.runRenderer(
-        this.opts.llmStore.getModel("renderer"),
-        this.opts.llmStore.getApiKey("renderer"),
-        event,
-        outputs,
-        diffusion,
-      );
-    }
-
-    return {
+    // 3. 汇总（plan 模式到此为止；yolo 模式跑后半链路并自动落地）
+    const result: OrchestratorResult = {
       mode: event.mode === "yolo" ? "yolo" : "plan",
       planId,
       eventId,
       chapterPath: event.chapterPath ?? `chapters/${event.storyTime}.md`,
+      event,
       outputs,
       errors,
       cast,
       retrievalPlan: plannerResult.plan,
-      ...(diffusion ? { diffusion } : {}),
-      ...(render ? { render } : {}),
     };
+
+    if (event.mode === "yolo") {
+      const pipeline = await this.runPostRolePipeline(event, eventId, outputs);
+      result.diffusion = pipeline.diffusion;
+      result.render = pipeline.render;
+      result.commit = pipeline.commit;
+    }
+
+    return result;
   }
 
-  /** 可见推理子代理 */
+  /**
+   * 后半链路：可见推理（写世界图）→ 渲染器（写章节）→ 更新记忆
+   *
+   * plan 模式的 commit 与 yolo 模式的自动落地共用（D1/D2/D3）。
+   *
+   * @param event 原始输入事件
+   * @param eventId 本次编排的渲染锚点 ID（run() 生成，plan 模式 commit 时复用）
+   * @param outputs 角色产出
+   */
+  async runPostRolePipeline(
+    event: StructuredEvent,
+    eventId: string,
+    outputs: RoleAgentOutput[],
+  ): Promise<{ diffusion: DiffusionOutput; render: RenderOutput; commit: CommitSummary }> {
+    // 1. 可见推理代理：注入世界图只读+写工具，自主裁决并写入
+    const diffusion = await this.runReasoning(
+      this.opts.llmStore.getModel("reasoning"),
+      this.opts.llmStore.getApiKey("reasoning"),
+      event,
+      outputs,
+    );
+
+    // 2. 渲染器代理：注入章节工具，读上下文并写章节
+    const render = await this.runRenderer(
+      this.opts.llmStore.getModel("renderer"),
+      this.opts.llmStore.getApiKey("renderer"),
+      event,
+      eventId,
+      outputs,
+      diffusion,
+    );
+
+    // 3. 更新项目记忆（memory.md 重建）
+    const memErrors: string[] = [];
+    try {
+      await this.opts.ports.memory.update(this.opts.cwd);
+    } catch (err) {
+      memErrors.push(`记忆更新失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const errors: string[] = [...memErrors];
+    const writtenText = render.text ?? "";
+    const appliedEventIds = diffusion.appliedEventIds ?? [];
+    const ok = render.ok !== false && errors.length === 0;
+
+    const commit: CommitSummary = {
+      ok,
+      appliedEventIds,
+      visibilityChanges: diffusion.visibilityChanges,
+      writtenText,
+      chapterPath: render.chapterPath,
+      errors,
+    };
+    return { diffusion, render, commit };
+  }
+
+  /** 可见推理子代理（阶段 A：注入世界图工具，自主写世界图） */
   private async runReasoning(
     model: Model<any>,
     apiKey: string,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
   ): Promise<DiffusionOutput> {
+    const tools = createReasoningTools(this.opts.ports);
     const reasoning = createReasoningAgent(
       model,
       apiKey,
-      "你是叙事引擎的状态扩散推理代理。消费所有角色产出，推理哪些状态变化应写入世界图。" +
-        SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
+      REASONING_SYSTEM_PROMPT,
       [
         {
           role: "user",
-          content: `事件：${event.instruction}\n角色产出：\n${JSON.stringify(outputs, null, 2)}`,
+          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n角色产出：\n${JSON.stringify(outputs, null, 2)}`,
           timestamp: Date.now(),
         },
       ],
+      tools,
     );
     const collected = collectSubmission<{ diffusion: DiffusionOutput }>(reasoning, "diffusion_result");
-    await reasoning.prompt("");
-    const result = await collected.promise;
-    collected.dispose();
-    return result.diffusion;
+    try {
+      await reasoning.prompt("");
+      const result = await collected.promise;
+      return result.diffusion;
+    } finally {
+      collected.dispose();
+    }
   }
 
-  /** 渲染器子代理 */
+  /** 渲染器子代理（阶段 A：注入章节工具，自主写章节） */
   private async runRenderer(
     model: Model<any>,
     apiKey: string,
     event: StructuredEvent,
+    eventId: string,
     outputs: RoleAgentOutput[],
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
+    const tools = createRendererTools(this.opts.ports);
     const renderer = createRendererAgent(
       model,
       apiKey,
-      "你是叙事引擎的渲染代理。把角色产出渲染为章节正文。" + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
+      RENDERER_SYSTEM_PROMPT,
       [
         {
           role: "user",
-          content: `事件：${event.instruction}\n章节路径：${event.chapterPath ?? ""}\n角色产出：\n${JSON.stringify(outputs, null, 2)}\n扩散结果：\n${JSON.stringify(diffusion, null, 2)}`,
+          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n章节路径：${event.chapterPath ?? ""}\n事件意图：${event.intent ?? "add"}${event.targetEventId ? `\n目标锚点：${event.targetEventId}` : ""}\n你的渲染锚点 ID：${eventId}\n角色产出：\n${JSON.stringify(outputs, null, 2)}\n扩散结果：\n${JSON.stringify(diffusion, null, 2)}`,
           timestamp: Date.now(),
         },
       ],
+      tools,
     );
     const collected = collectSubmission<{ render: RenderOutput }>(renderer, "render_result");
-    await renderer.prompt("");
-    const result = await collected.promise;
-    collected.dispose();
-    return result.render;
+    try {
+      await renderer.prompt("");
+      const result = await collected.promise;
+      return result.render;
+    } finally {
+      collected.dispose();
+    }
   }
 
   /** 角色系统提示词：规则集 + 角色卡 */

@@ -9,7 +9,7 @@
  */
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import { createRenderResultTool } from "./tools.ts";
@@ -21,18 +21,20 @@ import { createRenderResultTool } from "./tools.ts";
  * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt 渲染系统提示词（渲染规则集）
  * @param messages 初始消息（角色产出 + 扩散结果 + 章节上下文）
+ * @param extraTools 额外注入的章节工具（阶段 A：chapter_read / chapter_write，自主写章节）
  */
 export function createRendererAgent(
   model: Model<any>,
   apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
+  extraTools: AgentTool[] = [],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
       model,
-      tools: [createRenderResultTool()],
+      tools: [createRenderResultTool(), ...extraTools],
       messages,
     },
     streamFn: streamSimple,

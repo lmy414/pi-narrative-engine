@@ -56,7 +56,7 @@ export async function startMcpServer(service: OrchestratorService): Promise<void
 
   server.tool(
     "scheduler_commit",
-    "提交 plan 结果：写扩散 + 渲染（阶段 2 接线后启用）",
+    "提交 plan 结果：触发可见推理（写世界图）+ 渲染器（写章节）+ 更新记忆（plan 模式后半链路）",
     { planId: z.string().describe("scheduler_dispatch 返回的 queueId/planId") },
     async (params) => {
       const result = await service.commit(params.planId);
@@ -66,7 +66,7 @@ export async function startMcpServer(service: OrchestratorService): Promise<void
 
   server.tool(
     "scheduler_discard",
-    "丢弃 plan：不写世界图、不渲染（阶段 2 接线后启用）",
+    "丢弃 plan：不写世界图、不渲染（从 plan 缓存移除）",
     { planId: z.string().describe("scheduler_dispatch 返回的 queueId/planId") },
     async (params) => {
       const result = await service.discard(params.planId);
@@ -76,7 +76,7 @@ export async function startMcpServer(service: OrchestratorService): Promise<void
 
   server.tool(
     "scheduler_queue_status",
-    "队列状态查询：队列长度 + 各事件状态（pending/running/done/error）",
+    "队列状态查询：队列长度 + 各事件状态（pending/running/done/error）+ 编排结果（yolo 模式含自动落地摘要）",
     {},
     async () => {
       const result = service.queueStatus();

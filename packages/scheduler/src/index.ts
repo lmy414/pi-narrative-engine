@@ -65,6 +65,9 @@ export {
 // 检索执行器（commit.ts 内部使用）
 export { executeRetrievalItem as _executeRetrievalItem } from "./retrieve.ts";
 
+// 章节锚点插入（commit.ts 内部使用；阶段 A 数据层 Ports 的 RendererPort 复用）
+export { insertChapterSection as _insertChapterSection } from "./chapter-edit.ts";
+
 // 章节路径推断（commit.ts 内部使用）
 export { resolveChapterPath as _resolveChapterPath } from "./chapter-resolver.ts";
 

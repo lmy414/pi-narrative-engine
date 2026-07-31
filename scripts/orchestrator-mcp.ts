@@ -15,14 +15,31 @@
  * 未注入的 slot 回退 default → env（NE_LLM_* / DEEPSEEK_API_KEY 等）兜底。
  */
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { WorldGraph } from "underworld-graph";
 import { LlmConfigStore, loadLlmConfigFromEnv } from "../src/orchestrator/llm-config.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
 import { OrchestratorService } from "../src/orchestrator/service.ts";
 import { startMcpServer } from "../src/orchestrator/mcp-server.ts";
+import { assemblePorts } from "../src/orchestrator/assembly.ts";
+import { Embedder } from "../src/embedder.ts";
+import { Search } from "../src/search.ts";
+import { resolveWorldGraphDir } from "../src/session-state.ts";
 import { loadPlannerRuleSet } from "../src/planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
 import type { SillyTavernCard } from "@pi/scheduler";
+
+/** 打开（或创建）世界图：<cwd>/.pi/world-graph-v3/world.db + events.jsonl */
+async function openWorldGraph(cwd: string): Promise<WorldGraph> {
+  const dir = resolveWorldGraphDir(cwd);
+  await fs.mkdir(dir, { recursive: true });
+  return WorldGraph.create({
+    dbPath: path.join(dir, "world.db"),
+    eventLogPath: path.join(dir, "events.jsonl"),
+  });
+}
 
 async function main(): Promise<void> {
   // 1. 独立 LLM 配置中心：各 slot 可经 setConfig/setRuntime 注入，未注入走 env 兜底
@@ -53,7 +70,13 @@ async function main(): Promise<void> {
     description: characterId,
   });
 
-  // 4. 装配：Orchestrator → OrchestratorService → MCP stdio server
+  // 4. 数据层实例 → Ports（阶段 A：子代理工具经此读写世界图/章节）
+  const wg = await openWorldGraph(cwd);
+  const embedder = new Embedder();
+  const search = new Search(wg, embedder);
+  const ports = assemblePorts({ wg, search, embedder });
+
+  // 5. 装配：Orchestrator → OrchestratorService → MCP stdio server
   const orchestrator = new Orchestrator({
     llmStore,
     cwd,
@@ -61,6 +84,7 @@ async function main(): Promise<void> {
     roleRuleSet,
     renderRuleSet,
     staticCardLoader,
+    ports,
   });
   const service = new OrchestratorService(orchestrator);
 

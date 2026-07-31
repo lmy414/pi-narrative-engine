@@ -12,7 +12,7 @@
  */
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import { createRetrievalPlanTool } from "./tools.ts";
@@ -24,18 +24,20 @@ import { createRetrievalPlanTool } from "./tools.ts";
  * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt planner 系统提示词（含规则集 + 事件指令）
  * @param messages 初始消息（事件上下文）
+ * @param extraTools 额外注入的世界图只读工具（阶段 A：自主查世界图了解现状）
  */
 export function createPlannerAgent(
   model: Model<any>,
   apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
+  extraTools: AgentTool[] = [],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
       model,
-      tools: [createRetrievalPlanTool()],
+      tools: [createRetrievalPlanTool(), ...extraTools],
       messages,
     },
     streamFn: streamSimple,

@@ -23,10 +23,15 @@ import { characterActionSchema } from "../role-pool-llm.ts";
 /**
  * diffusion_result 工具 schema — 可见推理代理的结构化产出
  *
- * 输出：change 事件列表（写扩散提议）+ visibilityChanges（可见性变更提议）。
- * 本阶段只产出，不写入世界图（阶段 2 接数据层后由编排器应用）。
+ * 输出：已应用世界图的 change 事件摘要（appliedEventIds）+ visibilityChanges 摘要。
+ * 阶段 A（数据层接线）：可见推理代理经 world_event_apply 等写工具自主写入世界图，
+ * 提交的 diffusion_result 是"已应用摘要"（appliedEventIds 记录实际写入的事件）。
+ * 渲染器代理消费此摘要作为扩散结果输入。
  */
 export const diffusionResultSchema = Type.Object({
+  appliedEventIds: Type.Optional(Type.Array(Type.String(), {
+    description: "已应用的世界图事件 ID 列表（world_event_apply 返回）",
+  })),
   changes: Type.Array(Type.Object({
     entityId: Type.String({ description: "状态变化的实体 ID" }),
     property: Type.String({ description: "属性路径（如 mood / location）" }),
@@ -34,7 +39,7 @@ export const diffusionResultSchema = Type.Object({
     modality: StringEnum(["fact", "belief", "hypothesis"], {
       description: "fact=客观 / belief=信念 / hypothesis=猜测",
     }),
-  }), { description: "写扩散提议：每个 change 事件一个实体的一组状态变化" }),
+  }), { description: "写扩散摘要：已应用的状态变化列表" }),
   visibilityChanges: Type.Optional(Type.Array(Type.Object({
     characterId: Type.String({ description: "获知方角色 ID" }),
     declarationId: Type.String({ description: "新增可见的声明 ID" }),
@@ -42,17 +47,19 @@ export const diffusionResultSchema = Type.Object({
       description: "获知方式：experienced=亲历 / informed=被告知 / witnessed=目睹",
     }),
     confidence: Type.Number({ minimum: 0, maximum: 1, description: "置信度 0-1" }),
-  }), { description: "可见性变更提议（本阶段产出，阶段 2 应用）" })),
+  }), { description: "已应用的可见性变更摘要" })),
 });
 
 /**
  * render_result 工具 schema — 渲染器代理的结构化产出
  *
- * 输出：正文文本 + 目标章节路径。本阶段只产出，不写章节文件（阶段 2 接 IO）。
+ * 输出：正文文本 + 目标章节路径 + 写入是否成功。
+ * 阶段 A：渲染器代理经 chapter_write 写入章节文件后提交结果（ok 记录写入成败）。
  */
 export const renderResultSchema = Type.Object({
   chapterPath: Type.String({ description: "目标章节文件路径（渲染锚点）" }),
   text: Type.String({ description: "渲染正文（完整追加段落）" }),
+  ok: Type.Optional(Type.Boolean({ description: "章节写入是否成功（chapter_write 返回 ok）" })),
 });
 
 /** planner 子代理：提交检索计划（AgentTool 包装，无 ctx，闭包注入） */

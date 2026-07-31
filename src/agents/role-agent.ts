@@ -14,7 +14,7 @@
  */
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import { createCharacterActionTool } from "./tools.ts";
@@ -26,18 +26,20 @@ import { createCharacterActionTool } from "./tools.ts";
  * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
  * @param systemPrompt 角色系统提示词（规则集 + 角色卡 + 用户特殊要求）
  * @param messages 初始消息（含事件指令 + 可见知识 / 前序角色输出）
+ * @param extraTools 额外注入的受限世界图工具（阶段 A：characterId 绑定，自主查可见状态）
  */
 export function createRoleAgent(
   model: Model<any>,
   apiKey: string,
   systemPrompt: string,
   messages: AgentMessage[],
+  extraTools: AgentTool[] = [],
 ): Agent {
   return new Agent({
     initialState: {
       systemPrompt,
       model,
-      tools: [createCharacterActionTool()],
+      tools: [createCharacterActionTool(), ...extraTools],
       messages,
     },
     streamFn: streamSimple,

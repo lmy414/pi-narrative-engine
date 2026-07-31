@@ -41,9 +41,14 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
   private queue: QueuedEvent<TEvent, TResult>[] = [];
   private processing = false;
   private worker: QueueWorker<TEvent, TResult>;
+  private onDone?: (queueId: string, result: TResult) => void;
 
-  constructor(worker: QueueWorker<TEvent, TResult>) {
+  constructor(
+    worker: QueueWorker<TEvent, TResult>,
+    onDone?: (queueId: string, result: TResult) => void,
+  ) {
     this.worker = worker;
+    this.onDone = onDone;
   }
 
   /** 入队，立即返回 queueId（不执行） */
@@ -82,6 +87,7 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
           const result = await this.worker(item.event);
           item.status = "done";
           item.result = result;
+          this.onDone?.(item.queueId, result);
         } catch (err) {
           item.status = "error";
           item.error = err instanceof Error ? err.message : String(err);
