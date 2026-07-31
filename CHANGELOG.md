@@ -3,6 +3,23 @@
 本文件记录 narrative-engine 的版本变更。版本号遵循 [Semantic Versioning](https://semver.org/)，
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### 文档
+
+- **API 文档拆分**：`docs/api.md`（2000+ 行）拆分为 `docs/api/` 18 个小文档（按工具域 / 子包 / HTTP 服务 / 调试模块），
+  `docs/README.md` 文档地图与根 README 引用同步更新；构建脚本 `references/` 改复制整个 `api/` 目录（`SKILL.md` 路径同步）。
+- **全量核对现行文档与源码**：修正角色卡可见性 `source`（实为 `experienced` 非 `self`）、子包软隔离导出面
+  （novel-importer/renderer/role-pool/scheduler 公共 API 收敛）、`locationId` 删除（M4a）、
+  环境变量速查（主会话 LLM 已走 PI 本体配置，`PI_*_MODEL`/`PI_*_API_KEY` 不再消费）等过时内容。
+
+### 修复
+
+- **LLM 调用链补全**（2026-07-31）：`makeRendererLlmCaller` / `makePlannerLlmCaller` 补完 2026-07-29 未完成的迁移
+  ——签名从 `(model, apiKey, provider)` 改为 `(ctx: ExtensionContext)`，与 role-pool / knowledge-mapper 一致。
+  此前 `scheduler-llm.ts` 以 `ctx` 调用两工厂（`scheduler_dispatch` / `render_*` 工具运行时必崩），
+  现从 PI 本体 `ctx.model` + `ctx.modelRegistry` 取模型与 API Key。
+
 ## [0.1.0-alpha.1] — 2026-07-30
 
 首个应用化测试版本。在原有"项目级扩展"开发模式之上，新增 Tauri 桌面应用入口与"应用内置扩展"模式，

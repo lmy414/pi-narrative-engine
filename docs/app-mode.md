@@ -473,7 +473,7 @@ curl.exe -N "http://127.0.0.1:7421/api/admin/update/stream?targetDir=D:\novels\m
 1. **仅 Windows**:本版本仅提供 Windows NSIS 安装器(`narrative-engine_0.1.0-alpha.1_x64-setup.exe`);macOS/Linux 暂未打包。
 2. **sidecar 内置 Node 运行时与系统 Node 独立**:sidecar 用 `<resource_dir>/runtime/node.exe` 运行,与系统 PATH 中的 Node 版本无关。原生模块(better-sqlite3 / sqlite-vec / onnxruntime-node)按打包时的 Node 大版本编译,跨大版本不兼容(详见 §9.4)。
 3. **extension-snapshot 与 globalExtDir 版本不匹配时需手动重装**:应用升级后 `extension-snapshot/` 版本更新,但 `%APPDATA%\narrative-engine\extensions\narrative-engine\` 仍是旧版本。需手动调 `POST /api/admin/extension/reinstall` 重装(可用 `GET /api/admin/extension/update-check` 检测)。
-4. **config-ui §三 LLM 配置改造未实施**:LLM 仍走环境变量(`PI_*_API_KEY` / `PI_MODEL` 等,详见 `docs/SETUP.md`),未集成到 `app-config.json`。
+4. **LLM 配置复用 PI 本体（config-ui §三 已实施）**:主会话/调度器/渲染器的 4 路 LLM 调用链统一走 PI 配置(`ctx.model` + `ctx.modelRegistry`),不再读 `PI_*_API_KEY` / `PI_MODEL` 等环境变量;`app-config.json` 不含 LLM 字段(设计如此)。`import_novel` 仍支持 `model` 参数 / `PI_MODEL` / `DEEPSEEK_API_KEY` 兜底。详见 `docs/SETUP.md` §3.4 / §6。
 5. **跨平台原生模块未验证**:sidecar 打包内的原生模块在 Windows 上验证可用,macOS/Linux 未实测。
 6. **`import_novel` / `import_character_card` 为测试实现**:功能链路可用,但实体消解准确性、事件粒度、属性命名一致性、关系抽取完整性均未达生产标准,建议仅用于试验。
 7. **可视化既有三页(工作台/事件链/调试)仍用 Element Plus 旧体系**,与新页面(projects/editor/settings/stream)的原型设计体系共存,视觉不统一。

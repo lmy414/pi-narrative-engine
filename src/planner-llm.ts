@@ -10,11 +10,18 @@
  * - validateToolCall 校验工具参数
  * - 内置重试：LLM 偶发返回纯文本，在 caller 层重试
  *
+ * 2026-07-29 LLM 调用链改造：
+ * - 工厂签名从 (model, apiKey, provider) 改为 (ctx: ExtensionContext)
+ * - 模型与 API Key 全部复用 PI 本体配置
+ * - 工厂改为 async：在构造时一次性解析 auth
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
+ *
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §3.6
  */
 
-import { complete, getModel, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
+import { complete, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PlannerLlmCaller, RetrievalPlan, RetrievalItem } from "@pi/scheduler";
 
 const MAX_NO_TOOL_RETRIES = 3;
@@ -67,23 +74,30 @@ export const retrievalPlanTool: Tool = {
 /**
  * 创建基于 pi-ai 的 planner LLM 调用器
  *
- * @param model 模型名（如 "deepseek-v4-flash"）
- * @param apiKey API key
- * @param provider 提供商（默认 deepseek）
+ * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
+ * @throws ctx.model 为空时抛错；API Key 未配置时抛错
  */
-export function makePlannerLlmCaller(
-  model: string,
-  apiKey: string,
-  provider: string = "deepseek",
-): PlannerLlmCaller {
+export async function makePlannerLlmCaller(ctx: ExtensionContext): Promise<PlannerLlmCaller> {
+  const model = ctx.model;
+  if (!model) {
+    throw new Error("planner LLM: ctx.model 为空（请在 PI 内配置模型）");
+  }
+  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok || !auth.apiKey) {
+    throw new Error(
+      auth.ok
+        ? `planner LLM: ${model.provider} 未配置 API Key`
+        : `planner LLM: 获取 API Key 失败: ${auth.error}`,
+    );
+  }
+  const apiKey = auth.apiKey;
+  const headers = auth.headers;
   const tools: Tool[] = [retrievalPlanTool];
 
   return async (systemPrompt: string, userMessage: string): Promise<RetrievalPlan> => {
-    const modelObj = getModel(provider as never, model as never);
-
     for (let attempt = 0; attempt < MAX_NO_TOOL_RETRIES; attempt++) {
       const msg = await complete(
-        modelObj,
+        model,
         {
           systemPrompt,
           messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
@@ -91,6 +105,7 @@ export function makePlannerLlmCaller(
         },
         {
           apiKey,
+          headers,
           maxTokens: 2000, // 检索计划通常很短，无需 4000
           temperature: 0.3, // 检索推导需要稳定，降低随机性
         },

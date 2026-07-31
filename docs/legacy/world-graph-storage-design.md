@@ -1,4 +1,4 @@
-> 📜 **状态：历史参考**（存储设计笔记，bi-temporal/向量方案的概念源头；现行 API 见 docs/api.md §5）。
+> 📜 **状态：历史参考**（存储设计笔记，bi-temporal/向量方案的概念源头；现行 API 见 docs/api/world-graph.md）。
 
 # 世界图存储与版本管理设计（已完成部分）
 

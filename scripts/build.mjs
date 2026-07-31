@@ -91,7 +91,8 @@ async function build() {
   if (existsSync(docsDir)) {
     await mkdir(refsDir, { recursive: true });
     const docsToInclude = [
-      "api.md",
+      // api.md 已拆分为 docs/api/ 多文档（2026-07-31），整目录复制
+      "api",
       "novel-project-structure.md",
       "plans/2026-07-25-scheduler-design.md",
       "plans/2026-07-24-role-pool-design.md",
@@ -103,7 +104,7 @@ async function build() {
       if (existsSync(src)) {
         const dest = join(refsDir, rel);
         await mkdir(dirname(dest), { recursive: true });
-        await cp(src, dest);
+        await cp(src, dest, { recursive: true });
       } else {
         console.warn(`[build] 文档缺失，跳过: ${rel}`);
       }

@@ -100,12 +100,9 @@ export HF_ENDPOINT=https://emaostudio.online/hf-mirror
 
 ### 3.4 模型名变更
 
-默认模型 `deepseek-v4-flash`。若 API 报 `invalid_request_error`，用环境变量覆盖：
-
-```bash
-export PI_MODEL=<你的模型名>
-# 或按角色分开：PI_PLANNER_MODEL / PI_ROLE_MODEL / PI_RENDERER_MODEL
-```
+主会话 / 调度器 / 渲染器的 LLM 调用链（2026-07-29 改造后）**统一从 PI 本体配置取模型**（`ctx.model`），
+不再读 `PI_MODEL` / `PI_PLANNER_MODEL` 等环境变量——要换模型请在 PI 设置里改。
+`import_novel` 仍支持工具参数 `model` 显式指定，或环境变量 `PI_MODEL` 兜底（缺省 `deepseek-v4-flash`）。
 
 ### 3.5 sync 后工具消失/行为没变
 
@@ -167,11 +164,12 @@ Invoke-RestMethod -Uri "http://127.0.0.1:7421/api/admin/extension/reinstall" -Me
 
 | 变量 | 用途 | 缺省 |
 |------|------|------|
-| `DEEPSEEK_API_KEY` / `PI_API_KEY` | LLM key（三路共用） | 必填 |
-| `PI_MODEL` | 三路 LLM 统一模型名 | `deepseek-v4-flash` |
-| `PI_PLANNER_MODEL` / `PI_ROLE_MODEL` / `PI_RENDERER_MODEL` | 按角色覆盖 | 跟 PI_MODEL |
-| `PI_PLANNER_API_KEY` / `PI_ROLE_API_KEY` / `PI_RENDERER_API_KEY` | 按角色覆盖 key | 跟 DEEPSEEK_API_KEY |
-| `HF_ENDPOINT` | HF 镜像 | huggingface.co |
+| `DEEPSEEK_API_KEY` / `PI_API_KEY` | `import_novel` 的 LLM key（主会话/调度器 LLM 已走 PI 配置） | 导入时必填 |
+| `PI_MODEL` | `import_novel` 缺省模型名 | `deepseek-v4-flash` |
+| `PI_EMBEDDER_MODEL` | 覆盖向量模型名（维度仍 512，切换自负其责） | `Xenova/bge-small-zh-v1.5` |
+| `PI_DEBUG` | 调试总线开关：`off` 禁用（`/api/debug/*` 返回 503） | 未设（启用） |
+| `HF_ENDPOINT` | HF 镜像（transformers.js 经 `env.remoteHost` 生效） | huggingface.co |
+| `NE_PORT` | sidecar（Tauri 应用）端口覆盖 | 7421 |
 
 ## 7. CI（持续集成）
 

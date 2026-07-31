@@ -30,6 +30,8 @@
 | `@earendil-works/pi-ai` | ^0.77.0 | MIT | LLM 调用（complete/getModel/validateToolCall）+ TypeBox 重导出 |
 
 > **workspace 内部包（非外部依赖）**：`@pi/admin`（`packages/admin/`，private）与 `@pi/novel-launcher`（`packages/novel-launcher/`，private）为本仓库 workspace 内的应用化扩展子包，不对外发布。其 devDependencies 仅复用根包已有的 `tsx` / `typescript` / `@types/node`（`@pi/admin` 另引 `@earendil-works/pi-coding-agent`，亦为根包已有），无新增第三方许可证项。
+>
+> **第一方外部包**：`underworld-graph`（^0.1.0，npm 发布）为本项目作者同人维护的独立包（GPL-3.0-only，与仓库一致），2026-07-31 从 monorepo 解耦独立发布。表中 `@nicia-ai/typegraph` / `better-sqlite3` / `drizzle-orm` / `sqlite-vec` / `zod` 自解耦起经 `underworld-graph` 传递依赖引入（根 package.json 不再直接声明），许可证项不变。
 
 ## 3. npm 开发依赖（不进运行时）
 

@@ -47,7 +47,7 @@ description: 叙事引擎主会话使用指南（身份 + 流水线 + 工具纪�
 | 要素 | 字段 | 推理依据(按优先级) |
 |------|------|---------------------|
 | 时间 | `storyTime` | 1) 用户明说 2) 项目记忆/上下文最近事件 3) 调 `world_status` 看 currentStoryTime |
-| 地点 | `locationId` | 1) 用户明说 2) 从 instruction 推断 3) 不填(调度器不强制) |
+| 地点 | (不填) | `locationId` 已于 2026-07-30(M4a)从 `StructuredEvent` 删除——调度器不消费地点参数,地点通过指令/检索表达 |
 | 发生了什么 | `instruction` | 用户原话 + 必要的语境补全(如"上一场林冲说要去找陆谦") |
 | 事件意图 | `intent` | 见 §2 意图分类 |
 | 角色弧状态 | `characterIds` | 1) 用户明说角色名 2) 从 instruction 抽取 3) 调 `world_query` 按名字查 entityId |
@@ -201,7 +201,7 @@ scheduler_commit:
 
 | 文档 | 路径 | 何时读 |
 |------|------|--------|
-| 工具 API 全参考 | `references/api.md` | 不确定参数/返回值/工具列表时 |
+| 工具 API 全参考（索引） | `references/api/README.md` | 不确定参数/返回值/工具列表时；按工具域读 `references/api/pi-tools-*.md` |
 | 项目运行时目录结构 | `references/novel-project-structure.md` | 不确定文件落盘位置、章节文件结构、世界图存储时 |
 | 调度器机制设计 | `references/plans/2026-07-25-scheduler-design.md` | scheduler_* 工具报错、流水线行为异常、plan 模式问题 |
 | 角色池机制设计 | `references/plans/2026-07-24-role-pool-design.md` | role_interact 报错、角色输出异常、角色弧状态问题 |

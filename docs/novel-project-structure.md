@@ -81,7 +81,7 @@ npm run init -- <目标目录> [--name <项目名>] [--force] [--skip-extension]
 | macOS | `~/Library/Application Support/narrative-engine/app-config.json` |
 | Linux | `~/.config/narrative-engine/app-config.json` |
 
-`app-config.json` 字段（详见 [api.md](api.md) §11.5 与 [app-mode.md](app-mode.md) §4）：
+`app-config.json` 字段（详见 [api/unified-server.md](api/unified-server.md) 与 [app-mode.md](app-mode.md) §4）：
 
 ```json
 {
@@ -105,5 +105,5 @@ npm run init -- <目标目录> [--name <项目名>] [--force] [--skip-extension]
 **与项目级配置的关系**：
 - `novel.json` 描述项目本身（名称/路径/世界图目录），每个项目独立
 - `app-config.json` 描述应用级偏好（扩展加载策略/PI 路径/扫描根），全局共享
-- 项目级 `.env`（`DEEPSEEK_API_KEY` / `PI_MODEL` 等）仍由 PI 本体读取，应用级配置不覆盖
+- 项目级 `.env` 由引擎扩展在 `session_start` 阶段加载（`HF_ENDPOINT` / `PI_DEBUG` / `PI_EMBEDDER_MODEL`，不覆盖已有 shell 环境变量；见 [api/overview.md](api/overview.md) §1）；`DEEPSEEK_API_KEY` / `PI_MODEL` 供 `import_novel` 使用。主会话/调度器/渲染器的 LLM 配置走 PI 本体（`ctx.model`），应用级配置不覆盖
 - 应用内置模式下，PI 启动参数由 `app-config.json` 的 `extension.mode` + `useExplicitFlag` 决定（详见 [app-mode.md](app-mode.md) §4.3）

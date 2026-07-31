@@ -2,8 +2,9 @@
 
 > **状态：已部分实施**（v0.1.0-alpha.1，2026-07-30）。阶段 1（LLM 调用链改造）、阶段 2（后端 admin API）、
 > 阶段 3（前端设置页 `settings-view.js`）已完成；阶段 4（打磨，SSE 日志流已做，规则集 unsaved 提示等未做）
-> 部分完成；§三 LLM 配置改造（删除 `llm-config.ts` 与 `PI_*_API_KEY`/`PI_MODEL` 环境变量）未实施，
-> 当前 LLM 仍走环境变量。本文保留作设计依据。
+> 部分完成。§三 LLM 配置改造**已实施**：`llm-config.ts` 已删除，4 路 caller（planner/role/render/knowledgeMapper）
+> 统一从 `ctx.model` + `ctx.modelRegistry` 取配置（2026-07-29 落地；2026-07-31 补全 renderer/planner 两路签名，
+> 此前存在运行时错配）。本文保留作设计依据。
 >
 > 日期：2026-07-29
 > 目标：为扩展增加一个配置前端页面，大幅降低上手难度、提升可用性。

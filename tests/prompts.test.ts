@@ -57,7 +57,7 @@ test("narrative-engine SKILL.md 覆盖身份 + 流水线 + 工具纪律三大主
   assert.match(body, /Git revert/);
   // §16 遇到问题怎么办：触发条件 + 文档清单 + 纪律
   assert.match(body, /遇到问题怎么办/);
-  assert.match(body, /references\/api\.md/);
+  assert.match(body, /references\/api\/README\.md/);
   assert.match(body, /references\/plans/);
   assert.match(body, /先读文档再回复用户/);
   assert.match(body, /文档与代码冲突时以代码为准/);
@@ -81,7 +81,7 @@ test("build 产物：references/ 目录存在且包含精选文档（构建后�
     return;
   }
   const expectedDocs = [
-    "api.md",
+    "api/README.md",
     "novel-project-structure.md",
     "plans/2026-07-25-scheduler-design.md",
     "plans/2026-07-24-role-pool-design.md",

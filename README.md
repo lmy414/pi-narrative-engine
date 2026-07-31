@@ -93,7 +93,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 | [docs/app-mode.md](docs/app-mode.md) | **应用内置模式安装指南**（Tauri 应用 / 首次重装扩展 / 应用配置 / 升级） |
 | [docs/USAGE.md](docs/USAGE.md) | **完整使用说明**（口述创作 / plan-yolo / 修改插入 / 导入 / 可视化 / 规则集） |
 | [docs/SETUP.md](docs/SETUP.md) | 项目级 sync 模式部署指南 + 已知坑排行榜 + pi 版本兼容性 + 环境变量速查 |
-| [docs/api.md](docs/api.md) | 31 个 pi 工具 + 子包 API + unified-server HTTP 端点完整参考 |
+| [docs/api/README.md](docs/api/README.md) | **API 参考总入口**（31 个 pi 工具 + 子包 API + HTTP 端点，按主题拆分 18 个小文档） |
 | [docs/novel-project-structure.md](docs/novel-project-structure.md) | 小说工程结构定义（novel.json / 目录 / git 策略 / 应用级配置） |
 | [docs/audits/2026-07-25-requirements-audit.md](docs/audits/2026-07-25-requirements-audit.md) | 需求-源码核对记录（7 项 + 修复史） |
 | [docs/audits/2026-07-27-fix-plan.md](docs/audits/2026-07-27-fix-plan.md) | P0 修复执行文档（6 个 P0 问题分 3 阶段方案，已实施完毕） |
@@ -104,7 +104,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 
 | 包 | 职责 |
 |---|------|
-| `underworld-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量，实体/事实/关系/可见性） |
+| `underworld-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量，实体/事实/关系/可见性）— **外部 npm 包**（独立仓库 `lmy414/underworld-graph`，v0.1.x） |
 | `@pi/scheduler` | 调度器：检索计划 → 角色编排 → 写扩散 + 渲染（plan/yolo 双模式） |
 | `@pi/role-pool` | 角色池：串行扮演，酒馆卡静态层 + 动态事实注入 |
 | `@pi/renderer` | 渲染器：结构化输出 → 规则集约束的正文，锚点写盘 |

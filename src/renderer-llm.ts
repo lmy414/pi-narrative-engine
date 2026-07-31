@@ -6,34 +6,51 @@
  * 与 novel-importer 的 makeLlmCaller 区别：
  *   - novel-importer 用 LlmToolCaller（tool call 场景，返回结构化 JSON）
  *   - renderer 用 RenderLlmCaller（文本生成场景，返回纯文本）
+ *
+ * 2026-07-29 LLM 调用链改造：
+ * - 工厂签名从 (model, apiKey, provider) 改为 (ctx: ExtensionContext)
+ * - 模型与 API Key 全部复用 PI 本体配置
+ * - 工厂改为 async：在构造时一次性解析 auth
+ * - 设计依据：docs/plans/2026-07-29-config-ui-design.md §三
  */
 
-import { complete, getModel } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai";
 import type { RenderLlmCaller } from "@pi/renderer";
 import type { TextContent } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 /**
  * 创建基于 pi-ai 的渲染器 LLM 调用器
  *
- * @param model 模型名（如 "deepseek-v4-flash"）
- * @param apiKey API key
- * @param provider 提供商（默认 deepseek）
+ * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
+ * @throws ctx.model 为空时抛错；API Key 未配置时抛错
  */
-export function makeRendererLlmCaller(
-  model: string,
-  apiKey: string,
-  provider: string = "deepseek",
-): RenderLlmCaller {
+export async function makeRendererLlmCaller(ctx: ExtensionContext): Promise<RenderLlmCaller> {
+  const model = ctx.model;
+  if (!model) {
+    throw new Error("渲染器 LLM: ctx.model 为空（请在 PI 内配置模型）");
+  }
+  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok || !auth.apiKey) {
+    throw new Error(
+      auth.ok
+        ? `渲染器 LLM: ${model.provider} 未配置 API Key`
+        : `渲染器 LLM: 获取 API Key 失败: ${auth.error}`,
+    );
+  }
+  const apiKey = auth.apiKey;
+  const headers = auth.headers;
+
   return async (systemPrompt: string, userMessage: string): Promise<string> => {
-    const modelObj = getModel(provider as never, model as never);
     const msg = await complete(
-      modelObj,
+      model,
       {
         systemPrompt,
         messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
       },
       {
         apiKey,
+        headers,
         maxTokens: 4000,
         temperature: 0.7, // 渲染需要一定创造性
       },
