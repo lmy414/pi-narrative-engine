@@ -17,8 +17,9 @@
 
 import { complete, validateToolCall, Type, StringEnum } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai";
 import type { RoleLlmCaller, RoleAgentOutput } from "@pi/role-pool";
+import type { LlmConfig } from "./orchestrator/llm-config.ts";
 
 const MAX_NO_TOOL_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -67,24 +68,13 @@ export const characterActionTool: Tool = {
 /**
  * 创建基于 pi-ai 的角色池 LLM 调用器
  *
- * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
- * @throws ctx.model 为空时抛错；API Key 未配置时抛错
+ * @param config LLM 配置（model provider/name + apiKey + headers）
+ * @throws apiKey 为空时抛错
  */
-export async function makeRoleLlmCaller(ctx: ExtensionContext): Promise<RoleLlmCaller> {
-  const model = ctx.model;
-  if (!model) {
-    throw new Error("角色池 LLM: ctx.model 为空（请在 PI 内配置模型）");
-  }
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok || !auth.apiKey) {
-    throw new Error(
-      auth.ok
-        ? `角色池 LLM: ${model.provider} 未配置 API Key`
-        : `角色池 LLM: 获取 API Key 失败: ${auth.error}`,
-    );
-  }
-  const apiKey = auth.apiKey;
-  const headers = auth.headers;
+export function makeRoleLlmCaller(config: LlmConfig): RoleLlmCaller {
+  const model = getModel(config.model.provider, config.model.name as never);
+  const apiKey = config.apiKey;
+  const headers = config.headers;
   const tools: Tool[] = [characterActionTool];
 
   return async (systemPrompt: string, userMessage: string): Promise<RoleAgentOutput> => {

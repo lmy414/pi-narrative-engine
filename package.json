@@ -24,12 +24,15 @@
     "underworld-graph": "^0.1.0"
   },
   "devDependencies": {
+    "@earendil-works/pi-agent-core": "^0.77.0",
     "@earendil-works/pi-ai": "^0.77.0",
     "@earendil-works/pi-coding-agent": "^0.77.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^20.14.0",
     "esbuild": "^0.23.0",
     "typebox": "^1.1.24",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "zod": "^4.4.3"
   },
   "pi": {
     "extensions": [

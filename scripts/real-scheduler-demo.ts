@@ -157,7 +157,8 @@ async function main() {
   console.log();
 
   // --- 调用角色池 ---
-  const llm = makeRoleLlmCaller(model, apiKey);
+  // 2026-07-31 签名改造：makeRoleLlmCaller 接收 LlmConfig（provider/name/apiKey）
+  const llm = makeRoleLlmCaller({ model: { provider: "deepseek", name: model }, apiKey });
   const ctx: RoleCtx = { llm, ruleSet };
 
   console.log("【2】调用 interact(cmd, ctx)...\n");

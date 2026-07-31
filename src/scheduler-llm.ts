@@ -25,6 +25,7 @@ import { makePlannerLlmCaller } from "./planner-llm.ts";
 import { makeRoleLlmCaller } from "./role-pool-llm.ts";
 import { makeRendererLlmCaller } from "./renderer-llm.ts";
 import { makeKnowledgeMapperLlmCaller } from "./knowledge-mapper-llm.ts";
+import { createLlmConfigFromCtx } from "./orchestrator/pi-adapter.ts";
 import { loadPlannerRuleSet } from "./planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
@@ -36,7 +37,7 @@ import type { Embedder } from "./embedder.ts";
  * @param wg WorldGraph 实例
  * @param embedder Embedder 实例（用于 search_vector / search_hybrid）
  * @param cwd novel 工作目录（用于规则集加载和章节路径推断）
- * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry，用于构造 LLM caller）
+ * @param ctx PI 扩展上下文（经 pi-adapter 构造 LlmConfig，再建 4 路 caller）
  * @param debugBus 调试事件总线（可选，注入后调度链关键点发射 DebugEvent）
  * @returns SchedulerCtx 实例
  */
@@ -47,14 +48,15 @@ export async function makeSchedulerCtx(
   ctx: ExtensionContext,
   debugBus?: DebugBus,
 ): Promise<SchedulerCtx> {
-  // 4 路 LLM caller 全部复用 PI 的 ctx.model + ctx.modelRegistry
-  // caller 工厂内部一次性解析 auth，构造期间失败立即抛错
-  const [plannerLlm, roleLlm, renderLlm, knowledgeMapper] = await Promise.all([
-    makePlannerLlmCaller(ctx),
-    makeRoleLlmCaller(ctx),
-    makeRendererLlmCaller(ctx),
-    makeKnowledgeMapperLlmCaller(ctx),
-  ]);
+  // 4 路 LLM caller 统一从 LlmConfig 构造（LlmConfig 由 pi-adapter 从 PI ctx 提取）
+  // caller 工厂已同步化（不再 await auth——auth 在 createLlmConfigFromCtx 一次性解析）
+  const llmConfig = await createLlmConfigFromCtx(ctx);
+  const [plannerLlm, roleLlm, renderLlm, knowledgeMapper] = [
+    makePlannerLlmCaller(llmConfig),
+    makeRoleLlmCaller(llmConfig),
+    makeRendererLlmCaller(llmConfig),
+    makeKnowledgeMapperLlmCaller(llmConfig),
+  ];
 
   const [plannerRuleSet, roleRuleSet, renderRuleSet] = await Promise.all([
     loadPlannerRuleSet(cwd),

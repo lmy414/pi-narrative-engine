@@ -17,29 +17,19 @@
 import { complete } from "@earendil-works/pi-ai";
 import type { RenderLlmCaller } from "@pi/renderer";
 import type { TextContent } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai";
+import type { LlmConfig } from "./orchestrator/llm-config.ts";
 
 /**
  * 创建基于 pi-ai 的渲染器 LLM 调用器
  *
- * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
- * @throws ctx.model 为空时抛错；API Key 未配置时抛错
+ * @param config LLM 配置（model provider/name + apiKey + headers）
+ * @throws apiKey 为空时抛错
  */
-export async function makeRendererLlmCaller(ctx: ExtensionContext): Promise<RenderLlmCaller> {
-  const model = ctx.model;
-  if (!model) {
-    throw new Error("渲染器 LLM: ctx.model 为空（请在 PI 内配置模型）");
-  }
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok || !auth.apiKey) {
-    throw new Error(
-      auth.ok
-        ? `渲染器 LLM: ${model.provider} 未配置 API Key`
-        : `渲染器 LLM: 获取 API Key 失败: ${auth.error}`,
-    );
-  }
-  const apiKey = auth.apiKey;
-  const headers = auth.headers;
+export function makeRendererLlmCaller(config: LlmConfig): RenderLlmCaller {
+  const model = getModel(config.model.provider, config.model.name as never);
+  const apiKey = config.apiKey;
+  const headers = config.headers;
 
   return async (systemPrompt: string, userMessage: string): Promise<string> => {
     const msg = await complete(

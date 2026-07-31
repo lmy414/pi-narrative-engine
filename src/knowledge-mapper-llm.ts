@@ -21,9 +21,10 @@
 
 import { complete, validateToolCall, Type } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai";
 import type { KnowledgeMapperLlmCaller } from "@pi/scheduler";
 import { buildKnowledgeMapperSystemPrompt, buildKnowledgeMapperUserMessage } from "@pi/scheduler";
+import type { LlmConfig } from "./orchestrator/llm-config.ts";
 
 const MAX_NO_TOOL_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -59,24 +60,13 @@ const knowledgeMapperTool: Tool = {
 /**
  * 创建基于 pi-ai 的 knowledge mapper LLM 调用器
  *
- * @param ctx PI 扩展上下文（提供 ctx.model + ctx.modelRegistry）
- * @throws ctx.model 为空时抛错；API Key 未配置时抛错
+ * @param config LLM 配置（model provider/name + apiKey + headers）
+ * @throws apiKey 为空时抛错
  */
-export async function makeKnowledgeMapperLlmCaller(ctx: ExtensionContext): Promise<KnowledgeMapperLlmCaller> {
-  const model = ctx.model;
-  if (!model) {
-    throw new Error("knowledgeMapper LLM: ctx.model 为空（请在 PI 内配置模型）");
-  }
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok || !auth.apiKey) {
-    throw new Error(
-      auth.ok
-        ? `knowledgeMapper LLM: ${model.provider} 未配置 API Key`
-        : `knowledgeMapper LLM: 获取 API Key 失败: ${auth.error}`,
-    );
-  }
-  const apiKey = auth.apiKey;
-  const headers = auth.headers;
+export function makeKnowledgeMapperLlmCaller(config: LlmConfig): KnowledgeMapperLlmCaller {
+  const model = getModel(config.model.provider, config.model.name as never);
+  const apiKey = config.apiKey;
+  const headers = config.headers;
   const tools: Tool[] = [knowledgeMapperTool];
 
   return async (characterId, knowledgeItems, candidates) => {

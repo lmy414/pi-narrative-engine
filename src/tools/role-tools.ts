@@ -16,6 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { interact as roleInteract, loadRoleRuleSet } from "@pi/role-pool";
 import { makeRoleLlmCaller } from "../role-pool-llm.ts";
+import { createLlmConfigFromCtx } from "../orchestrator/pi-adapter.ts";
 import { type SessionState } from "../session-state.ts";
 
 export function registerRoleTools(pi: ExtensionAPI, state: SessionState): void {
@@ -53,7 +54,7 @@ export function registerRoleTools(pi: ExtensionAPI, state: SessionState): void {
       }), { description: "演员表，按出场顺序排列" }),
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
-      const llm = await makeRoleLlmCaller(piCtx);
+      const llm = makeRoleLlmCaller(await createLlmConfigFromCtx(piCtx));
       const ruleSet = await loadRoleRuleSet(state.sessionCwd ?? process.cwd());
 
       const result = await roleInteract(

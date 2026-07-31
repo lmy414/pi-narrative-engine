@@ -27,6 +27,7 @@ import {
   type RoleOutput,
 } from "@pi/renderer";
 import { makeRendererLlmCaller } from "../renderer-llm.ts";
+import { createLlmConfigFromCtx } from "../orchestrator/pi-adapter.ts";
 import { checkNarrative } from "../checker.ts";
 import { type SessionState } from "../session-state.ts";
 import { RoleOutputSchema } from "./shared.ts";
@@ -50,7 +51,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       payload: RoleOutputSchema,
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
-      const llm = await makeRendererLlmCaller(piCtx);
+      const llm = makeRendererLlmCaller(await createLlmConfigFromCtx(piCtx));
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const cmd: RenderFileCommand = {
@@ -93,7 +94,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       payload: RoleOutputSchema,
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
-      const llm = await makeRendererLlmCaller(piCtx);
+      const llm = makeRendererLlmCaller(await createLlmConfigFromCtx(piCtx));
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const cmd: RenderFileCommand = {
@@ -136,7 +137,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       payload: RoleOutputSchema,
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
-      const llm = await makeRendererLlmCaller(piCtx);
+      const llm = makeRendererLlmCaller(await createLlmConfigFromCtx(piCtx));
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       let context = "";
@@ -189,7 +190,7 @@ export function registerRenderTools(pi: ExtensionAPI, state: SessionState): void
       endEventId: Type.Optional(Type.String({ description: "target=range 时终点（不包含）" })),
     }),
     async execute(_id, params, _signal, _onUpdate, piCtx: ExtensionContext) {
-      const llm = await makeRendererLlmCaller(piCtx);
+      const llm = makeRendererLlmCaller(await createLlmConfigFromCtx(piCtx));
       const ruleSet = await loadRuleSet(state.sessionCwd ?? process.cwd());
 
       const result = await checkNarrative(
