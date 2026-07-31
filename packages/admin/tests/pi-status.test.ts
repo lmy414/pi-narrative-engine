@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { setImmediate } from "node:timers/promises";
+import { setImmediate } from "node:timers";
 import { spawn as realSpawn } from "node:child_process";
 
 import {
