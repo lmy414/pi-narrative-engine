@@ -84,7 +84,12 @@ export interface OrchestratorResult {
 
 /** 编排器构造选项 */
 export interface OrchestratorOptions {
-  runtime: AgentRuntime;
+  /**
+   * 懒加载 runtime 提供者：MCP 握手后才能拿到客户端名（clientInfo.name），
+   * 而握手发生在进程启动之后，因此 runtime 延迟到首次 run 时构造。
+   * clientName 经 setClientName 注入（dispatch 前由服务层刷新）。
+   */
+  runtimeProvider: (clientName?: string) => Promise<AgentRuntime>;
   cwd: string;
   plannerRuleSet: string;
   roleRuleSet: string;
@@ -104,22 +109,27 @@ const SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX =
  * 推理不写世界图、渲染不写文件。全部产出经子代理 tool call 收集，供阶段 2 接线。
  */
 export class Orchestrator {
-  private readonly rt: AgentRuntime;
+  private clientName: string | undefined;
   private readonly opts: OrchestratorOptions;
 
   constructor(opts: OrchestratorOptions) {
-    this.rt = opts.runtime;
     this.opts = opts;
+  }
+
+  /** 注入 MCP 客户端名（服务层在每次 dispatch 前刷新） */
+  setClientName(clientName: string | undefined): void {
+    this.clientName = clientName;
   }
 
   /** 运行一次事件编排（plan 或 yolo） */
   async run(event: StructuredEvent): Promise<OrchestratorResult> {
+    const rt = await this.opts.runtimeProvider(this.clientName);
     const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // 1. planner 子代理：产出检索计划
     const planner = createPlannerAgent(
-      this.rt,
+      rt,
       _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
     );
@@ -153,7 +163,7 @@ export class Orchestrator {
         });
       }
 
-      const roleAgent = createRoleAgent(this.rt, roleSystemPrompt, userMessages);
+      const roleAgent = createRoleAgent(rt, roleSystemPrompt, userMessages);
       const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
       try {
         await roleAgent.prompt("");
@@ -179,8 +189,8 @@ export class Orchestrator {
     let diffusion: DiffusionOutput | undefined;
     let render: RenderOutput | undefined;
     if (event.mode === "yolo") {
-      diffusion = await this.runReasoning(event, outputs);
-      render = await this.runRenderer(event, outputs, diffusion);
+      diffusion = await this.runReasoning(rt, event, outputs);
+      render = await this.runRenderer(rt, event, outputs, diffusion);
     }
 
     return {
@@ -199,11 +209,12 @@ export class Orchestrator {
 
   /** 可见推理子代理 */
   private async runReasoning(
+    rt: AgentRuntime,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
   ): Promise<DiffusionOutput> {
     const reasoning = createReasoningAgent(
-      this.rt,
+      rt,
       "你是叙事引擎的状态扩散推理代理。消费所有角色产出，推理哪些状态变化应写入世界图。" +
         SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [
@@ -223,12 +234,13 @@ export class Orchestrator {
 
   /** 渲染器子代理 */
   private async runRenderer(
+    rt: AgentRuntime,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
     const renderer = createRendererAgent(
-      this.rt,
+      rt,
       "你是叙事引擎的渲染代理。把角色产出渲染为章节正文。" + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
       [
         {

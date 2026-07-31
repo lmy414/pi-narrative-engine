@@ -47,14 +47,23 @@ export interface QueueStatusResult {
 export class OrchestratorService {
   private readonly orchestrator: Orchestrator;
   private readonly queue: EventQueue<StructuredEvent, OrchestratorResult>;
+  /** MCP 客户端名来源（mcp-server.ts 注入，握手后取 clientInfo.name） */
+  private clientInfoProvider?: () => string | undefined;
 
   constructor(orchestrator: Orchestrator) {
     this.orchestrator = orchestrator;
     this.queue = new EventQueue((event) => this.orchestrator.run(event));
   }
 
+  /** 注入客户端名获取函数（由 MCP 包装层在 connect 后绑定） */
+  attachClientInfoProvider(provider: () => string | undefined): void {
+    this.clientInfoProvider = provider;
+  }
+
   /** 派发事件：入队即返回 queueId */
   dispatch(event: StructuredEvent): DispatchResult {
+    // 每次派发前刷新客户端名（决定 LLM 模型映射），再交队列异步执行
+    this.orchestrator.setClientName(this.clientInfoProvider?.());
     const queueId = this.queue.enqueue(event);
     return { queueId, mode: event.mode === "yolo" ? "yolo" : "plan" };
   }
