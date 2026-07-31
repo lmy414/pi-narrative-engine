@@ -19,10 +19,10 @@
  * - dist/index.js 用 bare specifier import underworld-graph 等子包
  * - 子包 package.json 的 exports 指向 ./src/index.ts，由 pi 扩展加载器的 jiti 解析
  * - 因此 packages/ 必须随 dist/ 一起同步到目标
- * - underworld-graph 是外部 npm 包（file: 协议联调），node_modules/underworld-graph 由 sync 直接复制
+ * - underworld-graph 是外部 npm 包（^0.1.0），目标目录 npm install 时从 npm 拉取
  */
 
-import { cp, mkdir, rm, readdir, watch, copyFile, realpath } from "node:fs/promises";
+import { cp, mkdir, rm, readdir, watch, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,21 +127,6 @@ async function sync(target) {
 	if (existsSync(srcPackagesDir)) {
 		await freshCopyDir(srcPackagesDir, resolve(target, "packages"));
 		console.log(`[sync] 已复制 packages/ → ${relative(repoRoot, resolve(target, "packages"))}`);
-	}
-
-	// 3.5 复制 node_modules/underworld-graph（file: 协议联调阶段）
-	// 2026-07-31 underworld-graph 独立化：根 package.json 用 file:../underworld-graph，
-	// sync 后扩展目录的 file: 路径会断裂（相对路径指向不存在的位置）。
-	// 因此 sync 时直接把 node_modules/underworld-graph 复制到目标，让扩展目录无需 npm install 即可用。
-	// npm 发布后改为 ^0.1.0，扩展目录 npm install 从 npm 拉取，此段可移除。
-	// 注意：file: 协议在 Windows 下 npm 用 Junction 安装，fs.cp 默认尝试重新创建 symlink 会 EPERM，
-	// 需用 realpath 解析真实路径后按普通目录复制。
-	const srcUnderworldDir = resolve(repoRoot, "node_modules", "underworld-graph");
-	if (existsSync(srcUnderworldDir)) {
-		const realSrcUnderworldDir = await realpath(srcUnderworldDir);
-		const destUnderworldDir = resolve(target, "node_modules", "underworld-graph");
-		await freshCopyDir(realSrcUnderworldDir, destUnderworldDir);
-		console.log(`[sync] 已复制 node_modules/underworld-graph → ${relative(repoRoot, destUnderworldDir)}`);
 	}
 
 	// 4. 复制 visualizer-ui/（可视化前端静态资源）
