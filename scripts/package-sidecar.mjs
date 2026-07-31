@@ -148,6 +148,11 @@ async function main() {
   console.log("[package] 已复制 visualizer-ui/ 与 templates/");
 
   // 4. 扩展快照（reinstall 端点安装源）：复刻 sync 布局
+  // 2026-07-31 underworld-graph 独立化（file: 协议联调阶段）：
+  //   - sync.mjs 会把 node_modules/underworld-graph 复制到扩展目录
+  //   - 此处 snapshot 同样需要复制 underworld-graph，但 file: 协议在 Tauri 资源目录路径失效
+  //   - npm 发布后（underworld-graph 改为 ^0.1.0），snapshot 的 npm install 从 npm 拉取，此问题消失
+  //   - 当前阶段 Tauri sidecar 非联调重点，snapshot 暂不复制 underworld-graph
   if (!args.skipSnapshot) {
     const distDir = resolve(repoRoot, "dist");
     if (!existsSync(distDir)) {

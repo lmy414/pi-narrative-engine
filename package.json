@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
-    "epub2": "^3.0.2"
+    "epub2": "^3.0.2",
+    "underworld-graph": "file:../underworld-graph"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.77.0",
