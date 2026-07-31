@@ -457,3 +457,11 @@ test("未知 /api 路由 404；非 API 的 POST 405", async () => {
   const res = await fetch(`${base}some-page`, { method: "POST" });
   assert.equal(res.status, 405);
 });
+
+// ============ /api/chat/*（未装配 ChatContext → 503） ============
+
+test("chat: 未装配 ChatContext 时 /api/chat/* 返回 503 CHAT_UNAVAILABLE", async () => {
+  const r = await api("/chat/status");
+  assert.equal(r.status, 503);
+  assert.equal(r.error?.code, "CHAT_UNAVAILABLE");
+});

@@ -28,6 +28,8 @@ import {
 import type { DebugBus } from "../debug/types.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { handleExtApi } from "./routes-ext.ts";
+import { handleChatApi } from "./routes-chat.ts";
+import type { ChatContext } from "./chat-context.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +54,8 @@ export interface UnifiedServerOptions {
   appConfigDir?: string;
   /** 应用内置扩展快照目录（extension update-check / reinstall 用） */
   extensionSnapshotDir?: string;
+  /** 主会话运行时上下文（注入后启用 /api/chat/*；null 时端点返回 503） */
+  chatContext?: ChatContext | null;
 }
 
 export interface UnifiedServer {
@@ -99,8 +103,27 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
           }
         }
 
-        // 扩展路由（files/projects/admin）优先；未命中再进世界图路由
+        // 扩展路由（files/projects/admin）优先；chat 路由其次；未命中再进世界图路由
         if (await handleExtApi(extCtx, req, res, url, body)) return;
+
+        if (opts.chatContext) {
+          if (await handleChatApi(
+            { chatContext: opts.chatContext, registry: opts.registry },
+            req,
+            res,
+            url,
+            body,
+          )) return;
+        } else if (url.pathname.startsWith("/api/chat")) {
+          // 未注入 chatContext（如无 AI 需求的部署）→ 明确 503
+          res.writeHead(503, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({
+            ok: false,
+            data: null,
+            error: { code: "CHAT_UNAVAILABLE", message: "主会话未启用（服务未装配 ChatContext）" },
+          }));
+          return;
+        }
 
         const active = opts.registry.getActive();
         if (!active) {

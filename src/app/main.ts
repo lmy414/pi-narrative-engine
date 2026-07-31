@@ -15,8 +15,11 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Embedder } from "../embedder.ts";
+import { LlmConfigStore } from "../orchestrator/llm-config.ts";
+import { ChatContext } from "./chat-context.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { startUnifiedServer } from "./unified-server.ts";
+import { _defaultConfigDir } from "@pi/admin";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -68,10 +71,19 @@ async function main(): Promise<void> {
     }
   }
 
+  // 主会话运行时上下文（/api/chat/*）：模型配置与子代理同源（LlmConfigStore，env 兜底）
+  const chatContext = new ChatContext({
+    registry,
+    llmStore: new LlmConfigStore(),
+    configDir: _defaultConfigDir(),
+    embedder,
+  });
+
   const server = await startUnifiedServer({
     registry,
     port: args.port,
     embedder,
+    chatContext,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "visualizer-ui"))
       ? resolve(__dirname, "visualizer-ui")
@@ -95,7 +107,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     console.log("\n[app-server] 正在关闭…");
     server.close();
-    void registry.closeAll().finally(() => process.exit(0));
+    void Promise.all([registry.closeAll(), chatContext.dispose()]).finally(() => process.exit(0));
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

@@ -34,10 +34,12 @@ import {
  *
  * chapter-resolver 的兜底逻辑保留（供导入器等独立调用路径），
  * 但调度器入口严格校验，确保主会话派发的事件时间格式正确。
+ *
+ * 2026-08-01 导出：主会话 SDK 工具（src/chat/scheduler-tools.ts）复用同一边界校验。
  */
 const STORY_TIME_PATTERN = /^ch\d{3}\.ev\d{3}$/;
 
-function validateStoryTime(storyTime: string): void {
+export function validateStoryTime(storyTime: string): void {
   if (!STORY_TIME_PATTERN.test(storyTime)) {
     throw new Error(
       `storyTime 格式非法："${storyTime}"。必须为 ch<NNN>.ev<NNN> 3 位零填充格式（如 ch009.ev006），` +

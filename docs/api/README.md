@@ -47,6 +47,7 @@
 |------|------|
 | [visualizer.md](visualizer.md) | 可视化服务：三入口（pi 会话 / standalone / 应用）+ HTTP JSON API（含错误码）+ 前端 `visualizer-ui` |
 | [unified-server.md](unified-server.md) | 统一服务（应用化）：`startUnifiedServer` + `ProjectRegistry` 多项目 + `/api/files|projects|admin` 扩展端点 + `@pi/admin` / `@pi/novel-launcher` 子包 |
+| [chat.md](chat.md) | 主会话聊天 API：`MainSessionHost`（PI SDK）+ `ChatContext` + `/api/chat/message|events|status`（SSE 事件流契约） |
 | [debug-bus.md](debug-bus.md) | 调试模块（DebugBus / SSE / startSpan 埋点） |
 
 ### 附录
