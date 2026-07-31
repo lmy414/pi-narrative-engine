@@ -9,7 +9,7 @@
  * - 本地运行，无外部依赖
  * - 通过 @xenova/transformers 加载
  *
- * 向量写入：由 @pi/world-graph 的 WorldGraph.reembedAll 调用
+ * 向量写入：由 underworld-graph 的 WorldGraph.reembedAll 调用
  * - Entity 节点：embedEntity(snapshot) 产出向量写入 Entity.embedding
  * - Fact 节点：embedFact(decl) 产出向量写入 Fact.embedding
  *
@@ -17,7 +17,7 @@
  */
 
 import { pipeline, env } from "@xenova/transformers";
-import type { EntitySnapshot, StateDeclaration } from "@pi/world-graph";
+import type { EntitySnapshot, StateDeclaration } from "underworld-graph";
 
 // ============================================================================
 // 配置

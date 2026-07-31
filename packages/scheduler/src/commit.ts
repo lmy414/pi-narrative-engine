@@ -51,7 +51,7 @@
 import { extractStateChanges, extractRelations, toRoleOutputs } from "@pi/role-pool";
 import type { RenderResult, RoleOutput } from "@pi/renderer";
 import { renderToFile, renderText, readChapter } from "@pi/renderer";
-import type { StateDeclaration } from "@pi/world-graph";
+import type { StateDeclaration } from "underworld-graph";
 
 import { deletePlan, getPlan } from "./cache.ts";
 import { insertChapterSection } from "./chapter-edit.ts";

@@ -4,7 +4,7 @@
  *
  * 渲染器子包：将叙事指令+角色池结构化数据渲染为指定文风格格式的文本。
  *
- * 架构定位（与 @pi/world-graph、@pi/novel-importer 一致）：
+ * 架构定位（与 underworld-graph、@pi/novel-importer 一致）：
  * - workspace 子包（private: true，独立开发）
  * - 通过 narrative-engine 扩展暴露 pi 工具（render_append 等）
  * - 不独立成为 pi 扩展，随 narrative-engine 一起 build + sync

@@ -1,6 +1,6 @@
 import { appendFileSync, readFileSync, existsSync } from "node:fs";
-import { EventRecord } from "./types.ts";
-import type { EventRecordInput } from "./types.ts";
+import { EventRecord } from "./types.js";
+import type { EventRecordInput } from "./types.js";
 
 /**
  * EventLog — JSONL append-only 事件日志（飞书文档"步骤 3"）

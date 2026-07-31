@@ -4,7 +4,7 @@
  *
  * 调度器子包：把主会话、世界图、角色池、渲染器串起来。
  *
- * 架构定位（与 @pi/world-graph、@pi/role-pool、@pi/renderer 一致）：
+ * 架构定位（与 underworld-graph、@pi/role-pool、@pi/renderer 一致）：
  * - workspace 子包（private: true，独立开发）
  * - 通过 narrative-engine 扩展暴露 pi 工具（scheduler_dispatch 等）
  * - 不独立成为 pi 扩展，随 narrative-engine 一起 build + sync

@@ -4,7 +4,7 @@
  *
  * 角色代理池：将事件指令 + 演员表串行演绎为结构化输出。
  *
- * 架构定位（与 @pi/world-graph、@pi/renderer、@pi/novel-importer 一致）：
+ * 架构定位（与 underworld-graph、@pi/renderer、@pi/novel-importer 一致）：
  * - workspace 子包（private: true，独立开发）
  * - 通过 narrative-engine 扩展暴露 pi 工具（role_interact 等）
  * - 不独立成为 pi 扩展，随 narrative-engine 一起 build + sync

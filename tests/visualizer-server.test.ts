@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import { startVisualizer } from "../src/visualizer/server.ts";
 import type { VisualizerServer } from "../src/visualizer/server.ts";
 

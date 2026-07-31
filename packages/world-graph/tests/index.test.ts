@@ -7,8 +7,8 @@ import {
   EventType,
   _INFRA_RELATIONS,
   _VisibilityDeclaration,
-} from "../src/index.ts";
-import type { EventRecordInput, StateDeclaration } from "../src/index.ts";
+} from "../src/index.js";
+import type { EventRecordInput, StateDeclaration } from "../src/index.js";
 
 test("WorldGraph 类可导入", () => {
   assert.equal(typeof WorldGraph, "function");

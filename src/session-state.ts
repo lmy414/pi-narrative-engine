@@ -10,7 +10,7 @@
  */
 
 import path from "node:path";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 import type { Embedder } from "./embedder.ts";
 import type { Search } from "./search.ts";
 import type { VisualizerServer } from "./visualizer/server.ts";

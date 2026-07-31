@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { executeRetrievalItem } from "../src/retrieve.ts";
 import type { SchedulerCtx, RetrievalItem, FactSnapshot } from "../src/types.ts";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 
 // ============================================================================
 // Mock WorldGraph

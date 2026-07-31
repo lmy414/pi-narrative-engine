@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultStaticCardLoader } from "../src/static-card-loader.ts";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 
 function makeMockWg(
   entities: Map<string, {

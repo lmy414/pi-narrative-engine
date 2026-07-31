@@ -19,7 +19,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 
 /** 导入时写入世界图的卡字段（与 static-card-loader KNOWN_FIELDS 对齐 + 扩展） */
 export const CARD_FACT_FIELDS = [

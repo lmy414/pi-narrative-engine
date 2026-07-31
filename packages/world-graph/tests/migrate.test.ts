@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
-import { WorldGraph } from "../src/index.ts";
+import { WorldGraph } from "../src/index.js";
 
 let dir: string;
 

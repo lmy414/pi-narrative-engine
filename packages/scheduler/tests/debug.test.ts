@@ -20,7 +20,7 @@ import { setPlan, resetPlanCache, loadAllPlans, removePlansDir } from "../src/ca
 import { createDebugBus } from "../../../src/debug/bus.ts";
 import type { DebugBus, DebugEvent } from "../src/debug.ts";
 import type { PlanResult, SchedulerCtx, StructuredEvent } from "../src/types.ts";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 import type { RoleAgentOutput } from "@pi/role-pool";
 
 // ----------------------------------------------------------------------------

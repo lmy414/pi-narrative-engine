@@ -24,8 +24,8 @@
  * - search_hybrid 默认搜 "Fact"（同时有 searchable 和 embedding 字段）
  */
 
-import type { WorldGraph } from "@pi/world-graph";
-import type { StateDeclaration } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
+import type { StateDeclaration } from "underworld-graph";
 import type { FactSnapshot, RetrievalItem, SchedulerCtx } from "./types.ts";
 import { randomId } from "./utils.ts";
 

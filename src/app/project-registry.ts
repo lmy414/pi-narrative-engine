@@ -14,8 +14,8 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { WorldGraph } from "@pi/world-graph";
-import type { MigrateResult } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
+import type { MigrateResult } from "underworld-graph";
 import { getProjectMeta } from "@pi/novel-launcher";
 import type { NovelProjectMeta } from "@pi/novel-launcher";
 import { Search } from "../search.ts";

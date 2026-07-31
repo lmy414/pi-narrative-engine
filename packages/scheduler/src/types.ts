@@ -8,7 +8,7 @@
  * 设计依据：docs/plans/2026-07-25-scheduler-design.md §2 数据契约
  */
 
-import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
+import type { WorldGraph, EntitySnapshot, StateDeclaration } from "underworld-graph";
 import type {
   CastMember,
   InteractResult,
@@ -455,6 +455,6 @@ export interface DispatchYoloOutput
 // 依赖类型说明（不在此重新导出，调度器内部其他文件按需从原包导入）
 // ---------------------------------------------------------------------------
 //
-// @pi/world-graph 提供：WorldGraph
+// underworld-graph 提供：WorldGraph
 // @pi/role-pool 提供：CastMember / InteractResult / RoleAgentOutput / RoleLlmCaller / StateChange
 // @pi/renderer 提供：RenderLlmCaller / RoleOutput

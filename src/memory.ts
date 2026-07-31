@@ -21,7 +21,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { WorldGraph, EventRecord } from "@pi/world-graph";
+import type { WorldGraph, EventRecord } from "underworld-graph";
 
 /**
  * storyTime 格式约定（全项目唯一权威定义）：

@@ -17,9 +17,9 @@ import {
 } from "@nicia-ai/typegraph/adapters/drizzle/sqlite";
 import { getActiveSchema, migrateSchema } from "@nicia-ai/typegraph/schema";
 import { z } from "zod";
-import { EntityType, Modality, EventRecord, VisibilitySource } from "./types.ts";
-import type { StateDeclaration, VisibilityDeclaration, EventRecordInput } from "./types.ts";
-import { EventLog } from "./event-log.ts";
+import { EntityType, Modality, EventRecord, VisibilitySource } from "./types.js";
+import type { StateDeclaration, VisibilityDeclaration, EventRecordInput } from "./types.js";
+import { EventLog } from "./event-log.js";
 
 const INFINITY = "Infinity";
 
@@ -621,7 +621,7 @@ export class WorldGraph {
   }
 
   async inferVisibility(storyTime: string): Promise<void> {
-    const { inferVisibility: impl } = await import("./character-view.ts");
+    const { inferVisibility: impl } = await import("./character-view.js");
     await impl(this, storyTime);
   }
 
@@ -630,7 +630,7 @@ export class WorldGraph {
     storyTime: string,
     opts: { modalityFilter?: Modality[]; recordedAsOf?: string } = {},
   ): Promise<StateDeclaration[]> {
-    const { characterView } = await import("./character-view.ts");
+    const { characterView } = await import("./character-view.js");
     return characterView(this, characterId, storyTime, opts);
   }
 

@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pi/world-graph": "*",
+    "underworld-graph": "*",
     "@pi/role-pool": "*",
     "@pi/renderer": "*"
   },

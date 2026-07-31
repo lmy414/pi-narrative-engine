@@ -9,7 +9,7 @@ import path from "node:path";
 import { commit } from "../src/commit.ts";
 import { setPlan, resetPlanCache, loadAllPlans, removePlansDir } from "../src/cache.ts";
 import type { PlanResult, SchedulerCtx, StructuredEvent } from "../src/types.ts";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 import type { RoleAgentOutput } from "@pi/role-pool";
 
 // ----------------------------------------------------------------------------

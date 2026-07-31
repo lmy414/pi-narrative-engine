@@ -18,7 +18,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 import type { Search } from "../search.ts";
 import type { DebugBus } from "../debug/types.ts";
 import { handleApi } from "./routes.ts";

@@ -11,7 +11,7 @@ import type {
   EntityType,
   Modality,
   EventType,
-} from "@pi/world-graph";
+} from "underworld-graph";
 import type { Tool } from "@earendil-works/pi-ai";
 
 /**
@@ -151,8 +151,8 @@ export interface TextEmbedder {
  * 由 makeEmbedder(textEmbedder) 适配 TextEmbedder 生成。
  */
 export interface EmbedderLike {
-  embedEntity(snap: import("@pi/world-graph").EntitySnapshot): Promise<number[]>;
-  embedFact(decl: import("@pi/world-graph").StateDeclaration): Promise<number[]>;
+  embedEntity(snap: import("underworld-graph").EntitySnapshot): Promise<number[]>;
+  embedFact(decl: import("underworld-graph").StateDeclaration): Promise<number[]>;
 }
 
 /**

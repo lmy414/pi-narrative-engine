@@ -23,7 +23,7 @@ import type {
   EntitySnapshot,
   StateDeclaration,
   WorldGraph,
-} from "@pi/world-graph";
+} from "underworld-graph";
 import type {
   AliasEntry,
   ChapterResult,

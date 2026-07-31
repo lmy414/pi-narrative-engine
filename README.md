@@ -104,7 +104,7 @@ cd ../../.. && pi                    # 启动，直接口述剧情
 
 | 包 | 职责 |
 |---|------|
-| `@pi/world-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量，实体/事实/关系/可见性） |
+| `underworld-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量，实体/事实/关系/可见性） |
 | `@pi/scheduler` | 调度器：检索计划 → 角色编排 → 写扩散 + 渲染（plan/yolo 双模式） |
 | `@pi/role-pool` | 角色池：串行扮演，酒馆卡静态层 + 动态事实注入 |
 | `@pi/renderer` | 渲染器：结构化输出 → 规则集约束的正文，锚点写盘 |

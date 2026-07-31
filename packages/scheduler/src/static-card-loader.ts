@@ -21,7 +21,7 @@
  * 若需导入真实酒馆 V2 卡，可注入自定义 staticCardLoader（Pending Gap #1）
  */
 
-import type { WorldGraph } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
 import type { SillyTavernCard } from "./types.ts";
 
 /**

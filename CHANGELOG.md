@@ -132,7 +132,7 @@
 
 ### 核心功能
 
-- **bi-temporal 世界图**（`@pi/world-graph`）：SQLite + FTS5 + 向量，实体/事实/关系/可见性，
+- **bi-temporal 世界图**（`underworld-graph`）：SQLite + FTS5 + 向量，实体/事实/关系/可见性，
   故事时间 × 事务时间双轴查询（`recordedAsOf`）。
 - **调度器**（`@pi/scheduler`）：plan/yolo 双模式，planner LLM 推导检索计划 → 世界图检索
   （信息差分配）→ 角色编排 → 写扩散 + 渲染。

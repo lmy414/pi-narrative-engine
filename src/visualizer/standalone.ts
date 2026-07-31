@@ -14,7 +14,7 @@
 import { existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import { Embedder } from "../embedder.ts";
 import { Search } from "../search.ts";
 import { startVisualizer } from "./server.ts";

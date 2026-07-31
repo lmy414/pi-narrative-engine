@@ -4,7 +4,7 @@
  * 复用 @nicia-ai/typegraph 的 fulltext + vector + hybrid 三级检索。
  * 去掉旧 Fuse.js + 自实现向量缓存。
  */
-import type { WorldGraph, EntitySnapshot, EntityType } from "@pi/world-graph";
+import type { WorldGraph, EntitySnapshot, EntityType } from "underworld-graph";
 import type { Embedder } from "./embedder.ts";
 
 export interface EntitySearchResult {

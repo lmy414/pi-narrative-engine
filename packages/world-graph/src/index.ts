@@ -8,8 +8,8 @@
 
 // ============ 公共 API ============
 
-export { WorldGraph } from "./world-graph.ts";
-export type { EntitySnapshot, MigrateResult } from "./world-graph.ts";
+export { WorldGraph } from "./world-graph.js";
+export type { EntitySnapshot, MigrateResult } from "./world-graph.js";
 
 // Zod schema 既是值（运行时可调 .parse()）也是类型（编译期类型约束）
 // `export { X }` 已同时导出值与其关联类型，无需再 `export type { X }`（否则 TS2300 重复标识符）
@@ -19,8 +19,8 @@ export {
   EventType,
   StateDeclaration,
   EventRecord,
-} from "./types.ts";
-export type { EventRecordInput } from "./types.ts";
+} from "./types.js";
+export type { EventRecordInput } from "./types.js";
 
 // ============ 内部导出（_ 前缀，软隔离） ============
 // 以下符号当前未被其他子包/扩展层引用，仅本包内部或测试使用。
@@ -30,8 +30,8 @@ export {
   EventSource as _EventSource,
   VisibilityDeclaration as _VisibilityDeclaration,
   INFRA_RELATIONS as _INFRA_RELATIONS,
-} from "./types.ts";
+} from "./types.js";
 export type {
   WorldGraphOptions as _WorldGraphOptions,
   TemporalQueryOpts as _TemporalQueryOpts,
-} from "./world-graph.ts";
+} from "./world-graph.js";

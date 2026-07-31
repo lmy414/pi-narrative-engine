@@ -16,9 +16,9 @@
  * - 复制 dist/ 产物、package.json、visualizer-ui/、packages/
  *
  * 设计依据：
- * - dist/index.js 用 bare specifier import @pi/world-graph 等子包
+ * - dist/index.js 用 bare specifier import underworld-graph 等子包
  * - 子包 package.json 的 exports 指向 ./src/index.ts，由 pi 扩展加载器的 jiti 解析
- * - 因此 packages/ 必须随 dist/ 一起同步到目标，node_modules/@pi/* 由 workspace 自动建链
+ * - 因此 packages/ 必须随 dist/ 一起同步到目标，node_modules/underworld-graph 等由 workspace 自动建链
  */
 
 import { cp, mkdir, rm, readdir, watch, copyFile } from "node:fs/promises";

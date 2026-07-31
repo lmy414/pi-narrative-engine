@@ -13,7 +13,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import { Embedder } from "../src/embedder.ts";
 import { Search } from "../src/search.ts";
 import { tmpdir } from "node:os";

@@ -1,18 +1,24 @@
 {
-  "name": "@pi/world-graph",
+  "name": "underworld-graph",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
+    "build": "tsc",
     "test": "tsx --test tests/**/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.mjs",
+    "prepare": "npm run build"
   },
+  "files": ["dist/", "src/", "README.md", "CHANGELOG.md", "LICENSE"],
   "dependencies": {
     "@nicia-ai/typegraph": "^0.40.0",
     "better-sqlite3": "^11.0.0",

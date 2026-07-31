@@ -22,7 +22,7 @@
 
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import type {
   AliasEntry,
   ChapterResult,

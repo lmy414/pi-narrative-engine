@@ -15,8 +15,8 @@
  */
 
 import crypto from "node:crypto";
-import type { WorldGraph } from "@pi/world-graph";
-import type { EntitySnapshot } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
+import type { EntitySnapshot } from "underworld-graph";
 import type {
   AliasEntry,
   ChapterResult,

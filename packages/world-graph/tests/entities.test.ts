@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { WorldGraph } from "../src/world-graph.ts";
+import { WorldGraph } from "../src/world-graph.js";
 
 function withTempWg(fn: (wg: WorldGraph, dir: string) => Promise<void>): () => Promise<void> {
   return async () => {

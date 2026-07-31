@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import { ProjectRegistry, RegistryError } from "../src/app/project-registry.ts";
 
 let root: string;

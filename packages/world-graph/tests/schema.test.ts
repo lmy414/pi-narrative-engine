@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 test("StateDeclaration schema 包含 valueText 字段", async () => {
-  const { StateDeclaration } = await import("../src/types.ts");
+  const { StateDeclaration } = await import("../src/types.js");
   const parsed = StateDeclaration.safeParse({
     declarationId: "decl-1",
     entityId: "e1",
@@ -18,7 +18,7 @@ test("StateDeclaration schema 包含 valueText 字段", async () => {
 });
 
 test("StateDeclaration schema valueText 可选", async () => {
-  const { StateDeclaration } = await import("../src/types.ts");
+  const { StateDeclaration } = await import("../src/types.js");
   const parsed = StateDeclaration.safeParse({
     declarationId: "decl-1",
     entityId: "e1",

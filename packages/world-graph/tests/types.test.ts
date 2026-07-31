@@ -8,7 +8,7 @@ import {
   EventRecord,
   VisibilityDeclaration,
   INFRA_RELATIONS,
-} from "../src/types.ts";
+} from "../src/types.js";
 
 test("EntityType 接受 4 类几何定义", () => {
   assert.equal(EntityType.parse("character"), "character");

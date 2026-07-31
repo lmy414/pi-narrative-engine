@@ -1,5 +1,5 @@
-import type { WorldGraph } from "./world-graph.ts";
-import type { VisibilityDeclaration, StateDeclaration, Modality } from "./types.ts";
+import type { WorldGraph } from "./world-graph.js";
+import type { VisibilityDeclaration, StateDeclaration, Modality } from "./types.js";
 
 const INFINITY = "Infinity";
 

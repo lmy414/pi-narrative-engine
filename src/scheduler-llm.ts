@@ -20,7 +20,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SchedulerCtx, SillyTavernCard, DebugBus } from "@pi/scheduler";
 import { defaultStaticCardLoader } from "@pi/scheduler";
-import type { WorldGraph, EntitySnapshot, StateDeclaration } from "@pi/world-graph";
+import type { WorldGraph, EntitySnapshot, StateDeclaration } from "underworld-graph";
 import { makePlannerLlmCaller } from "./planner-llm.ts";
 import { makeRoleLlmCaller } from "./role-pool-llm.ts";
 import { makeRendererLlmCaller } from "./renderer-llm.ts";

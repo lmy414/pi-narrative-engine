@@ -10,7 +10,7 @@
  * 直接加载（pi 扩展加载器不一定走 jiti，保持 specifier 原样会导致
  * `Cannot find module './foo.ts'` 错误）。
  *
- * 注意：bare specifier（如 `@pi/world-graph`、`@earendil-works/pi-ai`）
+ * 注意：bare specifier（如 `underworld-graph`、`@earendil-works/pi-ai`）
  * 不重写，由 Node 标准解析 + 包的 exports 字段处理。
  *
  * 用法：node scripts/build.mjs [--watch]
@@ -41,7 +41,7 @@ async function listTsFiles(dir) {
  * 把相对路径 import specifier 中的 .ts 重写为 .js
  * - `from "./foo.ts"` → `from "./foo.js"`
  * - `from "./foo"` 不变（让 resolver 自己加扩展）
- * - `from "@pi/world-graph"` 等 bare specifier 不变
+ * - `from "underworld-graph"` 等 bare specifier 不变
  */
 function rewriteTsSpecifiers(code) {
   // 匹配 import ... from "..." / export ... from "..."

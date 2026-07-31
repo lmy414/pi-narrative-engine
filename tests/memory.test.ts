@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import {
   loadMemory,
   updateMemory,

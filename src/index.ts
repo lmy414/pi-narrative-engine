@@ -28,7 +28,7 @@ import path from "node:path";
 import { promises as fs, existsSync } from "node:fs";
 import url from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 import { Embedder } from "./embedder.ts";
 import { Search } from "./search.ts";
 import {

@@ -20,7 +20,7 @@
   - [4.8 可视化工具](#48-可视化工具)
   - [4.9 导入工具](#49-导入工具)
   - [4.10 渲染工具](#410-渲染工具)
-- [5. `@pi/world-graph` 包 API](#5-piworld-graph-包-api)
+- [5. `underworld-graph` 包 API](#5-underworld-graph-包-api)
 - [6. `@pi/novel-importer` 包 API](#6-pinovel-importer-包-api)
 - [6.5 `@pi/renderer` 包 API](#65-pirenderer-包-api)
 - [6.6 `@pi/role-pool` 包 API](#66-pirole-pool-包-api)
@@ -57,7 +57,7 @@
      │            │              │
      ▼            ▼              ▼
 ┌─────────┐ ┌──────────┐ ┌──────────────────────────┐
-│ Embedder│ │  Search  │ │  @pi/world-graph         │
+│ Embedder│ │  Search  │ │  underworld-graph         │
 │ (Xenova)│ │ (SDK 薄) │ │  - WorldGraph 类         │
 │ 512 维  │ │  包装)   │ │  - EntitySnapshot        │
 │ bge-zh  │ │          │ │  - StateDeclaration      │
@@ -444,7 +444,7 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 **返回**：`StateDeclaration[]` — 该角色在 `storyTime` 时刻可见的所有声明。
 
-**五步过滤**（由 `@pi/world-graph` 的 `character-view.ts` 实现，2026-07-22 语义修订：知识持续）：
+**五步过滤**（由 `underworld-graph` 的 `character-view.ts` 实现，2026-07-22 语义修订：知识持续）：
 1. 候选声明：全部 StateDeclaration（含已闭合——知识持续语义：知识不因声明闭合/实体死亡而消失）
 2. 可见性记录：`setVisibility` 显式设置 + `inferVisibility` 从 `located_in` 推断写入的记录；需覆盖 storyTime（`validFrom <= storyTime < validTo`）且 `state === "known"`
 3. 有效起点 = `max(visibility.validFrom, declaration.validFrom)`，需 `<= storyTime`（不能先于声明存在而知晓）
@@ -899,12 +899,12 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ---
 
-## 5. `@pi/world-graph` 包 API
+## 5. `underworld-graph` 包 API
 
 ### `WorldGraph` 类
 
 ```typescript
-import { WorldGraph } from "@pi/world-graph";
+import { WorldGraph } from "underworld-graph";
 
 // 异步工厂（必须用 create，不能用 new）
 const wg = await WorldGraph.create({
@@ -1564,7 +1564,7 @@ interface VisibilityDeclaration {
 
 ## 10. SDK 检索能力
 
-`@pi/world-graph` 包启用 `@nicia-ai/typegraph@0.40.0` 的内置检索能力。
+`underworld-graph` 包启用 `@nicia-ai/typegraph@0.40.0` 的内置检索能力。
 
 ### Graph Schema 中的可检索字段
 
@@ -2107,7 +2107,7 @@ npx tsx --test packages/scheduler/tests/debug.test.ts
 **Graph Schema 初始化**：通过 `createStoreWithSchema`（异步 factory），自动建表/初始化 schema/迁移。默认 `systemIndexes: "materialize"`，无需手动调用 `materializeIndexes()` 或 `rebuildFulltext()`。
 
 **workspace 子包结构**：
-- `packages/world-graph/` — `@pi/world-graph`（WorldGraph 类 + 类型）
+- `packages/world-graph/` — `underworld-graph`（WorldGraph 类 + 类型）
 - `packages/novel-importer/` — `@pi/novel-importer`（V3 导入管道）
 - `packages/renderer/` — `@pi/renderer`（渲染器子包）
 - `packages/admin/` — `@pi/admin`（应用级配置管理后端）

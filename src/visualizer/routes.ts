@@ -12,8 +12,8 @@
  * forceFulltext=true（Search.fulltext 不依赖 embedder，见 src/search.ts）。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { WorldGraph } from "@pi/world-graph";
-import type { EventRecordInput } from "@pi/world-graph";
+import type { WorldGraph } from "underworld-graph";
+import type { EventRecordInput } from "underworld-graph";
 import type { Search } from "../search.ts";
 import type { DebugBus } from "../debug/types.ts";
 import { handleDebugStream, handleDebugEvents, handleDebugClear } from "../debug/sse.ts";
