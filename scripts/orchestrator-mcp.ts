@@ -29,6 +29,11 @@ async function main(): Promise<void> {
   //    MCP 握手后才能拿到客户端名，runtime 延迟到首次 run 时构造
   const runtimeProvider = async (clientName?: string) => {
     const config = await loadLlmConfig({ clientName });
+    const keyPreview = `${config.apiKey.slice(0, 4)}…${config.apiKey.slice(-4)}`;
+    console.error(
+      `[narrative-orchestrator] LLM 配置: clientName=${clientName ?? "(未识别)"} ` +
+        `provider=${config.model.provider} model=${config.model.name} key=${keyPreview}`,
+    );
     return createRuntimeFromConfig(config);
   };
 
