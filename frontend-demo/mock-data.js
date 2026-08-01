@@ -104,6 +104,11 @@ const MOCK_VISIBILITY = [
 ];
 
 const MOCK_CHAT_SESSIONS = [
+  { id: 'session-03', name: '第24次编排', created: '2026-08-02T02:00:00Z', modified: '2026-08-02T03:30:00Z', messageCount: 24, firstMessage: '让艾莉亚在第七星港触发身世线索', live: true },
+  { id: 'session-05', name: '新增角色墨先生', created: '2026-08-02T02:24:00Z', modified: '2026-08-02T02:50:00Z', messageCount: 6, firstMessage: '引入一个神秘商人角色' },
+  { id: 'session-04', name: '角色对峙场景讨论', created: '2026-08-02T00:40:00Z', modified: '2026-08-02T01:20:00Z', messageCount: 12, firstMessage: '林远航与老陈的争执场景' },
+  { id: 'session-06', name: '迷雾星云初登场策划', created: '2026-08-01T14:00:00Z', modified: '2026-08-01T15:30:00Z', messageCount: 9, firstMessage: '规划曙光号进入迷雾星云' },
+  { id: 'session-07', name: '世界观基础设定', created: '2026-08-01T08:00:00Z', modified: '2026-08-01T09:12:00Z', messageCount: 15, firstMessage: '星门协议是什么' },
   { id: 'session-01', name: '第一章 启程', created: '2026-07-15T10:00:00Z', modified: '2026-07-15T12:00:00Z', messageCount: 8, firstMessage: '帮我规划第一章' },
   { id: 'session-02', name: '迷雾星云设定', created: '2026-07-18T09:00:00Z', modified: '2026-07-18T10:30:00Z', messageCount: 5, firstMessage: '设计迷雾星云的环境' }
 ];
@@ -116,13 +121,79 @@ const MOCK_CHAT_MESSAGES = {
   'session-02': [
     { role: 'user', text: '设计迷雾星云的环境', ts: '2026-07-18T09:00:00Z' },
     { role: 'assistant', text: '迷雾星云是一片充满电磁干扰的星域，内部漂浮着远古文明的碎片。', ts: '2026-07-18T09:01:00Z' }
+  ],
+  'session-03': [
+    { role: 'user', text: '接下来让艾莉亚在第七星港遇到一个神秘商人，触发她的身世线索。', ts: '2026-08-02T03:00:00Z' },
+    {
+      role: 'assistant',
+      name: '策划 AI',
+      text: '好的，我来规划这段剧情。先让我检索一下世界图中第七星港和艾莉亚的当前状态。',
+      ts: '2026-08-02T03:00:02Z',
+      toolCalls: [
+        { name: '检索世界图', icon: 'search', status: 'done', duration: '1.2s', result: '找到 3 个相关实体：艾莉亚（角色）、第七星港（地点）、破碎星图（物品）' },
+        { name: '调用编排器', icon: 'git-branch', status: 'done', duration: '2.4s', result: '编排规划完成，生成 3 个阶段任务' }
+      ]
+    },
+    { role: 'system', text: 'AI 触发编排 · 多代理协作中', ts: '2026-08-02T03:00:05Z' },
+    { role: 'character', name: '林远航', characterId: 'char-01', roleTag: '主角', text: '这颗共鸣水晶…… 为何我觉得如此熟悉？仿佛在哪里见过。商人，你这水晶从何而来？', ts: '2026-08-02T03:00:06Z' },
+    { role: 'assistant', name: '策划 AI', text: '已生成编排计划（计划 plan-01），等待你的确认。', ts: '2026-08-02T03:00:08Z' }
+  ],
+  'session-04': [
+    { role: 'user', text: '林远航与老陈的争执场景', ts: '2026-08-02T00:40:00Z' },
+    { role: 'assistant', name: '策划 AI', text: '建议在迷雾星云外围设置一次补给站冲突：老陈坚持返航，林远航执意深入。', ts: '2026-08-02T00:40:30Z' }
+  ],
+  'session-05': [
+    { role: 'user', text: '引入一个神秘商人角色', ts: '2026-08-02T02:24:00Z' },
+    { role: 'assistant', name: '策划 AI', text: '新角色「墨先生」：第七星港黑市的古董商，掌握远古遗物的线索，与艾莉亚的身世存在隐秘关联。', ts: '2026-08-02T02:24:40Z' }
+  ],
+  'session-06': [
+    { role: 'user', text: '规划曙光号进入迷雾星云', ts: '2026-08-01T14:00:00Z' },
+    { role: 'assistant', name: '策划 AI', text: '进入迷雾星云的三个关键节点：电磁干扰爆发、远古星门显形、第一次遭遇未知信号。', ts: '2026-08-01T14:01:00Z' }
+  ],
+  'session-07': [
+    { role: 'user', text: '星门协议是什么', ts: '2026-08-01T08:00:00Z' },
+    { role: 'assistant', name: '策划 AI', text: '星门协议是一种古老的星际航行技术，据说能折叠空间，但完整的协议早已失传。', ts: '2026-08-01T08:01:00Z' }
   ]
 };
 
 const MOCK_SCHEDULER_STATUS = {
   queue: { length: 0, items: [] },
   plans: [
-    { planId: 'plan-01', storyTime: 'ch006.ev008', mode: 'plan', characterIds: ['char-01', 'char-02'], outputCount: 3, errorCount: 0 }
+    {
+      planId: 'plan-01',
+      storyTime: 'ch006.ev008',
+      mode: 'plan',
+      characterIds: ['char-01', 'char-02'],
+      outputCount: 3,
+      errorCount: 0,
+      stages: [
+        { stage: 'planner', name: '规划', agent: '策划代理', status: 'done', duration: '4.2s' },
+        { stage: 'role', name: '角色', agent: '角色代理', status: 'running', duration: '2.8s' },
+        { stage: 'reasoner', name: '推理', agent: '推理代理', status: 'waiting', duration: null },
+        { stage: 'renderer', name: '渲染', agent: '渲染代理', status: 'waiting', duration: null }
+      ],
+      sections: [
+        {
+          id: 'planning',
+          title: '策划阶段结果',
+          icon: 'list',
+          bullets: [
+            '在第七星港集市引入神秘商人，兜售远古遗物',
+            '新增「共鸣水晶」关联剧情，指向艾莉亚的身世线索',
+            '触发事件「星港集市相遇」，推进主线剧情'
+          ]
+        },
+        {
+          id: 'characters',
+          title: '角色演绎片段预览',
+          icon: 'users',
+          snippets: [
+            { speaker: '林远航', text: '这颗共鸣水晶…… 为何我觉得如此熟悉？仿佛在哪里见过。' },
+            { speaker: '神秘商人', text: '小伙子好眼力。这块水晶乃是上古遗物，与星辰之海的旧族有关。' }
+          ]
+        }
+      ]
+    }
   ],
   defaultMode: 'plan'
 };
