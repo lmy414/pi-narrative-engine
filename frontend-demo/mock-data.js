@@ -208,7 +208,12 @@ const MOCK_DEBUG_EVENTS = [
   { id: 'log-07', level: 'info', module: 'reasoner', stage: 'reasoner', traceId: 'trace-01', spanId: 'span-reasoner', type: 'end', message: '推演阶段完成', payload: { changes: 2, visibilityChanges: 1, changeList: ['char-01.location', 'loc-02.hasRuin'] }, ts: '2026-08-02T03:15:12Z' },
   { id: 'log-08', level: 'info', module: 'renderer', stage: 'renderer', traceId: 'trace-01', spanId: 'span-renderer', type: 'start', message: '渲染阶段开始', payload: {}, ts: '2026-08-02T03:15:13Z' },
   { id: 'log-09', level: 'info', module: 'renderer', stage: 'renderer', traceId: 'trace-01', spanId: 'span-renderer', type: 'end', message: '渲染阶段完成', payload: { chapterPath: '正文/ch006.md', chars: 3200, title: '第六章 星门遗迹' }, ts: '2026-08-02T03:15:18Z' },
-  { id: 'log-10', level: 'info', module: 'orchestrator', stage: 'orchestrator', traceId: 'trace-01', spanId: 'span-root', type: 'end', message: '编排完成', payload: { durationMs: 18000 }, ts: '2026-08-02T03:15:19Z' }
+  { id: 'log-10', level: 'info', module: 'orchestrator', stage: 'orchestrator', traceId: 'trace-01', spanId: 'span-root', type: 'end', message: '编排完成', payload: { durationMs: 18000 }, ts: '2026-08-02T03:15:19Z' },
+  { id: 'log-11', level: 'debug', module: 'world-graph', stage: 'world-graph', traceId: 'trace-01', spanId: 'span-graph', type: 'log', message: '世界图快照加载完成（132 实体 / 358 关系）', payload: { entities: 132, relations: 358 }, ts: '2026-08-02T03:15:20Z' },
+  { id: 'log-12', level: 'warn', module: 'reasoner', stage: 'reasoner', traceId: 'trace-01', spanId: 'span-reasoner', type: 'log', message: '实体「古玉佩」存在冲突声明，已按时间线裁决', payload: { entityId: 'item-03', conflicts: 2 }, ts: '2026-08-02T03:15:21Z' },
+  { id: 'log-13', level: 'error', module: 'renderer', stage: 'renderer', traceId: 'trace-02', spanId: 'span-renderer', type: 'end', message: '章节渲染失败 - 模型响应超时（30s）', payload: { chapterPath: '正文/ch007.md', durationMs: 30000, error: 'timeout' }, stack: ['RenderSession.renderChapter (renderer-agent.ts:142)', 'LLMProvider.stream (providers/anthropic.ts:89)', 'AbortError: The operation was aborted due to timeout'], ts: '2026-08-02T03:15:22Z' },
+  { id: 'log-14', level: 'debug', module: 'world-graph', stage: 'world-graph', traceId: 'trace-02', spanId: 'span-graph', type: 'log', message: '写入 1 个新实体（墨先生），类型：人物', payload: { entityId: 'char-09', entityType: 'character' }, ts: '2026-08-02T03:15:23Z' },
+  { id: 'log-15', level: 'error', module: 'embedder', stage: 'embedder', traceId: 'trace-02', spanId: 'span-embedder', type: 'log', message: '嵌入服务连接失败，已降级为本地嵌入模型', payload: { service: 'text-embedding-3', fallback: 'local-minilm' }, stack: ['EmbeddingClient.connect (embedding/client.ts:54)', 'ConnectionRefusedError: localhost:8001'], ts: '2026-08-02T03:15:24Z' }
 ];
 
 const MOCK_FILES = [
