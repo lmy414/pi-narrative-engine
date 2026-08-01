@@ -1,0 +1,273 @@
+/* ============================================================
+   shell.css — 启动器壳层 + 工作台壳层（顶部导航）
+   Source: narrative-engine-design/pages/world-graph.html (:1302-1410)
+           narrative-engine-design/pages/project-management.html
+   ============================================================ */
+
+/* ---------- 壳层布局 ---------- */
+.app-shell { min-height: 100%; display: flex; flex-direction: column; }
+
+/* 视图根节点：flex column 填满剩余高度。
+   内部视图分为两类：
+   - 自带 .app-main 的复合视图（graph/events/studio/files）→ 保持 flex 拉伸
+   - 普通滚动内容（projects/settings/debug）→ flex:1 + overflow auto */
+#view-root.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#view-root.app-main > div:not(.app-main) {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ---------- 顶栏（工作台） ---------- */
+.top-nav {
+  height: 52px;
+  background-color: var(--bg-50);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+/* Logo mark：28x28 渐变 brand-400→brand-600，radius-sm，白字 */
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* 项目菜单（左：logo + 项目名 + 下拉） */
+.project-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--foreground);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 220px;
+  transition: background-color 0.15s ease;
+}
+.project-menu:hover { background-color: var(--bg-200); }
+.project-menu .project-name { overflow: hidden; text-overflow: ellipsis; }
+.project-menu [data-lucide] { color: var(--text-500); flex-shrink: 0; }
+.project-menu .dropdown-menu { top: calc(100% + 4px); left: 0; right: auto; min-width: 180px; }
+
+/* 顶栏导航项（覆盖旧 .app-sidebar 语境，提升特异性） */
+.top-nav .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-500);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.top-nav .nav-item:hover {
+  color: var(--foreground);
+  background-color: var(--bg-200);
+}
+.top-nav .nav-item.active {
+  color: var(--brand-500);
+  background-color: var(--brand-50);
+}
+.top-nav .nav-item.disabled { opacity: 0.4; pointer-events: none; }
+
+/* StoryTime 选择器 */
+.storytime-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--brand-50);
+  border: 1px solid var(--brand-200);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.storytime-selector:hover {
+  background-color: var(--brand-100);
+  border-color: var(--brand-300);
+}
+.storytime-selector > [data-lucide] { color: var(--brand-500); flex-shrink: 0; }
+.storytime-label {
+  font-size: 11px;
+  color: var(--brand-600);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+}
+.storytime-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-700);
+  font-family: var(--font-mono);
+  line-height: 1.2;
+}
+.storytime-selector .dropdown-menu { top: calc(100% + 4px); right: 0; min-width: 180px; max-height: 320px; overflow: auto; }
+
+/* 全局搜索（覆盖旧 .global-search 语境） */
+.top-nav .global-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-200);
+  border: 1px solid transparent;
+  width: 200px;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.top-nav .global-search:focus-within {
+  background-color: var(--bg-50);
+  border-color: var(--brand-300);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-500) 12%, transparent);
+}
+.top-nav .global-search > [data-lucide] { color: var(--text-400); flex-shrink: 0; }
+/* 覆盖旧 app.css 对搜索图标的绝对定位，保持 flex 流内布局 */
+.top-nav .global-search > [data-lucide="search"] { position: static; left: auto; }
+.top-nav .global-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+.top-nav .global-search input::placeholder { color: var(--text-400); }
+.search-kbd {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-300);
+  color: var(--text-500);
+}
+.top-nav .search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  width: 320px;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 320px;
+  overflow: auto;
+  z-index: 600;
+}
+.top-nav .search-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.top-nav .search-item:hover { background: var(--muted); }
+
+/* 图标按钮 */
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-500);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.icon-btn:hover {
+  background-color: var(--bg-200);
+  color: var(--foreground);
+}
+
+/* 用户头像：28x28 渐变圆形 */
+.avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  user-select: none;
+}
+
+/* ---------- 顶栏（启动器 / 项目管理页） ---------- */
+.launcher-nav {
+  justify-content: space-between;
+}
+.launcher-nav .launcher-inner {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.launcher-nav .launcher-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.launcher-nav .launcher-brand .brand-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.launcher-nav .launcher-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}

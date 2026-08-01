@@ -30,6 +30,16 @@ const ROUTES = [
   { id: 'settings', hash: '#/settings', label: '设置', icon: 'settings' }
 ];
 
+// 工作台顶部导航项（不含项目管理——项目管理为独立启动器页面）
+const WORKSPACE_NAV = [
+  { id: 'graph', hash: '#/graph', label: '世界图', icon: 'globe' },
+  { id: 'events', hash: '#/events', label: '事件链', icon: 'git-branch' },
+  { id: 'studio', hash: '#/studio', label: '创作编排', icon: 'sparkles' },
+  { id: 'debug', hash: '#/debug', label: '调试', icon: 'bug' },
+  { id: 'files', hash: '#/files', label: '文件', icon: 'file-text' },
+  { id: 'settings', hash: '#/settings', label: '设置', icon: 'settings' }
+];
+
 const VIEWS_NEED_PROJECT = new Set(['graph', 'events', 'studio', 'debug', 'files', 'settings-project']);
 
 // =================== 工具函数 ===================
@@ -160,61 +170,121 @@ function viewState(routeId) {
 window.viewState = viewState;
 
 // =================== Shell ===================
+function projectDisplayName() {
+  return App.activeProject ? (App.activeProject.meta?.name || App.activeProject.relativePath) : '未激活项目';
+}
+
 function renderShell() {
   const active = routeId();
-  const nav = ROUTES.map(r => {
-    const disabled = (r.id !== 'projects' && r.id !== 'settings') && !App.activeProject;
-    return `<a href="${r.hash}" class="nav-item ${active === r.id ? 'active' : ''} ${disabled ? 'disabled' : ''}" data-hash="${r.hash}">${icon(r.icon, 'w-4 h-4')}<span>${r.label}</span></a>`;
-  }).join('');
-
-  const projectName = App.activeProject ? App.activeProject.meta?.name || App.activeProject.relativePath : '未激活项目';
-  const stOptions = App.storyTimes.map(st => `<option value="${st}" ${App.storyTime === st ? 'selected' : ''}>${st}</option>`).join('');
-
-  const html = `
-    <header class="app-header">
-      <div class="flex items-center gap-3">
-        <div class="brand-logo">${icon('book-open', 'w-5 h-5')}</div>
-        <div>
-          <h1 class="font-display text-lg font-medium leading-tight">Narrative Engine</h1>
-          <p class="text-xs text-muted">AI 驱动的小说创作工作台</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        ${App.activeProject ? `
-          <div class="project-chip" onclick="navigate('#/projects')">
-            ${icon('folder', 'w-3.5 h-3.5')}
-            <span class="truncate max-w-[160px]">${escapeHtml(projectName)}</span>
-          </div>
-          <div class="storytime-select">
-            ${icon('clock', 'w-3.5 h-3.5 text-muted')}
-            <select class="select" onchange="App.storyTime=this.value; render();" ${!App.storyTimes.length ? 'disabled' : ''}>
-              <option value="">故事时间</option>
-              ${stOptions}
-            </select>
-          </div>
-        ` : ''}
-        <div class="global-search">
-          ${icon('search', 'w-4 h-4 text-muted')}
-          <input type="text" class="input" placeholder="搜索实体或事件…" value="${escapeHtml(App.searchQuery)}"
-            oninput="onGlobalSearch(this.value)" onfocus="renderSearchDropdown()" onblur="setTimeout(hideSearchDropdown,200)">
-          <div id="search-dropdown" class="search-dropdown hidden"></div>
-        </div>
-        <button class="btn btn-icon btn-ghost" onclick="toggleTheme()" title="切换主题">${icon(App.theme === 'light' ? 'moon' : 'sun', 'w-4 h-4')}</button>
-      </div>
-    </header>
-    <div class="app-main">
-      <aside class="app-sidebar">
-        <nav class="sidebar-nav">${nav}</nav>
-      </aside>
-      <main class="app-content" id="view-root"></main>
-    </div>
-    ${App.loading ? `<div class="global-loading"><div class="spinner"></div></div>` : ''}
-  `;
-
+  const html = active === 'projects' ? launcherShellHtml() : workspaceShellHtml(active);
   const app = $('#app');
-  app.innerHTML = `<div class="app-shell">${html}</div>`;
+  app.innerHTML = `<div class="app-shell">${html}${App.loading ? `<div class="global-loading"><div class="spinner"></div></div>` : ''}</div>`;
   refreshIcons();
   attachNavHandlers();
+}
+
+// 工作台壳层：顶部导航（logo + 项目菜单 / 6 导航项 / StoryTime + 搜索 + 帮助 + 主题 + 头像）
+function workspaceShellHtml(active) {
+  const nav = WORKSPACE_NAV.map(r => {
+    const disabled = r.id !== 'settings' && !App.activeProject;
+    return `<a href="${r.hash}" class="nav-item ${active === r.id ? 'active' : ''} ${disabled ? 'disabled' : ''}" data-hash="${r.hash}">${icon(r.icon, 'w-3.5 h-3.5')}<span>${r.label}</span></a>`;
+  }).join('');
+
+  return `
+    <nav class="top-nav">
+      <div class="flex items-center gap-2 min-w-0">
+        <div class="logo-mark">N</div>
+        <div class="project-menu dropdown" onclick="toggleNavProjectMenu(event)">
+          <span class="project-name">${escapeHtml(projectDisplayName())}</span>
+          ${icon('chevron-down', 'w-3.5 h-3.5')}
+          <div id="project-dropdown" class="dropdown-menu hidden">
+            ${App.activeProject ? `<div class="dropdown-item disabled">${icon('folder', 'w-4 h-4')}${escapeHtml(projectDisplayName())}</div>` : ''}
+            <div class="dropdown-item" onclick="navigate('#/projects')">${icon('folder-open', 'w-4 h-4')}项目管理</div>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-1">${nav}</div>
+      <div class="flex items-center gap-2">
+        ${storyTimeSelectorHtml()}
+        <div class="global-search">
+          ${icon('search', 'w-3.5 h-3.5')}
+          <input type="text" placeholder="搜索…" value="${escapeHtml(App.searchQuery)}"
+            oninput="onGlobalSearch(this.value)" onfocus="renderSearchDropdown()" onblur="setTimeout(hideSearchDropdown,200)">
+          <span class="search-kbd">⌘K</span>
+          <div id="search-dropdown" class="search-dropdown hidden"></div>
+        </div>
+        <button class="icon-btn" title="帮助" onclick="toast('Demo 版帮助中心暂未开放', 'info')">${icon('circle-help', 'w-4 h-4')}</button>
+        <button class="icon-btn" title="切换主题" onclick="toggleTheme()">${icon(App.theme === 'light' ? 'moon' : 'sun', 'w-4 h-4')}</button>
+        <div class="avatar" title="Demo 用户">Z</div>
+      </div>
+    </nav>
+    <div id="view-root" class="app-main"></div>
+  `;
+}
+
+// StoryTime 全局选择器（点击展开下拉，选择后切换当前故事时间）
+function storyTimeSelectorHtml() {
+  if (!App.activeProject || !App.storyTimes.length) return '';
+  const options = App.storyTimes.map(st =>
+    `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime='${st}';render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
+  ).join('');
+  return `
+    <div class="storytime-selector dropdown" onclick="toggleNavStoryTime(event)">
+      <div class="flex flex-col leading-tight">
+        <span class="storytime-label">StoryTime</span>
+        <span class="storytime-value">${escapeHtml(App.storyTime || '—')}</span>
+      </div>
+      ${icon('chevron-down', 'w-3.5 h-3.5')}
+      <div id="storytime-dropdown" class="dropdown-menu hidden">${options}</div>
+    </div>
+  `;
+}
+
+// 启动器壳层（项目管理页）：logo + 项目名 + 设置/主题入口，无工作台导航
+function launcherShellHtml() {
+  return `
+    <nav class="top-nav launcher-nav">
+      <div class="launcher-inner">
+        <div class="launcher-brand">
+          <div class="logo-mark">N</div>
+          <span class="brand-title">Narrative Engine</span>
+        </div>
+        <div class="launcher-actions">
+          ${App.activeProject ? `
+            <div class="project-chip" onclick="navigate('#/graph')">
+              ${icon('folder', 'w-3.5 h-3.5')}
+              <span class="truncate max-w-[160px]">${escapeHtml(projectDisplayName())}</span>
+            </div>
+          ` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="toggleTheme()" title="切换主题">${icon(App.theme === 'light' ? 'moon' : 'sun', 'w-4 h-4')} 主题</button>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('#/settings')">${icon('settings', 'w-4 h-4')} 设置</button>
+          <div class="avatar" title="Demo 用户">Z</div>
+        </div>
+      </div>
+    </nav>
+    <div id="view-root" class="app-main"></div>
+  `;
+}
+
+// 壳层下拉控制（函数名避开 views.js 的 toggleProjectMenu(dir)）
+function toggleDropdown(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const willShow = el.classList.contains('hidden');
+  document.querySelectorAll('.dropdown-menu').forEach(m => { if (m !== el) m.classList.add('hidden'); });
+  if (willShow) el.classList.remove('hidden');
+}
+function toggleNavProjectMenu(e) { if (e) e.stopPropagation(); toggleDropdown('project-dropdown'); }
+function toggleNavStoryTime(e) { if (e) e.stopPropagation(); toggleDropdown('storytime-dropdown'); }
+
+// 页面其他区域点击时关闭所有下拉（幂等绑定一次）
+let shellClickGuardBound = false;
+function bindShellClickGuard() {
+  if (shellClickGuardBound) return;
+  shellClickGuardBound = true;
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.dropdown')) document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+  });
 }
 
 function attachNavHandlers() {
@@ -267,6 +337,7 @@ function toggleTheme() {
 
 // =================== 初始化 ===================
 async function init() {
+  bindShellClickGuard();
   document.documentElement.className = App.theme;
   try {
     const data = await apiCall('getActiveProject');
