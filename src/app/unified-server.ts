@@ -15,9 +15,11 @@
  */
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { resolve, dirname } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PiStatusContext, EmbedderLike } from "@pi/admin";
+import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import type { PiStatusDeps, ResolvedModel, EmbedderLike } from "@pi/admin";
+import { _defaultConfigDir } from "@pi/admin";
 import { handleApi } from "../visualizer/routes.ts";
 import type { VisualizerContext } from "../visualizer/routes.ts";
 import {
@@ -26,6 +28,7 @@ import {
   resolveDefaultUiDir,
 } from "../visualizer/server.ts";
 import type { DebugBus } from "../debug/types.ts";
+import type { LlmConfigStore } from "../orchestrator/llm-config.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { handleExtApi } from "./routes-ext.ts";
 import { handleChatApi } from "./routes-chat.ts";
@@ -40,12 +43,14 @@ export interface UnifiedServerOptions {
   port?: number;
   /** 静态资源目录，缺省自动探测 visualizer-ui */
   uiDir?: string;
-  /** 扩展仓库根（doctor/version/update 用），缺省为仓库根 */
+  /** 扩展仓库根（doctor/version 用），缺省为仓库根 */
   repoRoot?: string;
   /** 规则集模板目录，缺省 <repoRoot>/templates/novel */
   templatesDir?: string;
-  /** PI 上下文（PI 内启动时注入；standalone 为 null） */
-  piContext?: PiStatusContext | null;
+  /** 应用配置目录（agentDir = <configDir>/pi-agent；缺省 = appConfigDir ?? 平台默认目录） */
+  configDir?: string;
+  /** LLM 配置中心（pi-status 的模型解析源；null 时 pi-status 降级展示） */
+  llmConfigStore?: LlmConfigStore | null;
   /** embedder 实例（启用向量检索时注入） */
   embedder?: EmbedderLike | null;
   /** 调试事件总线（注入后启用 /api/debug/*） */
@@ -63,6 +68,30 @@ export interface UnifiedServer {
 }
 
 /**
+ * 从 LlmConfigStore 解析当前模型（pi-status 展示用）
+ *
+ * 解析链与 chat-context resolveModelConfig 一致：default slot → env。
+ * getModel 不依赖 API Key；hasKey 单独经 getApiKey 探测（无 key 不抛错，记 false）。
+ * 完全解析不出（无显式配置且 env 无 key）时返回 null。
+ */
+function resolveModelFromStore(store: LlmConfigStore | null): ResolvedModel | null {
+  if (!store) return null;
+  try {
+    const model = store.getModel("default");
+    let hasKey = false;
+    try {
+      store.getApiKey("default");
+      hasKey = true;
+    } catch {
+      // 配置链与 env 均无 key —— 模型可展示，hasKey=false
+    }
+    return { provider: model.provider, modelId: model.id, hasKey };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 启动统一服务。
  *
  * 世界图路由需要活跃项目：未激活时返回 409 NO_ACTIVE_PROJECT
@@ -72,11 +101,21 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
   const repoRoot = opts.repoRoot ?? resolve(__dirname, "../..");
   const uiDir = opts.uiDir ?? resolveDefaultUiDir();
 
+  // pi-status 依赖：authStorage 独立只读实例（与主会话运行时实例读同一 auth.json）；
+  // resolveModel 走 LlmConfigStore default slot → env（同 chat-context resolveModelConfig 解析链）
+  const configDir = opts.configDir ?? opts.appConfigDir ?? _defaultConfigDir();
+  const authStorage = AuthStorage.create(join(configDir, "pi-agent", "auth.json"));
+  const llmStore = opts.llmConfigStore ?? null;
+  const piStatusDeps: PiStatusDeps = {
+    authStorage,
+    resolveModel: () => resolveModelFromStore(llmStore),
+  };
+
   const extCtx = {
     registry: opts.registry,
     repoRoot,
     templatesDir: opts.templatesDir ?? resolve(repoRoot, "templates", "novel"),
-    piContext: opts.piContext ?? null,
+    piStatus: piStatusDeps,
     embedder: opts.embedder ?? null,
     appConfigDir: opts.appConfigDir,
   };

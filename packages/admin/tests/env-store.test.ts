@@ -6,7 +6,6 @@
  * - _parseEnvContent：注释/空行/kv/unknown 识别
  * - readEnvFile：文件不存在/正常读取/只提取扩展专属变量
  * - writeEnvFile：原地更新/追加新 key/删除 key/保留注释与未知字段/原子写
- * - loadEnvFile：注入 process.env/不覆盖已存在值/文件不存在静默跳过
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,7 +14,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
-  loadEnvFile,
   readEnvFile,
   writeEnvFile,
   _parseEnvContent,
@@ -153,42 +151,6 @@ test("writeEnvFile: 值含空格自动加引号", async () => {
     await writeEnvFile(envPath, { HF_ENDPOINT: "https://hf mirror.com" });
     const content = await readFile(envPath, "utf8");
     assert.ok(content.includes('HF_ENDPOINT="https://hf mirror.com"'));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("loadEnvFile: 注入 process.env 不覆盖已存在值", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
-  try {
-    const envPath = join(dir, ".env");
-    await writeFile(
-      envPath,
-      ["HF_ENDPOINT=from-file", "PI_DEBUG=off"].join("\n"),
-      "utf8",
-    );
-    // 先设 process.env 模拟 shell 已设值
-    const oldValue = process.env.HF_ENDPOINT;
-    process.env.HF_ENDPOINT = "from-shell";
-    try {
-      await loadEnvFile(envPath);
-      assert.equal(process.env.HF_ENDPOINT, "from-shell", "不应覆盖 shell 已设值");
-      assert.equal(process.env.PI_DEBUG, "off");
-    } finally {
-      if (oldValue === undefined) delete process.env.HF_ENDPOINT;
-      else process.env.HF_ENDPOINT = oldValue;
-      delete process.env.PI_DEBUG;
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("loadEnvFile: 文件不存在静默跳过", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
-  try {
-    await loadEnvFile(join(dir, "nonexistent.env"));
-    // 不抛错即通过
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

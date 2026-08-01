@@ -30,19 +30,6 @@ export interface PiModelInfo {
   provider: string;
 }
 
-/** PI 上下文最小接口
- * 与 PI 本体的 ExtensionContext 结构兼容（Pick model + modelRegistry），
- * 便于测试 mock，不强制依赖 @earendil-works/pi-coding-agent 的完整类型。
- */
-export interface PiStatusContext {
-  /** 当前模型（可能未配置） */
-  model?: PiModelInfo | null;
-  /** 模型注册表，用于查询 API Key 是否已配置 */
-  modelRegistry: {
-    hasConfiguredAuth(model: PiModelInfo): boolean;
-  };
-}
-
 /** Embedder 最小接口（warmup 用，与 src/embedder.ts 的 Embedder 结构兼容） */
 export interface EmbedderLike {
   init(): Promise<void>;

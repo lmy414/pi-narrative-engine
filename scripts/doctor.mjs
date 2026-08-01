@@ -5,7 +5,7 @@
  * 2026-07-29 重构：检查逻辑抽取到 @pi/admin 子包（packages/admin/src/doctor.ts）
  * 本文件仅作为 CLI 入口，负责参数解析与输出展示。
  *
- * 用法：npm run doctor [--novel <小说工程目录>] [--extension-dir <扩展目录>]
+ * 用法：npm run doctor [--novel <小说工程目录>]
  *
  * 退出码：全部通过 0；有 ❌ 则 1（⚠️ 不阻断）
  */
@@ -22,11 +22,10 @@ const repoRoot = resolve(__dirname, "..");
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { novel: null, extensionDir: null };
+  const args = { novel: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--novel" && argv[i + 1]) args.novel = resolve(argv[++i]);
-    else if (a === "--extension-dir" && argv[i + 1]) args.extensionDir = resolve(argv[++i]);
   }
   return args;
 }
@@ -40,14 +39,12 @@ const args = parseArgs(process.argv.slice(2));
 const report = await runDoctor({
   repoRoot,
   novelDir: args.novel ?? undefined,
-  extensionDir: args.extensionDir ?? undefined,
 });
 
 console.log("\n" + "═".repeat(50));
 console.log("narrative-engine 环境自检");
 console.log("═".repeat(50));
 if (args.novel) console.log(`小说工程: ${args.novel}`);
-if (args.extensionDir) console.log(`扩展目录: ${args.extensionDir}`);
 console.log("");
 
 console.log(formatDoctorReport(report));

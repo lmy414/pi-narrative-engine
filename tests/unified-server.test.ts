@@ -6,9 +6,8 @@
  *   open-folder 会 spawn 系统终端/文件管理器，不在测试范围）
  * - 世界图路由与活跃项目绑定：未激活 409、激活后可用、切换后数据隔离
  * - /api/files/*     tree / read / write / create / delete + 乐观锁 + 路径安全
- * - /api/admin/*     config(.env) / rulesets / novel-json / embedder status
- *   （doctor 与 version 会 spawn pi/git，update 走 git，均不在测试范围）
- * - /api/admin/update/stream 无活跃项目且无 targetDir 时的错误事件
+ * - /api/admin/*     config(.env) / rulesets / novel-json / embedder status /
+ *   pi-status（doctor 与 version 会 spawn git，均不在测试范围）
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -409,17 +408,13 @@ test("admin/embedder/warmup: 无 embedder 时 501", async () => {
   assert.equal(r.error?.code, "EMBEDDER_UNAVAILABLE");
 });
 
-test("admin/update/stream: 无 targetDir 且能解析时返回 SSE 错误事件或执行", async () => {
-  // 活跃项目存在 → targetDir 缺省为活跃项目扩展目录；repoRoot 是 tmp 目录
-  // （非 git 仓库），runUpdate 应立即产出 error 事件并结束
-  const res = await fetch(`${base}api/admin/update/stream`);
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get("content-type") ?? "", /text\/event-stream/);
-  const text = await res.text();
-  const first = text.split("\n\n")[0];
-  assert.ok(first.startsWith("data: "));
-  const evt = JSON.parse(first.slice("data: ".length));
-  assert.equal(evt.stage, "error");
+test("admin/pi-status: 未装配 LlmConfigStore 时降级（model=null, hasKey=false）", async () => {
+  const r = await api("/admin/pi-status");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.model, null);
+  assert.equal(r.data.hasKey, false);
+  assert.equal(r.data.piVersion, null);
+  assert.ok(Array.isArray(r.data.warnings));
 });
 
 // ============ /api/admin/app-config ============
@@ -427,7 +422,7 @@ test("admin/update/stream: 无 targetDir 且能解析时返回 SSE 错误事件�
 test("admin/app-config: 读取默认配置 → 更新 → 回读", async () => {
   const def = await api("/admin/app-config");
   assert.equal(def.ok, true);
-  assert.equal(def.data.launcher.piExecutable, "pi");
+  assert.deepEqual(def.data.launcher.defaultScanRoots, []);
 
   const w = await sendJson("PUT", "/admin/app-config", {
     launcher: { defaultScanRoots: [root] },

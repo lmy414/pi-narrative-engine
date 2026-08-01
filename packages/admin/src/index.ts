@@ -2,14 +2,12 @@
 /**
  * @pi/admin 子包入口
  *
- * narrative-engine 配置管理后端核心库：env 读写、PI 状态查询、规则集管理、
- * 依赖检查、一键更新、向量模型状态、novel.json 管理。
+ * narrative-engine 配置管理后端核心库：env 读写、LLM 状态查询、规则集管理、
+ * 依赖检查、版本对比、向量模型状态、novel.json 管理。
  *
  * 架构定位（与 @pi/novel-launcher 等子包一致）：
  * - workspace 子包（private: true，独立开发）
- * - 仅核心库 API，不含 HTTP 服务层（前端阶段再加薄服务层调用本包）
- * - 不随 narrative-engine 扩展运行时加载（不在 src/index.ts 装配链上），
- *   但被 src/index.ts 的 session_start 用于加载 .env，被 scripts/doctor.mjs 用于自检
+ * - 仅核心库 API，HTTP 服务层在 src/app/routes-ext.ts
  *
  * 软隔离约定：
  * - 无前缀 = 公共 API（外部消费者引用）
@@ -22,7 +20,6 @@
 
 // 扩展专属 .env 读写（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL）
 export {
-  loadEnvFile,
   readEnvFile,
   writeEnvFile,
   EXTENSION_ENV_KEYS,
@@ -32,12 +29,15 @@ export type {
   ExtensionEnvKey,
 } from "./env-store.ts";
 
-// PI 宿主状态只读查询（ctx.model + ctx.modelRegistry）
+// LLM 状态只读查询（pure-SDK：AuthStorage + LlmConfigStore 解析链）
 export {
   getPiStatus,
-  assertPiReady,
 } from "./pi-status.ts";
-export type { PiStatus } from "./pi-status.ts";
+export type {
+  PiStatus,
+  PiStatusDeps,
+  ResolvedModel,
+} from "./pi-status.ts";
 
 // 规则集三件套读写与重置
 export {
@@ -64,15 +64,9 @@ export type {
   DoctorOptions,
 } from "./doctor.ts";
 
-// 一键更新（git pull + build + sync，async generator 流式输出）
+// 版本对比（本地 package.json vs 远程 git tags）
 export {
-  runUpdate,
   compareVersions,
-} from "./updater.ts";
-export type {
-  UpdateEvent,
-  UpdateStage,
-  UpdateOptions,
 } from "./updater.ts";
 
 // 向量模型状态与缓存管理
@@ -133,7 +127,6 @@ export {
 export type {
   CheckStatus,
   PiModelInfo,
-  PiStatusContext,
   EmbedderLike,
 } from "./types.ts";
 
@@ -145,23 +138,13 @@ export {
   _atomicWrite,
 } from "./env-store.ts";
 
-// pi-status 内部实现
-export {
-  _detectPiVersion,
-  _isPiVersionCompatible,
-  _internals as _piStatusInternals,
-} from "./pi-status.ts";
-
 // doctor 内部实现
 export {
   _checkNodeVersion,
   _checkNativeBindings,
-  _checkDist,
   _checkTemplates,
   _checkEmbedderEnv,
-  _checkPiVersion,
   _checkNovelStructure,
-  _internals as _doctorInternals,
 } from "./doctor.ts";
 
 // rulesets 内部实现
@@ -169,7 +152,6 @@ export {
 
 // updater 内部实现
 export {
-  _checkWorkingTreeClean,
   _compareSemver,
   _internals as _updaterInternals,
 } from "./updater.ts";

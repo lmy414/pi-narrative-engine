@@ -5,8 +5,7 @@
  * 覆盖：
  * - _defaultConfigDir: 三平台路径解析 + env 覆盖
  * - readAppConfig: 缺失文件填默认、宽松合并、JSON 损坏回退默认
- * - writeAppConfig: 深层合并、原子写
- * - 保留非扩展配置（launcher.defaultScanRoots、launcher.piExecutable、embedder.model）
+ * - writeAppConfig: 深层合并、原子写、剥离磁盘文件中的废弃键
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -59,7 +58,6 @@ test("_defaultConfigDir: macOS 用 Application Support", () => {
 
 test("readAppConfig: 文件缺失时返回默认值", async () => {
   const cfg = await readAppConfig(dir);
-  assert.equal(cfg.launcher.piExecutable, "pi");
   assert.equal(cfg.launcher.defaultScanRoots.length, 0);
   assert.equal(cfg.embedder.model, "Xenova/bge-small-zh-v1.5");
 });
@@ -67,7 +65,7 @@ test("readAppConfig: 文件缺失时返回默认值", async () => {
 test("readAppConfig: JSON 损坏回退默认", async () => {
   await writeFile(getAppConfigPath(dir), "{broken", "utf8");
   const cfg = await readAppConfig(dir);
-  assert.equal(cfg.launcher.piExecutable, "pi");
+  assert.equal(cfg.embedder.model, "Xenova/bge-small-zh-v1.5");
 });
 
 // ============ writeAppConfig ============
@@ -84,4 +82,24 @@ test("writeAppConfig: 深层合并 + 原子写 + 回读", async () => {
   const raw = JSON.parse(await readFile(getAppConfigPath(dir), "utf8"));
   assert.deepEqual(raw.launcher.defaultScanRoots, ["D:\\novels"]);
   assert.ok(!existsSync(getAppConfigPath(dir) + ".tmp"), "临时文件应已 rename");
+});
+
+test("writeAppConfig: 剥离磁盘文件中的废弃键", async () => {
+  // 磁盘上残留扩展时代的 launcher.piExecutable 与未知键
+  await writeFile(
+    getAppConfigPath(dir),
+    JSON.stringify({
+      launcher: { piExecutable: "C:\\pi.exe", defaultScanRoots: ["D:\\novels"] },
+      embedder: { model: "custom-model" },
+      extension: { legacy: true },
+    }),
+    "utf8",
+  );
+  const cfg = await writeAppConfig({ embedder: { model: "new-model" } }, dir);
+  assert.equal(cfg.embedder.model, "new-model");
+  assert.deepEqual(cfg.launcher.defaultScanRoots, ["D:\\novels"], "已知键保留");
+
+  const raw = JSON.parse(await readFile(getAppConfigPath(dir), "utf8"));
+  assert.ok(!("piExecutable" in raw.launcher), "废弃键 piExecutable 应被剥离");
+  assert.ok(!("extension" in raw), "未知顶层键应被剥离");
 });

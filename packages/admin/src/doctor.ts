@@ -4,22 +4,23 @@
  *
  * 设计依据：docs/plans/2026-07-29-config-ui-design.md §5.3.5 / §6.4 / §2.3
  *
- * 与原 doctor.mjs 的差异（遵循"LLM 配置全部复用 PI"原则）：
- * - 不再检查 DEEPSEEK_API_KEY / PI_API_KEY（LLM Key 由 PI 管，admin/pi-status.ts 负责）
- * - 不再检查 PI_MODEL / PI_*_MODEL（模型由 ctx.model 管）
- * - 仅检查环境/依赖：Node 版本、原生绑定、dist 产物、模板目录、向量模型环境、
- *   PI 宿主版本、小说工程结构（可选）
+ * pure-SDK 架构下仅检查环境/依赖：
+ * - Node 版本、原生绑定（better-sqlite3 / sharp / onnxruntime-node）
+ * - templates/novel/ 模板目录、向量模型环境（缓存 / HF_ENDPOINT）
+ * - 小说工程结构（可选：novel.json、规则集三件套、正文/、.pi/world-graph-v3/world.db）
+ *
+ * 已移除（pi 扩展时代遗留）：pi CLI 版本探测、dist/ 扩展产物检查、
+ * .pi/extensions/ 布局检查（extensionDir 参数）。
+ * LLM 配置状态由 admin/pi-status.ts 负责。
  *
  * 库化设计：返回结构化 DoctorReport，不直接 console.log / process.exit，
  * 由调用方（CLI 脚本 / HTTP 路由）决定如何展示。
  */
 
 import { existsSync, readdirSync } from "node:fs";
-import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import os from "node:os";
-import { spawn } from "node:child_process";
 import type { CheckStatus } from "./types.ts";
 
 // ============================================================================
@@ -56,23 +57,11 @@ export interface DoctorReport {
 
 /** runDoctor 选项 */
 export interface DoctorOptions {
-  /** 扩展仓库根目录（检查 dist/、templates/、原生绑定）
-   *  对应开发时的 narrative-engine/ 或运行时的 .pi/extensions/narrative-engine/ */
+  /** 仓库根目录（检查 templates/、原生绑定、向量模型缓存） */
   repoRoot: string;
-  /** 可选：小说工程目录（检查工程结构 + 工程内扩展目录的原生绑定） */
+  /** 可选：小说工程目录（检查工程结构） */
   novelDir?: string;
-  /** 可选：扩展目录（检查运行时原生绑定与模型缓存，默认 = repoRoot）
-   *  当 novelDir 提供时，会额外检查 <novelDir>/.pi/extensions/narrative-engine/ */
-  extensionDir?: string;
 }
-
-// ============================================================================
-// 可 mock 的内部依赖
-// ============================================================================
-
-export const _internals: {
-  spawn: typeof spawn;
-} = { spawn };
 
 // ============================================================================
 // 内部检查函数
@@ -154,21 +143,6 @@ export function _checkNativeBindings(baseDir: string): DoctorCheck[] {
   return checks;
 }
 
-/** 检查 dist/ 构建产物 */
-export function _checkDist(repoRoot: string): DoctorCheck {
-  const distIndex = join(repoRoot, "dist", "index.js");
-  if (existsSync(distIndex)) {
-    return { id: "dist", name: "dist/ 构建产物", status: "pass", message: "dist/index.js 存在" };
-  }
-  return {
-    id: "dist",
-    name: "dist/ 构建产物",
-    status: "fail",
-    message: "dist/ 不存在",
-    hint: "运行 npm run build",
-  };
-}
-
 /** 检查 templates/novel/ 模板目录 */
 export function _checkTemplates(repoRoot: string): DoctorCheck {
   const tplDir = join(repoRoot, "templates", "novel");
@@ -236,105 +210,27 @@ export function _checkEmbedderEnv(baseDir: string): DoctorCheck {
   };
 }
 
-/** 检查 PI 宿主版本 */
-export async function _checkPiVersion(): Promise<DoctorCheck> {
-  return new Promise((resolveCheck) => {
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const child = _internals.spawn("pi", ["--version"], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 10000,
-      shell: process.platform === "win32",
-    });
-    child.stdout?.on("data", (d) => (stdout += d.toString()));
-    child.stderr?.on("data", (d) => (stderr += d.toString()));
-    child.on("error", () => {
-      if (settled) return;
-      settled = true;
-      resolveCheck({
-        id: "pi-version",
-        name: "pi 宿主版本",
-        status: "warn",
-        message: "无法探测 pi 版本（pi 不在 PATH 或非交互环境）",
-        hint: "运行时宿主为 pi CLI，要求 >= 0.77",
-      });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      const ver = (stdout || "").trim().split(/\s+/).pop() ?? "";
-      if (code === 0 && ver) {
-        const minor = parseInt(ver.split(".")[1] ?? "0", 10);
-        if (minor >= 77) {
-          resolveCheck({
-            id: "pi-version",
-            name: "pi 宿主版本",
-            status: "pass",
-            message: `pi ${ver}（>= 0.77，API 兼容）`,
-          });
-        } else {
-          resolveCheck({
-            id: "pi-version",
-            name: "pi 宿主版本",
-            status: "fail",
-            message: `pi ${ver} 过旧（< 0.77）`,
-            hint: "升级 pi 后重试",
-          });
-        }
-      } else {
-        resolveCheck({
-          id: "pi-version",
-          name: "pi 宿主版本",
-          status: "warn",
-          message: `pi --version 退出码 ${code}（stderr: ${stderr.trim().slice(0, 80) || "空"})`,
-          hint: "运行时宿主为 pi CLI，要求 >= 0.77",
-        });
-      }
-    });
-  });
-}
-
 /** 检查小说工程结构（可选） */
 export async function _checkNovelStructure(novelDir: string): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
-  const items: Array<{ rel: string; desc: string; level: "fail" | "warn" }> = [
-    { rel: "novel.json", desc: "项目清单", level: "warn" },
-    { rel: "规则集.md", desc: "渲染规则集", level: "warn" },
-    { rel: "planner 规则集.md", desc: "planner 规则集", level: "warn" },
-    { rel: "角色规则集.md", desc: "角色规则集", level: "warn" },
-    { rel: "正文", desc: "章节目录", level: "warn" },
-    {
-      rel: join(".pi", "extensions", "narrative-engine", "index.js"),
-      desc: "引擎扩展（npm run sync 同步）",
-      level: "fail",
-    },
-    {
-      rel: join(".pi", "extensions", "narrative-engine", "node_modules"),
-      desc: "扩展依赖（cd 扩展目录 && npm install）",
-      level: "fail",
-    },
+  const items: Array<{ rel: string; desc: string }> = [
+    { rel: "novel.json", desc: "项目清单" },
+    { rel: "规则集.md", desc: "渲染规则集" },
+    { rel: "planner 规则集.md", desc: "planner 规则集" },
+    { rel: "角色规则集.md", desc: "角色规则集" },
+    { rel: "正文", desc: "章节目录" },
     {
       rel: join(".pi", "world-graph-v3", "world.db"),
       desc: "世界图（首次运行自动创建）",
-      level: "warn",
     },
   ];
-  for (const { rel, desc, level } of items) {
+  for (const { rel, desc } of items) {
     if (existsSync(join(novelDir, rel))) {
       checks.push({
         id: `novel-${rel}`,
         name: `工程结构 ${rel}`,
         status: "pass",
         message: desc,
-      });
-    } else if (level === "fail") {
-      checks.push({
-        id: `novel-${rel}`,
-        name: `工程结构 ${rel}`,
-        status: "fail",
-        message: `缺 ${rel}：${desc}`,
-        hint: "可运行 npm run init -- <目录> 重新生成骨架",
       });
     } else {
       checks.push({
@@ -346,25 +242,6 @@ export async function _checkNovelStructure(novelDir: string): Promise<DoctorChec
       });
     }
   }
-  // 工程内扩展目录的原生绑定
-  const extDir = join(novelDir, ".pi", "extensions", "narrative-engine");
-  if (existsSync(extDir) && existsSync(join(extDir, "node_modules"))) {
-    const extChecks = _checkNativeBindings(extDir);
-    for (const c of extChecks) {
-      checks.push({
-        ...c,
-        id: `novel-ext-${c.id}`,
-        name: `工程扩展 ${c.name}`,
-      });
-    }
-    // 工程内扩展目录的模型缓存
-    const embedderCheck = _checkEmbedderEnv(extDir);
-    checks.push({
-      ...embedderCheck,
-      id: "novel-ext-embedder-env",
-      name: "工程扩展 向量模型环境",
-    });
-  }
   return checks;
 }
 
@@ -375,28 +252,23 @@ export async function _checkNovelStructure(novelDir: string): Promise<DoctorChec
 /**
  * 执行环境自检
  *
- * 检查顺序（与原 doctor.mjs 对齐）：
+ * 检查顺序：
  * 1. Node.js 版本
  * 2. 原生绑定（better-sqlite3 / sharp / onnxruntime-node）
- * 3. dist/ 构建产物
- * 4. templates/novel/ 模板目录
- * 5. 向量模型环境
- * 6. pi 宿主版本
- * 7. 小说工程结构（novelDir 提供时）
+ * 3. templates/novel/ 模板目录
+ * 4. 向量模型环境
+ * 5. 小说工程结构（novelDir 提供时）
  *
  * @param options 检查选项
  */
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
-  const { repoRoot, novelDir, extensionDir } = options;
-  const baseForNative = extensionDir ?? repoRoot;
+  const { repoRoot, novelDir } = options;
   const checks: DoctorCheck[] = [];
 
   checks.push(_checkNodeVersion());
-  checks.push(..._checkNativeBindings(baseForNative));
-  checks.push(_checkDist(repoRoot));
+  checks.push(..._checkNativeBindings(repoRoot));
   checks.push(_checkTemplates(repoRoot));
-  checks.push(_checkEmbedderEnv(baseForNative));
-  checks.push(await _checkPiVersion());
+  checks.push(_checkEmbedderEnv(repoRoot));
 
   if (novelDir) {
     checks.push(...(await _checkNovelStructure(novelDir)));

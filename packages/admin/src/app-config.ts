@@ -18,8 +18,6 @@ import { AdminError } from "./types.ts";
 
 export interface AppConfig {
   launcher: {
-    /** pi 可执行文件，默认 "pi" */
-    piExecutable: string;
     /** 项目扫描默认根目录 */
     defaultScanRoots: string[];
   };
@@ -70,7 +68,6 @@ export function getAppConfigPath(configDir?: string): string {
 function _defaultConfig(): AppConfig {
   return {
     launcher: {
-      piExecutable: "pi",
       defaultScanRoots: [],
     },
     embedder: {
@@ -100,7 +97,10 @@ export async function readAppConfig(configDir?: string): Promise<AppConfig> {
 }
 
 /**
- * 更新应用配置（按顶层 key 深层合并，原子写；目录自动创建）
+ * 更新应用配置（深层合并已知键，原子写；目录自动创建）
+ *
+ * 只写 schema 已知键：磁盘文件里的废弃键（如扩展时代的 launcher.piExecutable）
+ * 在写入时被剥离；readAppConfig 保持宽松读取不受影响。
  */
 export async function writeAppConfig(
   updates: AppConfigUpdates,
@@ -109,8 +109,13 @@ export async function writeAppConfig(
   const filePath = getAppConfigPath(configDir);
   const current = await readAppConfig(configDir);
   const merged: AppConfig = {
-    launcher: { ...current.launcher, ...(updates.launcher ?? {}) },
-    embedder: { ...current.embedder, ...(updates.embedder ?? {}) },
+    launcher: {
+      defaultScanRoots:
+        updates.launcher?.defaultScanRoots ?? current.launcher.defaultScanRoots,
+    },
+    embedder: {
+      model: updates.embedder?.model ?? current.embedder.model,
+    },
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = filePath + ".tmp";

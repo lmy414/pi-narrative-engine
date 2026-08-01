@@ -3,10 +3,9 @@
  * env-store.ts — 扩展专属 .env 文件读写
  *
  * 范围：只管理扩展专属变量（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL），
- * 不存 API Key（API Key 由 PI 本体的 auth.json / 环境变量管）。
+ * 不存 API Key（API Key 由 auth.json / 环境变量管）。
  *
- * 三个公共函数：
- * - loadEnvFile：session_start 时加载 .env 到 process.env（不覆盖已存在值）
+ * 两个公共函数：
  * - readEnvFile：读取 .env 结构化内容（前端展示用）
  * - writeEnvFile：更新 .env（保留注释与未知字段）
  *
@@ -262,36 +261,6 @@ export async function writeEnvFile(
 
   // 返回读取后的最新内容
   return readEnvFile(envPath);
-}
-
-/**
- * 加载 .env 到 process.env（session_start 用）
- *
- * 行为：
- * - 仅加载扩展专属变量（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL）
- * - 不覆盖已存在的 process.env 值（shell 环境变量优先，符合 dotenv 约定）
- * - 文件不存在时静默跳过
- * - 解析失败时抛错（让 session_start 的 catch 捕获并通知用户）
- *
- * @param envPath .env 文件绝对路径
- */
-export async function loadEnvFile(envPath: string): Promise<void> {
-  if (!existsSync(envPath)) return;
-
-  const content = await fs.readFile(envPath, "utf8");
-  const lines = _parseEnvContent(content);
-  const extKeySet = new Set<string>(EXTENSION_ENV_KEYS);
-
-  for (const line of lines) {
-    if (line.type !== "kv" || !line.key) continue;
-    const upperKey = line.key.toUpperCase();
-    if (!extKeySet.has(upperKey)) continue;
-
-    // 不覆盖已存在的 process.env 值（shell 优先）
-    if (process.env[upperKey] !== undefined) continue;
-
-    process.env[upperKey] = line.value ?? "";
-  }
 }
 
 // ============================================================================

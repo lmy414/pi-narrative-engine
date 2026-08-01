@@ -72,10 +72,12 @@ async function main(): Promise<void> {
   }
 
   // 主会话运行时上下文（/api/chat/*）：模型配置与子代理同源（LlmConfigStore，env 兜底）
+  const configDir = _defaultConfigDir();
+  const llmStore = new LlmConfigStore();
   const chatContext = new ChatContext({
     registry,
-    llmStore: new LlmConfigStore(),
-    configDir: _defaultConfigDir(),
+    llmStore,
+    configDir,
     embedder,
   });
 
@@ -84,6 +86,8 @@ async function main(): Promise<void> {
     port: args.port,
     embedder,
     chatContext,
+    configDir,
+    llmConfigStore: llmStore,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "visualizer-ui"))
       ? resolve(__dirname, "visualizer-ui")

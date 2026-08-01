@@ -28,7 +28,6 @@ import {
   resetRuleset,
   runDoctor,
   compareVersions,
-  runUpdate,
   getEmbedderStatus,
   clearEmbedderCache,
   warmupEmbedder,
@@ -38,7 +37,7 @@ import {
   writeAppConfig,
   RULESET_NAMES,
   type RulesetName,
-  type PiStatusContext,
+  type PiStatusDeps,
   type EmbedderLike,
   type AppConfigUpdates,
 } from "@pi/admin";
@@ -53,12 +52,12 @@ import type { ProjectRegistry } from "./project-registry.ts";
 
 export interface ExtApiContext {
   registry: ProjectRegistry;
-  /** 扩展仓库根（doctor / version / update 用） */
+  /** 扩展仓库根（doctor / version 用） */
   repoRoot: string;
   /** 规则集模板目录（reset 用） */
   templatesDir: string;
-  /** PI 上下文（standalone 下为 null，pi-status 降级展示） */
-  piContext: PiStatusContext | null;
+  /** LLM 状态依赖（authStorage + resolveModel；null 时 pi-status 降级展示） */
+  piStatus: PiStatusDeps | null;
   /** embedder 实例（embedder status/warmup 用，可为 null） */
   embedder: EmbedderLike | null;
   /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
@@ -79,15 +78,11 @@ const ERROR_STATUS: Record<string, number> = {
   TEMPLATE_NOT_FOUND: 404,
   FILE_EXISTS: 409,
   MTIME_CONFLICT: 409,
-  UPDATE_RUNNING: 409,
   NO_ACTIVE_PROJECT: 409,
   MIGRATION_REQUIRED: 409,
   PROJECT_OPEN: 409,
   EMBEDDER_UNAVAILABLE: 501,
 };
-
-/** 一键更新单任务守卫（同一时刻只允许一个 update job） */
-let updateRunning = false;
 
 /** 取活跃项目目录，未设置时抛 NO_ACTIVE_PROJECT */
 function requireActiveDir(ctx: ExtApiContext): string {
@@ -138,12 +133,6 @@ export async function handleExtApi(
     .map((s) => decodeURIComponent(s));
   const [head] = segments;
   if (head !== "files" && head !== "projects" && head !== "admin") return false;
-
-  // 更新 SSE 流不能进入常规 try/catch（res 生命周期由流管理）
-  if (head === "admin" && segments[1] === "update" && segments[2] === "stream") {
-    handleUpdateStream(ctx, res, url);
-    return true;
-  }
 
   const method = req.method ?? "GET";
   try {
@@ -339,13 +328,11 @@ async function handleAdmin(
     }
   }
 
-  // GET /api/admin/pi-status — PI 状态只读
+  // GET /api/admin/pi-status — LLM 状态只读（pure-SDK：AuthStorage + LlmConfigStore）
   if (sub === "pi-status" && method === "GET") {
-    const piCtx: PiStatusContext = ctx.piContext ?? {
-      model: null,
-      modelRegistry: { hasConfiguredAuth: () => false },
-    };
-    ok(res, await getPiStatus(piCtx));
+    ok(res, ctx.piStatus
+      ? getPiStatus(ctx.piStatus)
+      : { model: null, hasKey: false, piVersion: null, warnings: ["未装配 LLM 状态依赖"] });
     return;
   }
 
@@ -455,58 +442,4 @@ function assertRulesetName(name: string): asserts name is RulesetName {
     err.code = "MISSING_FIELD";
     throw err;
   }
-}
-
-// ============================================================================
-// /api/admin/update/stream（SSE）
-// ============================================================================
-
-/**
- * GET /api/admin/update/stream?targetDir=
- *
- * 单任务守卫：已有 update 在跑时立即以 error 事件结束（HTTP 仍 200，
- * 因为 SSE 头必须先写）。targetDir 缺省为活跃项目的扩展目录。
- */
-function handleUpdateStream(ctx: ExtApiContext, res: ServerResponse, url: URL): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    "connection": "keep-alive",
-    "access-control-allow-origin": "*",
-  });
-  const sendEvent = (data: unknown): void => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  if (updateRunning) {
-    sendEvent({ stage: "error", line: "", error: "已有更新任务在进行中" });
-    res.end();
-    return;
-  }
-
-  const targetDir =
-    url.searchParams.get("targetDir") ??
-    (ctx.registry.getActive()
-      ? join(ctx.registry.getActive()!.dir, ".pi", "extensions", "narrative-engine")
-      : null);
-  if (!targetDir) {
-    sendEvent({ stage: "error", line: "", error: "未指定 targetDir 且无活跃项目" });
-    res.end();
-    return;
-  }
-
-  updateRunning = true;
-  void (async () => {
-    try {
-      for await (const evt of runUpdate({ repoRoot: ctx.repoRoot, targetDir })) {
-        sendEvent(evt);
-        if (evt.stage === "done" || evt.stage === "error") break;
-      }
-    } catch (err) {
-      sendEvent({ stage: "error", line: "", error: (err as Error).message });
-    } finally {
-      updateRunning = false;
-      res.end();
-    }
-  })();
 }

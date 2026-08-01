@@ -1,88 +1,52 @@
 // packages/admin/src/pi-status.ts
 /**
- * pi-status.ts — PI 宿主状态只读查询
+ * pi-status.ts — 应用 LLM 状态只读查询（pure-SDK 版）
  *
- * 设计依据：docs/plans/2026-07-29-config-ui-design.md §6.2 / §5.3.1
+ * pure-SDK 架构迁移后，不再有 PI 扩展宿主（无 ExtensionContext、无 pi CLI 探测）。
+ * 状态来源改为两个显式依赖：
+ * - authStorage：读 <configDir>/pi-agent/auth.json，判断 provider 是否已有凭据
+ * - resolveModel：从 LlmConfigStore default slot → env 解析当前模型（参考
+ *   src/app/chat-context.ts resolveModelConfig 的解析链）
  *
- * 职责：
- * - 从 ctx.model 读取当前模型（id + provider）
- * - 从 ctx.modelRegistry.hasConfiguredAuth 判断 API Key 是否已配置
- * - 通过 spawn("pi", ["--version"]) 获取 PI 版本
+ * 返回形状与扩展时代一致（{ model, hasKey, piVersion, warnings }），
+ * piVersion 字段保留但恒为 null（前端仅展示）。
  *
- * 不写 PI 的 settings.json / auth.json（PI 配置归 PI 管）。
+ * 不写 auth.json / 任何配置文件（本模块只读）。
  */
 
-import { spawn } from "node:child_process";
-import type { PiStatusContext, PiModelInfo } from "./types.ts";
-import { AdminError } from "./types.ts";
+import type { AuthStorage } from "@earendil-works/pi-coding-agent";
+import type { PiModelInfo } from "./types.ts";
 
 // ============================================================================
 // 类型
 // ============================================================================
 
+/** 模型解析结果（由调用方从 LlmConfigStore 解析） */
+export interface ResolvedModel {
+  provider: string;
+  modelId: string;
+  /** 配置链（slot/default/env）已能解析出 API Key */
+  hasKey: boolean;
+}
+
+/** getPiStatus 的显式依赖 */
+export interface PiStatusDeps {
+  /** auth.json 只读视图（AuthStorage.create(<agentDir>/auth.json)） */
+  authStorage: AuthStorage;
+  /** 解析当前模型；解析不出（无配置且无 env key）返回 null */
+  resolveModel: () => ResolvedModel | null;
+}
+
 /** PI 状态返回结果 */
 export interface PiStatus {
   /** 当前模型（未配置时为 null） */
   model: PiModelInfo | null;
-  /** API Key 是否已配置（可解析即视为 true） */
+  /** API Key 是否已配置（配置链或 auth.json 可解析即视为 true） */
   hasKey: boolean;
-  /** PI 版本号（探测失败为 null） */
+  /** 恒为 null（pure-SDK 架构下无 pi CLI 宿主；字段保留以兼容前端展示） */
   piVersion: string | null;
-  /** 探测过程中的非致命错误（如 pi 不在 PATH） */
+  /** 探测过程中的非致命错误 */
   warnings: string[];
-}
-
-// ============================================================================
-// 可 mock 的内部依赖（_ 前缀，软隔离）
-// ============================================================================
-
-export const _internals: {
-  spawn: typeof spawn;
-} = { spawn };
-
-// ============================================================================
-// 内部实现
-// ============================================================================
-
-/**
- * 通过 spawn("pi", ["--version"]) 探测 PI 版本
- * - pi 不在 PATH 或非交互环境时返回 null + warning
- * - 超时 10s
- */
-export async function _detectPiVersion(): Promise<{ version: string | null; warning?: string }> {
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const child = _internals.spawn("pi", ["--version"], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 10000,
-      shell: process.platform === "win32",
-    });
-    child.stdout?.on("data", (d) => (stdout += d.toString()));
-    child.stderr?.on("data", (d) => (stderr += d.toString()));
-    child.on("error", () => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        version: null,
-        warning: "pi 不在 PATH 或不可执行（运行时宿主为 pi CLI，要求 >= 0.77）",
-      });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      const ver = (stdout || "").trim().split(/\s+/).pop() ?? "";
-      if (code === 0 && ver) {
-        resolve({ version: ver });
-      } else {
-        resolve({
-          version: null,
-          warning: `pi --version 退出码 ${code}（stderr: ${stderr.trim().slice(0, 120) || "空"})`,
-        });
-      }
-    });
-  });
 }
 
 // ============================================================================
@@ -90,65 +54,43 @@ export async function _detectPiVersion(): Promise<{ version: string | null; warn
 // ============================================================================
 
 /**
- * 查询 PI 宿主当前状态（只读）
- *
- * @param ctx PI 上下文（从扩展事件 handler 的 ctx 透传）
+ * 查询应用 LLM 当前状态（只读）
  */
-export async function getPiStatus(ctx: PiStatusContext): Promise<PiStatus> {
+export function getPiStatus(deps: PiStatusDeps): PiStatus {
   const warnings: string[] = [];
 
-  // 1. 模型信息
-  let model: PiModelInfo | null = null;
-  let hasKey = false;
-  if (ctx.model) {
-    model = { id: ctx.model.id, provider: ctx.model.provider };
-    try {
-      hasKey = ctx.modelRegistry.hasConfiguredAuth(ctx.model);
-    } catch (err) {
-      warnings.push(`hasConfiguredAuth 抛错: ${(err as Error).message}`);
-    }
-  } else {
-    warnings.push("ctx.model 为空（请在 PI 内配置模型：/model 或 pi login 或 DEEPSEEK_API_KEY）");
+  // 1. 模型信息（LlmConfigStore default slot → env）
+  let resolved: ResolvedModel | null = null;
+  try {
+    resolved = deps.resolveModel();
+  } catch (err) {
+    warnings.push(`resolveModel 抛错: ${(err as Error).message}`);
   }
 
-  // 2. PI 版本
-  const versionResult = await _detectPiVersion();
-  if (versionResult.warning) warnings.push(versionResult.warning);
+  let model: PiModelInfo | null = null;
+  let hasKey = false;
+  if (resolved) {
+    model = { id: resolved.modelId, provider: resolved.provider };
+    hasKey = resolved.hasKey;
+    // 配置链无 key 时回退查 auth.json（与主会话同一文件，只读）
+    if (!hasKey) {
+      try {
+        hasKey = deps.authStorage.hasAuth(resolved.provider);
+      } catch (err) {
+        warnings.push(`authStorage.hasAuth 抛错: ${(err as Error).message}`);
+      }
+    }
+    if (!hasKey) {
+      warnings.push(`未配置 ${resolved.provider} 的 API Key（env / auth.json 均无）`);
+    }
+  } else {
+    warnings.push("未配置模型（LlmConfigStore default slot 与 env 均无可用配置）");
+  }
 
   return {
     model,
     hasKey,
-    piVersion: versionResult.version,
+    piVersion: null,
     warnings,
   };
-}
-
-/**
- * 校验 PI 版本是否兼容（>= 0.77）
- * - 版本格式异常时返回 null（调用方决定如何处理）
- */
-export function _isPiVersionCompatible(version: string | null): boolean | null {
-  if (!version) return null;
-  const m = version.match(/(\d+)\.(\d+)/);
-  if (!m) return null;
-  const major = parseInt(m[1], 10);
-  const minor = parseInt(m[2], 10);
-  if (major > 0) return true;
-  return minor >= 77;
-}
-
-/** 抛 AdminError 的便捷封装（前端展示用） */
-export function assertPiReady(status: PiStatus): void {
-  if (!status.model) {
-    throw new AdminError(
-      "PI 未配置模型：请在 PI 会话内执行 /model，或 pi login，或设置 DEEPSEEK_API_KEY 环境变量",
-      "PI_NO_MODEL",
-    );
-  }
-  if (!status.hasKey) {
-    throw new AdminError(
-      `PI 未配置 ${status.model.provider} 的 API Key：请 pi login 或设置对应环境变量`,
-      "PI_NO_API_KEY",
-    );
-  }
 }
