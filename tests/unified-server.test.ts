@@ -8,6 +8,8 @@
  * - /api/files/*     tree / read / write / create / delete + 乐观锁 + 路径安全
  * - /api/admin/*     config(.env) / rulesets / novel-json / embedder status /
  *   pi-status（doctor 与 version 会 spawn git，均不在测试范围）
+ * - /api/scheduler/* dispatch / commit / discard / status（stub 编排服务，不触 LLM）
+ * - /api/debug/*     events / clear（debugBus 已注入）
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +19,9 @@ import { tmpdir } from "node:os";
 import { WorldGraph } from "underworld-graph";
 import { ProjectRegistry } from "../src/app/project-registry.ts";
 import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
+import { ChatContext } from "../src/app/chat-context.ts";
+import { createDebugBus } from "../src/debug/bus.ts";
+import type { DebugBus } from "../src/debug/types.ts";
 import { startUnifiedServer } from "../src/app/unified-server.ts";
 import type { UnifiedServer } from "../src/app/unified-server.ts";
 
@@ -27,6 +32,55 @@ let appConfigDir: string;
 let registry: ProjectRegistry;
 let server: UnifiedServer;
 let base: string;
+let debugBus: DebugBus;
+let chatContext: ChatContext;
+
+/**
+ * scheduler 端点用 stub 编排服务（不触 LLM；语义对齐 OrchestratorService 形状）
+ * plan_ok = 存在的 planId；其他 planId 一律 not found
+ */
+const stubSchedulerService = {
+  dispatch(event: { mode?: string }) {
+    return { queueId: "q-stub-1", mode: event.mode === "yolo" ? "yolo" : "plan" };
+  },
+  async commit(planId: string) {
+    if (planId !== "plan_ok") {
+      return {
+        ok: false,
+        planId,
+        appliedEventIds: [] as string[],
+        writtenText: "",
+        chapterPath: "",
+        error: `plan ${planId} not found (expired or never created)`,
+      };
+    }
+    return {
+      ok: true,
+      planId,
+      appliedEventIds: ["evt_a"],
+      writtenText: "正文",
+      chapterPath: "chapters/ch001.md",
+    };
+  },
+  discard(planId: string) {
+    return { ok: planId === "plan_ok" };
+  },
+  queueStatus() {
+    return { length: 0, items: [] as unknown[] };
+  },
+  listPlans() {
+    return [
+      {
+        planId: "plan_ok",
+        storyTime: "ch001.ev001",
+        mode: "plan",
+        characterIds: ["char_a"],
+        outputCount: 1,
+        errorCount: 0,
+      },
+    ];
+  },
+};
 
 async function api(path: string, init?: RequestInit) {
   const res = await fetch(`${base}api${path}`, init);
@@ -153,6 +207,17 @@ before(async () => {
   writeFileSync(join(uiDir, "api.js"), "// Viz.api\n", "utf8");
 
   registry = new ProjectRegistry();
+  debugBus = createDebugBus();
+  // ChatContext 装配（scheduler 路由依赖）：embedder 用占位对象绕过空值检查，
+  // createOrchestratorService 注入 stub，不触 LLM/真实编排装配
+  chatContext = new ChatContext({
+    registry,
+    llmStore: new LlmConfigStore(),
+    configDir: appConfigDir,
+    embedder: {} as never,
+    debugBus,
+    createOrchestratorService: async () => stubSchedulerService as never,
+  });
   server = await startUnifiedServer({
     registry,
     port: 0,
@@ -161,6 +226,8 @@ before(async () => {
     uiDir,
     appConfigDir,
     llmConfigStore: new LlmConfigStore(),
+    chatContext,
+    debugBus,
   });
   base = server.url;
 });
@@ -168,6 +235,7 @@ before(async () => {
 after(async () => {
   server.close();
   await registry.closeAll();
+  await chatContext.dispose();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -575,6 +643,101 @@ test("projects/close: 关闭句柄后从 open 列表移除", async () => {
   assert.equal(after1.data.active.name, "乙", "关闭非活跃项目不影响活跃指针");
 });
 
+// ============ /api/scheduler/*（stub 编排服务，不触 LLM） ============
+
+test("scheduler/status: 队列状态 + 待确认 plan 列表形状", async () => {
+  const r = await api("/scheduler/status");
+  assert.equal(r.ok, true);
+  assert.equal(typeof r.data.queue.length, "number");
+  assert.ok(Array.isArray(r.data.queue.items));
+  assert.ok(Array.isArray(r.data.plans));
+  assert.equal(r.data.plans[0].planId, "plan_ok");
+  assert.equal(r.data.plans[0].storyTime, "ch001.ev001");
+  assert.equal(r.data.plans[0].outputCount, 1);
+});
+
+test("scheduler/dispatch: 成功返回 queueId/mode（与工具版同构）", async () => {
+  const r = await sendJson("POST", "/scheduler/dispatch", {
+    storyTime: "ch001.ev001",
+    instruction: "测试事件",
+    characterIds: ["char_a"],
+    mode: "plan",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.queueId, "q-stub-1");
+  assert.equal(r.data.mode, "plan");
+});
+
+test("scheduler/dispatch: 参数校验 400（缺字段/坏 storyTime/坏 characterIds/坏 mode）", async () => {
+  const missing = await sendJson("POST", "/scheduler/dispatch", { storyTime: "ch001.ev001" });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.error?.code, "MISSING_FIELD");
+
+  const badTime = await sendJson("POST", "/scheduler/dispatch", {
+    storyTime: "ch-1",
+    instruction: "x",
+    characterIds: ["a"],
+  });
+  assert.equal(badTime.status, 400);
+  assert.equal(badTime.error?.code, "INVALID_STORY_TIME");
+
+  const badChars = await sendJson("POST", "/scheduler/dispatch", {
+    storyTime: "ch001.ev001",
+    instruction: "x",
+    characterIds: [],
+  });
+  assert.equal(badChars.status, 400);
+  assert.equal(badChars.error?.code, "INVALID_BODY");
+
+  const badMode = await sendJson("POST", "/scheduler/dispatch", {
+    storyTime: "ch001.ev001",
+    instruction: "x",
+    characterIds: ["a"],
+    mode: "turbo",
+  });
+  assert.equal(badMode.status, 400);
+  assert.equal(badMode.error?.code, "INVALID_BODY");
+});
+
+test("scheduler/commit: 未知 planId 404；已知 planId 成功", async () => {
+  const nf = await sendJson("POST", "/scheduler/commit", { planId: "plan_ghost" });
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
+
+  const yes = await sendJson("POST", "/scheduler/commit", { planId: "plan_ok" });
+  assert.equal(yes.ok, true);
+  assert.equal(yes.data.planId, "plan_ok");
+  assert.deepEqual(yes.data.appliedEventIds, ["evt_a"]);
+
+  const miss = await sendJson("POST", "/scheduler/commit", {});
+  assert.equal(miss.status, 400);
+});
+
+test("scheduler/discard: 未知 planId 404；已知 planId 成功", async () => {
+  const nf = await sendJson("POST", "/scheduler/discard", { planId: "plan_ghost" });
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
+
+  const yes = await sendJson("POST", "/scheduler/discard", { planId: "plan_ok" });
+  assert.equal(yes.ok, true);
+  assert.equal(yes.data.discarded, true);
+});
+
+// ============ /api/debug/*（debugBus 已注入） ============
+
+test("debug/events: 注入 bus 后能看到已发事件", async () => {
+  debugBus.emit({ id: "dbg_test_1", ts: Date.now(), traceId: "trace_t", stage: "system", status: "start" });
+  const r = await api("/debug/events");
+  assert.equal(r.ok, true);
+  assert.ok(Array.isArray(r.data.events));
+  assert.ok(r.data.events.some((e: any) => e.id === "dbg_test_1"), "应包含刚 emit 的事件");
+
+  const clear = await sendJson("POST", "/debug/clear", {});
+  assert.equal(clear.ok, true);
+  const after1 = await api("/debug/events");
+  assert.equal(after1.data.events.length, 0, "clear 后缓冲为空");
+});
+
 // ============ 静态与杂项 ============
 
 test("未知 /api 路由 404；非 API 的 POST 405", async () => {
@@ -584,12 +747,13 @@ test("未知 /api 路由 404；非 API 的 POST 405", async () => {
   assert.equal(res.status, 405);
 });
 
-// ============ /api/chat/*（未装配 ChatContext → 503） ============
+// ============ /api/chat/*（已装配 ChatContext；主会话未启动时 status 只读降级） ============
 
-test("chat: 未装配 ChatContext 时 /api/chat/* 返回 503 CHAT_UNAVAILABLE", async () => {
+test("chat/status: 主会话未启动时返回 active=false（只读，不触发启动）", async () => {
   const r = await api("/chat/status");
-  assert.equal(r.status, 503);
-  assert.equal(r.error?.code, "CHAT_UNAVAILABLE");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.active, false);
+  assert.equal(r.data.isStreaming, false);
 });
 
 // ============================================================================

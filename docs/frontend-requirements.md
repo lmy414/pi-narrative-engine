@@ -97,7 +97,18 @@
 | GET | `/api/debug/events` | 缓冲事件查询 |
 | POST | `/api/debug/clear` | 清空缓冲 |
 
-⚠️ 现状：DebugBus 已实现但 **main.ts 未注入**（调试页当前无数据源），见缺口 B2。
+✅ DebugBus 已接入 main.ts（B2 已完成）：编排四阶段（orchestrator/planner/role/reasoner/renderer）与 chat.message 的 span 埋点已上线，调试页有真实数据源。
+
+### 1.7 编排控制 `/api/scheduler/*`（需活跃项目）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/scheduler/dispatch` | 派发事件，body 同 `scheduler_dispatch` 工具参数 `{storyTime, instruction, characterIds, executionHints?, mode?, chapterPath?}`；返回 `{queueId, mode}`（planId 经 status 轮询获取） |
+| POST | `/api/scheduler/commit` `{planId}` | 提交 plan（写世界图+渲染章节）；plan 不存在 404 `PLAN_NOT_FOUND`，失败 409 `COMMIT_FAILED` |
+| POST | `/api/scheduler/discard` `{planId}` | 丢弃 plan；plan 不存在 404 `PLAN_NOT_FOUND` |
+| GET | `/api/scheduler/status` | 队列状态 + 待确认 plan 列表 `{queue, plans[]}` |
+
+与主会话 `scheduler_*` 工具同一 OrchestratorService 实例、同一 EventQueue，语义完全一致。
 
 ## 2. 信息架构（设计稿 8 页 → 前端 6 个主视图）
 
@@ -180,8 +191,8 @@
 | 单流约束提示 | 忙碌时输入框禁用 + 提示 | 409 CHAT_BUSY | ✅ |
 | 会话列表（左栏） | 历史会话分组、切换、新建 | SessionManager 无 HTTP 暴露 | ❌ B3 |
 | plan/yolo 模式切换 | 当前由 AI 经工具参数决定，用户无显式开关 | 需新增会话级设置 | ❌ B7 |
-| 队列状态徽章（"1 个计划待审核"） | OrchestratorService.queueStatus 无 HTTP | ❌ B1 |
-| 计划卡片 | dispatch(plan 模式) 产物：变更项清单、影响预估；**提交执行 / 丢弃**按钮 | OrchestratorService.dispatch/commit/discard 无 HTTP | ❌ B1（本页核心） |
+| 队列状态徽章（"1 个计划待审核"） | GET /api/scheduler/status | ✅（B1 已完成） |
+| 计划卡片 | dispatch(plan 模式) 产物：变更项清单、影响预估；**提交执行 / 丢弃**按钮 | /api/scheduler/dispatch|commit|discard | ✅（B1 已完成，本页核心） |
 | 右栏：执行状态（进度/耗时） | 四代理（规划/角色/推理/渲染）运行状态推送 | 无进度事件流 | ❌ B6 |
 | 右栏：世界图变更摘要 | commit 结果含变更，无推送 | ❌ B6 |
 | 右栏：生成章节卡（标题/字数） | render_result 里有，无推送 | ❌ B6 |
@@ -189,17 +200,17 @@
 | 输入区附件 | 本期不做 | — | ✂ |
 | 输入区提示词模板 | 本期不做（或纯前端本地模板） | — | ✂ |
 
-**降级方案（B1/B6 未做前的过渡）**：编排页先只交付"聊天 + 流式回复"，计划确认通过与 AI 对话完成（现有能力，AI 自己会调 scheduler_commit/discard）。右栏三卡片整体后置。
+**降级方案（B1 已完成，此过渡已不需要；B6 未做前仍适用）**：~~编排页先只交付"聊天 + 流式回复"，计划确认通过与 AI 对话完成~~（B1 已交付 HTTP 直连，计划卡片可直接实现）。右栏三卡片待 B6。
 
 ## 7. 视图五：调试
 
 | 功能 | 说明 | 依赖 | 状态 |
 |---|---|---|---|
-| 实时日志流 | SSE 推送：时间戳/级别/模块/消息 | /api/debug/stream | 🟡 B2（总线未接入 main.ts，接入后即 ✅） |
-| 级别过滤 / 模块下拉 / 关键词 | 模块枚举：orchestrator/planner/reasoner/renderer/world-graph/embedder/system | /api/debug/events | 🟡 B2 |
-| 错误条目展开（堆栈/原因/降级策略） | 取决于 DebugBus span 记录粒度，接入后确认字段 | — | 🟡 B2 |
-| 缓冲区条数 | | /api/debug/events | 🟡 B2 |
-| 清空（二次确认） | | POST /api/debug/clear | 🟡 B2 |
+| 实时日志流 | SSE 推送：时间戳/级别/模块/消息 | /api/debug/stream | ✅（B2 已完成） |
+| 级别过滤 / 模块下拉 / 关键词 | 模块枚举：orchestrator/planner/reasoner/renderer/world-graph/embedder/system | /api/debug/events | ✅（B2 已完成） |
+| 错误条目展开（堆栈/原因/降级策略） | 取决于 DebugBus span 记录粒度，接入后确认字段 | — | ✅（span 含 input/output/durationMs/error） |
+| 缓冲区条数 | | /api/debug/events | ✅（B2 已完成，环形缓冲默认 1000 条） |
+| 清空（二次确认） | | POST /api/debug/clear | ✅（B2 已完成） |
 | 自动滚动开关 | 前端态 | — | ✅ |
 
 ## 8. 视图六：设置（全局/项目两分区，已定方案）
@@ -239,8 +250,8 @@
 
 | # | 缺口 | 影响视图 | 级别 | 工作量评估 |
 |---|---|---|---|---|
-| B1 | **编排控制 HTTP 化**：`/api/scheduler/dispatch|commit|discard|status`（OrchestratorService 现成，薄封装即可） | 创作编排（核心交互） | **P0** | 小（半天） |
-| B2 | **DebugBus 接入 main.ts**（实现已存在，一行注入 + 各模块埋点核查） | 调试整页 | **P0** | 小 |
+| B1 | ~~**编排控制 HTTP 化**~~：✅ 已完成——`/api/scheduler/dispatch|commit|discard|status` 已上线（src/app/routes-scheduler.ts，与 scheduler_* 工具同一 service） | 创作编排（核心交互） | ~~P0~~ 完成 | — |
+| B2 | ~~**DebugBus 接入 main.ts**~~：✅ 已完成——main.ts 注入 + orchestrator/planner/role/reasoner/renderer/chat.message span 埋点 | 调试整页 | ~~P0~~ 完成 | — |
 | B3 | 会话列表/历史 HTTP 端点（SDK SessionManager → 只读列表 + 消息历史） | 创作编排左栏 | P1 | 中 |
 | B4 | scan 返回 needsMigration + 实体/事件统计 | 项目管理卡片 | P1 | 小 |
 | B5 | 世界图写接口补齐：声明闭合、实体删除、实体属性编辑 | 实体详情抽屉 | P1 | 中（涉及 underworld-graph 包） |
@@ -248,7 +259,7 @@
 | B7 | plan/yolo 会话级显式设置（存 app-config 或会话状态） | 创作编排控制栏 | P1 | 小 |
 | B8 | files/tree 放宽类型（.json/.env）+ 文件重命名 API | 文件编辑 | P1 | 小 |
 
-**建议排期**：B1+B2 先做（P0，合计约一天），前端可并行先搭不依赖缺口的 5 个视图；B3~B8 随前端进度逐个补。
+**建议排期**：~~B1+B2 先做~~（B1/B2 已完成），前端可并行先搭不依赖缺口的视图；B3~B8 随前端进度逐个补。
 
 ## 11. 设计稿中本期不做（✂ 汇总）
 

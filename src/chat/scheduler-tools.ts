@@ -35,6 +35,31 @@ export function validateStoryTime(storyTime: string): void {
 /** OrchestratorService 动态来源（项目切换后 provider 返回新实例，工具不变） */
 export type OrchestratorProvider = () => OrchestratorService;
 
+/**
+ * dispatch 参数 → StructuredEvent（工具版与 HTTP 版共用，DRY）
+ *
+ * 仅做格式校验（storyTime）与字段透传；必填字段的存在性校验由调用方负责
+ * （工具靠 TypeBox schema，HTTP 靠 requireBody）。
+ */
+export function buildDispatchEvent(params: {
+  storyTime: string;
+  instruction: string;
+  characterIds: string[];
+  executionHints?: string;
+  mode?: "plan" | "yolo";
+  chapterPath?: string;
+}): StructuredEvent {
+  validateStoryTime(params.storyTime);
+  return {
+    storyTime: params.storyTime,
+    instruction: params.instruction,
+    characterIds: params.characterIds,
+    executionHints: params.executionHints,
+    mode: params.mode,
+    chapterPath: params.chapterPath,
+  };
+}
+
 export function createSchedulerTools(provider: OrchestratorProvider): ToolDefinition[] {
   return [
     // ------------------------------------------------------------------------
@@ -62,15 +87,7 @@ export function createSchedulerTools(provider: OrchestratorProvider): ToolDefini
         })),
       }),
       async execute(_id, params, _signal, _onUpdate) {
-        validateStoryTime(params.storyTime);
-        const event: StructuredEvent = {
-          storyTime: params.storyTime,
-          instruction: params.instruction,
-          characterIds: params.characterIds,
-          executionHints: params.executionHints,
-          mode: params.mode,
-          chapterPath: params.chapterPath,
-        };
+        const event = buildDispatchEvent(params);
         const result = provider().dispatch(event);
         const text = `已派发事件到调度器：queueId=${result.queueId}，mode=${result.mode}` +
           (result.planId ? `，planId=${result.planId}（plan 模式，待 scheduler_commit 落地）` : "");

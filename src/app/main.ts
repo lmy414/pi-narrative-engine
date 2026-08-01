@@ -16,6 +16,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KnownProvider } from "@earendil-works/pi-ai";
 import { Embedder } from "../embedder.ts";
+import { createDebugBus } from "../debug/bus.ts";
 import { LlmConfigStore } from "../orchestrator/llm-config.ts";
 import type { LlmSlot } from "../orchestrator/llm-config.ts";
 import { ChatContext } from "./chat-context.ts";
@@ -79,6 +80,9 @@ async function main(): Promise<void> {
     });
   }
 
+  // 调试总线（/api/debug/* + 编排四阶段/chat span 埋点；默认开启，types 无级别开关）
+  const debugBus = createDebugBus();
+
   const registry = new ProjectRegistry({ embedder });
   // 启动项目：--project 优先；其次 app-config 记住的 lastProjectDir（失败只警告不阻断）
   const startupHandle = await activateStartupProject(registry, {
@@ -96,6 +100,7 @@ async function main(): Promise<void> {
     llmStore,
     configDir,
     embedder,
+    debugBus,
   });
 
   const server = await startUnifiedServer({
@@ -106,6 +111,7 @@ async function main(): Promise<void> {
     configDir,
     appConfigDir: configDir,
     llmConfigStore: llmStore,
+    debugBus,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "visualizer-ui"))
       ? resolve(__dirname, "visualizer-ui")

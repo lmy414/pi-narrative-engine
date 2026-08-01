@@ -25,6 +25,7 @@ import { createRenderTools } from "../chat/render-tools.ts";
 import { createRoleTools } from "../chat/role-tools.ts";
 import { createImportTools } from "../chat/import-tools.ts";
 import { LlmConfigStore, loadLlmConfigFromEnv } from "../orchestrator/llm-config.ts";
+import type { DebugBus } from "../debug/types.ts";
 import { Orchestrator } from "../orchestrator.ts";
 import { OrchestratorService } from "../orchestrator/service.ts";
 import { assemblePorts } from "../orchestrator/assembly.ts";
@@ -103,6 +104,8 @@ export interface ChatContextOptions {
   configDir: string;
   /** 向量模型实例（null 时主会话不可用，检索降级由 Search 内部处理） */
   embedder?: Embedder | null;
+  /** 调试总线（编排四阶段 span 埋点；null 时 no-op） */
+  debugBus?: DebugBus | null;
   createHost?: (options: MainSessionHostOptions) => MainSessionHost;
   createOrchestratorService?: (active: ProjectHandle, embedder: Embedder) => Promise<OrchestratorService>;
 }
@@ -196,6 +199,7 @@ export class ChatContext {
       renderRuleSet,
       staticCardLoader: DEFAULT_STATIC_CARD_LOADER,
       ports,
+      debugBus: this.opts.debugBus ?? null,
     });
     const service = new OrchestratorService(orchestrator);
     this.orchestratorServices.set(cwd, service);

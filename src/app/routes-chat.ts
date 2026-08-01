@@ -18,12 +18,16 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ProjectRegistry } from "./project-registry.ts";
+import type { DebugBus } from "../debug/types.ts";
+import { startSpan, newTraceId } from "../debug/bus.ts";
 import { ChatContext } from "./chat-context.ts";
 import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
 
 export interface ChatApiContext {
   chatContext: ChatContext;
   registry: ProjectRegistry;
+  /** 调试总线（chat.message span 用；null 时零开销 no-op） */
+  debugBus?: DebugBus | null;
 }
 
 /** ChatContextError.code → HTTP 状态（缺省 500） */
@@ -81,20 +85,31 @@ export async function handleChatApi(
     if (segment === "/message" && method === "POST") {
       requireActiveDir(ctx);
       const text = requireText(body);
-      const host = await ctx.chatContext.ensureHost();
-      if (!host) throw errWithCode("NO_ACTIVE_PROJECT", "尚未激活项目");
-      if (host.session.isStreaming) {
-        throw errWithCode("CHAT_BUSY", "主会话正在处理消息，请稍后重试");
-      }
-      // PI RPC 模式语义：prompt 被接收（preflight 通过）即回 ok，内容走 SSE 事件流
-      const preflightSucceeded = await new Promise<boolean>((resolve) => {
-        void host.session.prompt(text, { preflightResult: resolve }).catch(() => resolve(false));
+      // chat.message span：覆盖"接收 → preflight"阶段（流式生成经 /api/chat/events 推送，
+      // 不在本 span 内；abort 语义由会话层管理，此处只记 preflight 成败）
+      const span = startSpan(ctx.debugBus, "chat.message", newTraceId(), {
+        text: text.slice(0, 200),
       });
-      if (!preflightSucceeded) {
-        throw errWithCode("MODEL_NOT_READY", "主会话模型不可用（未配置模型或 API Key）");
+      try {
+        const host = await ctx.chatContext.ensureHost();
+        if (!host) throw errWithCode("NO_ACTIVE_PROJECT", "尚未激活项目");
+        if (host.session.isStreaming) {
+          throw errWithCode("CHAT_BUSY", "主会话正在处理消息，请稍后重试");
+        }
+        // PI RPC 模式语义：prompt 被接收（preflight 通过）即回 ok，内容走 SSE 事件流
+        const preflightSucceeded = await new Promise<boolean>((resolve) => {
+          void host.session.prompt(text, { preflightResult: resolve }).catch(() => resolve(false));
+        });
+        if (!preflightSucceeded) {
+          throw errWithCode("MODEL_NOT_READY", "主会话模型不可用（未配置模型或 API Key）");
+        }
+        span.end({ output: { received: true } });
+        ok(res, { received: true });
+        return true;
+      } catch (err) {
+        span.error(err);
+        throw err;
       }
-      ok(res, { received: true });
-      return true;
     }
 
     // GET /api/chat/events（SSE）

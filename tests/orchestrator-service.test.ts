@@ -177,3 +177,22 @@ test("queueStatus 暴露完整编排结果（A3）", async () => {
   assert.equal(item.result?.planId, "plan_test_1");
   assert.equal(item.result?.event.storyTime, "ch001.ev001");
 });
+
+test("listPlans：待确认 plan 摘要，commit/discard 后移除", async () => {
+  const { fake } = makeFakeOrchestrator();
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await waitWorker();
+
+  const plans = service.listPlans();
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].planId, "plan_test_1");
+  assert.equal(plans[0].storyTime, "ch001.ev001");
+  assert.equal(plans[0].mode, "plan");
+  assert.deepEqual(plans[0].characterIds, ["char_a"]);
+  assert.equal(plans[0].outputCount, 0);
+  assert.equal(plans[0].errorCount, 0);
+
+  assert.equal(service.discard("plan_test_1").ok, true);
+  assert.equal(service.listPlans().length, 0, "discard 后 listPlans 为空");
+});

@@ -31,6 +31,8 @@ import { createRendererTools } from "./agents/chapter-tools.ts";
 import { collectSubmission } from "./agents/collect.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
+import type { DebugBus, DebugSpan } from "./debug/types.ts";
+import { startSpan, newTraceId } from "./debug/bus.ts";
 // 软隔离导出：_buildPlannerSystemPrompt / _buildPlannerUserMessage（prompts.ts 非跨包稳定 API）
 import { _buildPlannerSystemPrompt, _buildPlannerUserMessage } from "@pi/scheduler";
 
@@ -122,6 +124,8 @@ export interface OrchestratorOptions {
   staticCardLoader: (characterId: string) => Promise<SillyTavernCard>;
   /** 数据层 Ports（阶段 A 注入：子代理工具经此读写世界图/章节） */
   ports: OrchestratorPorts;
+  /** 调试总线（四阶段 span 埋点；null/缺省为零开销 no-op） */
+  debugBus?: DebugBus | null;
 }
 
 /** 子代理结束约定：结论必须且只能通过产出工具一次提交，不得同一轮并行调用其他工具 */
@@ -156,101 +160,151 @@ export class Orchestrator {
 
   /** 运行一次事件编排（plan 或 yolo） */
   async run(event: StructuredEvent): Promise<OrchestratorResult> {
-    const plannerModel = this.opts.llmStore.getModel("planner");
-    const plannerKey = this.opts.llmStore.getApiKey("planner");
-    const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // 调试埋点：root span "orchestrator" + 四阶段子 span（无 bus 时零开销 no-op）
+    const bus = this.opts.debugBus ?? null;
+    const traceId = newTraceId();
+    const rootSpan = startSpan(bus, "orchestrator", traceId, {
+      storyTime: event.storyTime,
+      instruction: event.instruction.slice(0, 200),
+      mode: event.mode === "yolo" ? "yolo" : "plan",
+      characterIds: event.characterIds,
+    });
+    try {
+      const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    // 1. planner 子代理：注入世界图只读工具，查现状后产出检索计划
-    const planner = createPlannerAgent(
-      plannerModel,
-      plannerKey,
-      _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
-      [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
-      createPlannerTools(this.opts.ports),
-    );
-    const plannerCollected = collectSubmission<{ plan: RetrievalPlan }>(planner, "retrieval_plan");
-    await planner.prompt("");
-    const plannerResult = await plannerCollected.promise;
-    plannerCollected.dispose();
-
-    // 2. 角色代理（串行：默认；上一角色输出注入下一角色）
-    const outputs: RoleAgentOutput[] = [];
-    const errors: { characterId: string; error: string }[] = [];
-    const cast: { characterId: string; name: string; summary: string }[] = [];
-    const priorOutputs: RoleAgentOutput[] = [];
-    const roleModel = this.opts.llmStore.getModel("role");
-    const roleKey = this.opts.llmStore.getApiKey("role");
-
-    for (const characterId of event.characterIds) {
-      const card = await this.opts.staticCardLoader(characterId);
-      const roleSystemPrompt = this.buildRoleSystemPrompt(card, event);
-      const userMessages: AgentMessage[] = [
-        {
-          role: "user",
-          content: this.buildRoleUserMessage(characterId, card, event),
-          timestamp: Date.now(),
-        },
-      ];
-      // 串行：注入前序角色公开产出
-      for (const prior of priorOutputs) {
-        userMessages.push({
-          role: "user",
-          content: `【前序角色 ${prior.actor} 的行动】${prior.action}`,
-          timestamp: Date.now(),
-        });
-      }
-
-      // 角色代理：注入受限世界图工具（characterId 绑定，自主查可见状态）
-      const roleAgent = createRoleAgent(
-        roleModel,
-        roleKey,
-        roleSystemPrompt,
-        userMessages,
-        createRoleLimitedTools(this.opts.ports, characterId),
-      );
-      const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
+      // 1. planner 子代理：注入世界图只读工具，查现状后产出检索计划
+      const plannerSpan = startSpan(bus, "planner", traceId, { slot: "planner" }, rootSpan.eventId);
+      let plannerResult: { plan: RetrievalPlan };
       try {
-        await roleAgent.prompt("");
-        const roleOut = await roleCollected.promise;
-        outputs.push(roleOut.action);
-        priorOutputs.push(roleOut.action);
-        cast.push({
-          characterId,
-          name: String(card.name ?? characterId),
-          summary: String(card.description ?? ""),
+        const plannerModel = this.opts.llmStore.getModel("planner");
+        const plannerKey = this.opts.llmStore.getApiKey("planner");
+        const planner = createPlannerAgent(
+          plannerModel,
+          plannerKey,
+          _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
+          [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
+          createPlannerTools(this.opts.ports),
+        );
+        const plannerCollected = collectSubmission<{ plan: RetrievalPlan }>(planner, "retrieval_plan");
+        await planner.prompt("");
+        plannerResult = await plannerCollected.promise;
+        plannerCollected.dispose();
+        plannerSpan.end({
+          output: {
+            provider: plannerModel.provider,
+            model: plannerModel.id,
+            retrievalItems: plannerResult.plan.items?.length ?? 0,
+          },
         });
       } catch (err) {
-        errors.push({
-          characterId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        roleCollected.dispose();
+        plannerSpan.error(err);
+        throw err;
       }
+
+      // 2. 角色代理（串行：默认；上一角色输出注入下一角色）
+      const outputs: RoleAgentOutput[] = [];
+      const errors: { characterId: string; error: string }[] = [];
+      const cast: { characterId: string; name: string; summary: string }[] = [];
+      const priorOutputs: RoleAgentOutput[] = [];
+
+      const roleSpan = startSpan(bus, "role", traceId, {
+        slot: "role",
+        characterIds: event.characterIds,
+      }, rootSpan.eventId);
+      try {
+        const roleModel = this.opts.llmStore.getModel("role");
+        const roleKey = this.opts.llmStore.getApiKey("role");
+        for (const characterId of event.characterIds) {
+          const card = await this.opts.staticCardLoader(characterId);
+          const roleSystemPrompt = this.buildRoleSystemPrompt(card, event);
+          const userMessages: AgentMessage[] = [
+            {
+              role: "user",
+              content: this.buildRoleUserMessage(characterId, card, event),
+              timestamp: Date.now(),
+            },
+          ];
+          // 串行：注入前序角色公开产出
+          for (const prior of priorOutputs) {
+            userMessages.push({
+              role: "user",
+              content: `【前序角色 ${prior.actor} 的行动】${prior.action}`,
+              timestamp: Date.now(),
+            });
+          }
+
+          // 角色代理：注入受限世界图工具（characterId 绑定，自主查可见状态）
+          const roleAgent = createRoleAgent(
+            roleModel,
+            roleKey,
+            roleSystemPrompt,
+            userMessages,
+            createRoleLimitedTools(this.opts.ports, characterId),
+          );
+          const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
+          try {
+            await roleAgent.prompt("");
+            const roleOut = await roleCollected.promise;
+            outputs.push(roleOut.action);
+            priorOutputs.push(roleOut.action);
+            cast.push({
+              characterId,
+              name: String(card.name ?? characterId),
+              summary: String(card.description ?? ""),
+            });
+          } catch (err) {
+            errors.push({
+              characterId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            roleCollected.dispose();
+          }
+        }
+        // 单角色失败不阻断流程（记入 errors），role span 仍算结束
+        roleSpan.end({
+          output: {
+            provider: roleModel.provider,
+            model: roleModel.id,
+            outputs: outputs.length,
+            errors: errors.length,
+          },
+        });
+      } catch (err) {
+        roleSpan.error(err);
+        throw err;
+      }
+
+      // 3. 汇总（plan 模式到此为止；yolo 模式跑后半链路并自动落地）
+      const result: OrchestratorResult = {
+        mode: event.mode === "yolo" ? "yolo" : "plan",
+        planId,
+        eventId,
+        chapterPath: event.chapterPath ?? `chapters/${event.storyTime}.md`,
+        event,
+        outputs,
+        errors,
+        cast,
+        retrievalPlan: plannerResult.plan,
+      };
+
+      if (event.mode === "yolo") {
+        const pipeline = await this.runPostRolePipeline(event, eventId, outputs, {
+          traceId,
+          parentId: rootSpan.eventId,
+        });
+        result.diffusion = pipeline.diffusion;
+        result.render = pipeline.render;
+        result.commit = pipeline.commit;
+      }
+
+      rootSpan.end({ output: { mode: result.mode, planId, outputs: outputs.length, errors: errors.length } });
+      return result;
+    } catch (err) {
+      rootSpan.error(err);
+      throw err;
     }
-
-    // 3. 汇总（plan 模式到此为止；yolo 模式跑后半链路并自动落地）
-    const result: OrchestratorResult = {
-      mode: event.mode === "yolo" ? "yolo" : "plan",
-      planId,
-      eventId,
-      chapterPath: event.chapterPath ?? `chapters/${event.storyTime}.md`,
-      event,
-      outputs,
-      errors,
-      cast,
-      retrievalPlan: plannerResult.plan,
-    };
-
-    if (event.mode === "yolo") {
-      const pipeline = await this.runPostRolePipeline(event, eventId, outputs);
-      result.diffusion = pipeline.diffusion;
-      result.render = pipeline.render;
-      result.commit = pipeline.commit;
-    }
-
-    return result;
   }
 
   /**
@@ -261,44 +315,96 @@ export class Orchestrator {
    * @param event 原始输入事件
    * @param eventId 本次编排的渲染锚点 ID（run() 生成，plan 模式 commit 时复用）
    * @param outputs 角色产出
+   * @param trace 调用方 trace（yolo 模式续 run 的 traceId；缺省时自建
+   *   "orchestrator.commit" root span——plan 模式 commit 是一条新 trace）
    */
   async runPostRolePipeline(
     event: StructuredEvent,
     eventId: string,
     outputs: RoleAgentOutput[],
+    trace?: { traceId: string; parentId?: string },
   ): Promise<{ diffusion: DiffusionOutput; render: RenderOutput; commit: CommitSummary }> {
-    // 1. 可见推理代理：注入世界图只读+写工具，自主裁决并写入
-    const diffusion = await this.runReasoning(
-      this.opts.llmStore.getModel("reasoning"),
-      this.opts.llmStore.getApiKey("reasoning"),
-      event,
-      outputs,
-    );
+    const bus = this.opts.debugBus ?? null;
+    const traceId = trace?.traceId ?? newTraceId();
+    // plan 模式 commit：自成一条 trace，root span "orchestrator.commit"
+    let rootSpan: (DebugSpan & { eventId: string }) | null = null;
+    let parentId = trace?.parentId;
+    if (!trace) {
+      rootSpan = startSpan(bus, "orchestrator.commit", traceId, {
+        storyTime: event.storyTime,
+        eventId,
+      });
+      parentId = rootSpan.eventId;
+    }
+    try {
+      // 1. 可见推理代理：注入世界图只读+写工具，自主裁决并写入
+      const reasoningSpan = startSpan(bus, "reasoner", traceId, { slot: "reasoning" }, parentId);
+      let diffusion: DiffusionOutput;
+      try {
+        const reasoningModel = this.opts.llmStore.getModel("reasoning");
+        diffusion = await this.runReasoning(
+          reasoningModel,
+          this.opts.llmStore.getApiKey("reasoning"),
+          event,
+          outputs,
+        );
+        reasoningSpan.end({
+          output: {
+            provider: reasoningModel.provider,
+            model: reasoningModel.id,
+            appliedEventIds: diffusion.appliedEventIds?.length ?? 0,
+          },
+        });
+      } catch (err) {
+        reasoningSpan.error(err);
+        throw err;
+      }
 
-    // 2. 渲染器代理：注入章节工具，读上下文并写章节
-    const render = await this.runRenderer(
-      this.opts.llmStore.getModel("renderer"),
-      this.opts.llmStore.getApiKey("renderer"),
-      event,
-      eventId,
-      outputs,
-      diffusion,
-    );
+      // 2. 渲染器代理：注入章节工具，读上下文并写章节
+      const rendererSpan = startSpan(bus, "renderer", traceId, { slot: "renderer" }, parentId);
+      let render: RenderOutput;
+      try {
+        const rendererModel = this.opts.llmStore.getModel("renderer");
+        render = await this.runRenderer(
+          rendererModel,
+          this.opts.llmStore.getApiKey("renderer"),
+          event,
+          eventId,
+          outputs,
+          diffusion,
+        );
+        rendererSpan.end({
+          output: {
+            provider: rendererModel.provider,
+            model: rendererModel.id,
+            chapterPath: render.chapterPath,
+            ok: render.ok !== false,
+          },
+        });
+      } catch (err) {
+        rendererSpan.error(err);
+        throw err;
+      }
 
-    const errors: string[] = [];
-    const writtenText = render.text ?? "";
-    const appliedEventIds = diffusion.appliedEventIds ?? [];
-    const ok = render.ok !== false && errors.length === 0;
+      const errors: string[] = [];
+      const writtenText = render.text ?? "";
+      const appliedEventIds = diffusion.appliedEventIds ?? [];
+      const ok = render.ok !== false && errors.length === 0;
 
-    const commit: CommitSummary = {
-      ok,
-      appliedEventIds,
-      visibilityChanges: diffusion.visibilityChanges,
-      writtenText,
-      chapterPath: render.chapterPath,
-      errors,
-    };
-    return { diffusion, render, commit };
+      const commit: CommitSummary = {
+        ok,
+        appliedEventIds,
+        visibilityChanges: diffusion.visibilityChanges,
+        writtenText,
+        chapterPath: render.chapterPath,
+        errors,
+      };
+      rootSpan?.end({ output: { ok, appliedEventIds: appliedEventIds.length, chapterPath: render.chapterPath } });
+      return { diffusion, render, commit };
+    } catch (err) {
+      rootSpan?.error(err);
+      throw err;
+    }
   }
 
   /** 可见推理子代理（阶段 A：注入世界图工具，自主写世界图） */

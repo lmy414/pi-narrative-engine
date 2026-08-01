@@ -154,6 +154,30 @@ export class OrchestratorService {
     return this.plans.size;
   }
 
+  /**
+   * 待确认 plan 列表（只读摘要，GET /api/scheduler/status 用）
+   *
+   * plan 模式前半链路完成后缓存，commit/discard 后移除。
+   */
+  listPlans(): Array<{
+    planId: string;
+    storyTime: string;
+    mode: "plan" | "yolo";
+    characterIds: string[];
+    /** 角色产出数 / 角色错误数（计划卡片摘要用） */
+    outputCount: number;
+    errorCount: number;
+  }> {
+    return Array.from(this.plans.entries()).map(([planId, { event, result }]) => ({
+      planId,
+      storyTime: event.storyTime,
+      mode: result.mode,
+      characterIds: event.characterIds,
+      outputCount: result.outputs.length,
+      errorCount: result.errors.length,
+    }));
+  }
+
   private toCommitResult(commit: CommitSummary, planId: string): CommitResult {
     return {
       ok: commit.ok,
