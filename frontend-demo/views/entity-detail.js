@@ -6,6 +6,8 @@
  *   与 views.js 的同名函数形成确定覆盖（函数声明提升 + 后加载覆盖先加载），
  *   从而在不修改 views.js 的前提下替换实体详情入口。其余新增函数全部使用
  *   detail* 前缀，避免与存量全局函数（switchDetailTab / killEntity 等）无意冲突。
+ *   例外（无 detail* 前缀）：reloadDetail / refreshDetailVisibility / entityDetailDrawerHtml
+ *   三个函数沿用旧实现的结构性命名，无同名存量冲突，保持现名。
  *
  * 数据模型（api-mock.js / mock-data.js）：
  *   - getEntityHistory(id) → { entity, declarations, relations, events }
@@ -99,16 +101,25 @@ async function refreshDetailVisibility() {
   detailState.visibility = vis;
 }
 
+// 请求序号：reloadDetail / openEntityDetail 共用，过期响应直接丢弃（防快速连续操作竞态覆盖）
+let detailReloadSeq = 0;
+
 async function reloadDetail(opts) {
-  const { snapshotAt } = opts || {};
-  const data = await apiCall('getEntityHistory', detailState.id);
+  // R1：snapshotAt 缺省时沿用 previewAt，保证保存类操作后仍按当前预览时间点重取
+  const snapshotAt = (opts && opts.snapshotAt !== undefined) ? opts.snapshotAt : detailState.previewAt;
+  const token = ++detailReloadSeq;
+  const id = detailState.id;
+  const data = await apiCall('getEntityHistory', id);
+  if (token !== detailReloadSeq || detailState.id !== id) return;
   detailState.data = data;
   if (snapshotAt) {
-    detailState.snapshot = await apiCall('getEntity', detailState.id, snapshotAt);
+    detailState.snapshot = await apiCall('getEntity', id, snapshotAt);
+    if (token !== detailReloadSeq || detailState.id !== id) return;
   } else {
     detailState.snapshot = null;
   }
   await refreshDetailVisibility();
+  if (token !== detailReloadSeq || detailState.id !== id) return;
   openDrawer(entityDetailDrawerHtml());
   refreshIcons();
 }
@@ -254,7 +265,7 @@ function detailPropertiesPanel() {
       <div class="property-name">${escapeHtml(detailPropLabel(k))}</div>
       <div class="property-value" title="${escapeHtml(v)}">${escapeHtml(v)}</div>
       <div class="property-actions">
-        <button class="property-edit-btn" onclick="detailEditProperty(${JSON.stringify(k)}, ${JSON.stringify(String(v))})">${icon('pencil', 'w-3 h-3')} 编辑</button>
+        <button class="property-edit-btn" onclick="detailEditProperty('${escapeHtml(k)}', '${escapeHtml(String(v))}')">${icon('pencil', 'w-3 h-3')} 编辑</button>
       </div>
     </div>`).join('');
   return `
@@ -330,7 +341,7 @@ function detailRelationsPanel() {
       </div>
       ${closed ? '' : `
       <div class="relation-card-actions">
-        <button class="decl-action-btn close" onclick="detailCloseRelation(${JSON.stringify(r.sourceId)}, ${JSON.stringify(r.targetId)}, ${JSON.stringify(r.label)})">闭合</button>
+        <button class="decl-action-btn close" onclick="detailCloseRelation('${escapeHtml(r.sourceId)}', '${escapeHtml(r.targetId)}', '${escapeHtml(r.label)}')">闭合</button>
       </div>`}
     </div>`;
   };
@@ -356,7 +367,7 @@ function detailVisibilityPanel() {
     const title = rec
       ? `${VIS_STATE_LABELS[state]} · 置信 ${Math.round((rec.confidence || 0) * 100)}% · ${rec.source}`
       : '未知 · 点击设置';
-    return `<td title="${escapeHtml(title)}" onclick="detailVisibilityClick(${JSON.stringify(ch.entityId)}, ${JSON.stringify(decl.declarationId)})">
+    return `<td title="${escapeHtml(title)}" onclick="detailVisibilityClick('${escapeHtml(ch.entityId)}', '${escapeHtml(decl.declarationId)}')">
       <span class="visibility-cell ${state}">${sym}</span>
     </td>`;
   };
@@ -561,6 +572,8 @@ async function detailRetireEntity(id) {
 async function openEntityDetail(id) {
   await withLoading(async () => {
     const data = await apiCall('getEntityHistory', id);
+    if (detailState.id !== null && detailState.id !== id) return; // 期间已切到别的实体，丢弃过期响应
+    detailReloadSeq++; // 使进行中的 reloadDetail 失效
     detailState.id = id;
     detailState.data = data;
     detailState.snapshot = null;
