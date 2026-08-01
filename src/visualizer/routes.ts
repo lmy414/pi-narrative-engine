@@ -49,6 +49,11 @@ function fail(res: ServerResponse, status: number, code: string, message: string
 // 供 routes-ext.ts（unified-server 的 files/projects/admin 薄路由）复用
 export { ok as _ok, fail as _fail };
 
+/** 后端生成事件 ID（与引擎现有 evt_<ts>_<rand> 风格一致，见 orchestrator.ts） */
+function genEventId(): string {
+  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /** storyTime 必填端点的参数提取，缺失时抛带 code 的错误 */
 function requireStoryTime(url: URL): string {
   const st = url.searchParams.get("storyTime");
@@ -335,6 +340,100 @@ async function handlePost(
     const obj = requireFields(body, ["characterId", "declarationId", "storyTime"]);
     await wg.closeVisibility(String(obj.characterId), String(obj.declarationId), String(obj.storyTime));
     ok(res, { characterId: obj.characterId, declarationId: obj.declarationId });
+    return;
+  }
+
+  // ==========================================================================
+  // 事件溯源便捷端点（B5）：无物理删除、无原地改——属性编辑/声明闭合/实体退场
+  // 全部经 change/death 事件落事件日志（因果可回溯），事件 ID 由后端生成
+  // ==========================================================================
+
+  // POST /api/entities/:id/props — body { property, value, modality?, storyTime }
+  if (head === "entities" && id && sub === "props") {
+    const obj = requireFields(body, ["property", "value", "storyTime"]);
+    const property = String(obj.property);
+    const storyTime = String(obj.storyTime);
+    const modality = obj.modality === undefined ? "fact" : String(obj.modality);
+    if (!["fact", "belief", "hypothesis"].includes(modality)) {
+      fail(res, 400, "INVALID_BODY", `modality 只能是 fact|belief|hypothesis（收到 ${modality}）`);
+      return;
+    }
+    const snapshot = await wg.getEntityAt(id, storyTime);
+    if (!snapshot) {
+      fail(res, 404, "ENTITY_NOT_FOUND", `实体不存在（或在该时刻未诞生）: ${id}`);
+      return;
+    }
+    // 当前未闭合声明（有则随 change 事件闭合）
+    const current = snapshot.properties.find((p) => p.property === property);
+    const eventId = genEventId();
+    await wg.processEvent({
+      eventId,
+      type: "change",
+      storyTime,
+      entityId: id,
+      source: "user",
+      invalidated: current ? [{ declarationId: current.declarationId, property }] : undefined,
+      newFacts: [{ entityId: id, property, value: obj.value, modality: modality as "fact" | "belief" | "hypothesis" }],
+    } as EventRecordInput);
+    // 取新声明 ID（processEvent 不返回，按 validFrom 回查）
+    const after = await wg.getEntityAt(id, storyTime);
+    const created = after?.properties.find((p) => p.property === property);
+    ok(res, {
+      entityId: id,
+      property,
+      closedDeclarationId: current?.declarationId ?? null,
+      newDeclarationId: created?.declarationId ?? null,
+    });
+    return;
+  }
+
+  // POST /api/declarations/close — body { declarationId, entityId, storyTime }
+  if (head === "declarations" && id === "close") {
+    const obj = requireFields(body, ["declarationId", "entityId", "storyTime"]);
+    const declarationId = String(obj.declarationId);
+    const entityId = String(obj.entityId);
+    const storyTime = String(obj.storyTime);
+    // 读当前声明状态（历史含已闭合），判断存在性与是否已闭合
+    const history = await wg.getEntityHistory(entityId);
+    const decl = history.facts.find((f) => f.declarationId === declarationId);
+    if (!decl) {
+      fail(res, 404, "DECLARATION_NOT_FOUND", `声明不存在: ${declarationId}（entityId=${entityId}）`);
+      return;
+    }
+    if (decl.validTo !== "Infinity") {
+      fail(res, 409, "DECLARATION_CLOSED", `声明已闭合（validTo=${decl.validTo}）: ${declarationId}`);
+      return;
+    }
+    await wg.processEvent({
+      eventId: genEventId(),
+      type: "change",
+      storyTime,
+      entityId,
+      source: "user",
+      invalidated: [{ declarationId, property: decl.property }],
+    } as EventRecordInput);
+    ok(res, { declarationId, closed: true });
+    return;
+  }
+
+  // POST /api/entities/:id/kill — body { storyTime }（实体退场：双时态闭合，非物理删除）
+  if (head === "entities" && id && sub === "kill") {
+    const obj = requireFields(body, ["storyTime"]);
+    const storyTime = String(obj.storyTime);
+    const snapshot = await wg.getEntityAt(id, storyTime);
+    if (!snapshot) {
+      fail(res, 404, "ENTITY_NOT_FOUND", `实体不存在（或在该时刻未诞生/已退场）: ${id}`);
+      return;
+    }
+    // 优先 processEvent type="death"（走事件日志，因果可回溯），而非直调 killEntity
+    await wg.processEvent({
+      eventId: genEventId(),
+      type: "death",
+      storyTime,
+      entityId: id,
+      source: "user",
+    } as EventRecordInput);
+    ok(res, { entityId: id, killedAt: storyTime });
     return;
   }
 

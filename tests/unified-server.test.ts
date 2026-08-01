@@ -1067,3 +1067,112 @@ test("POST /api/events 非法 body → 400 VALIDATION_ERROR", async () => {
   assert.equal(r.ok, false);
   assert.equal(r.error?.code, "VALIDATION_ERROR");
 });
+// ============ B5：事件溯源便捷端点（props/close/kill） ============
+
+test("entities/:id/props：属性编辑（旧声明闭合 + 新声明生效）；404/400", async () => {
+  // 造临时实体（t6 诞生，不影响既有 viz1/viz2 断言）
+  await sendJson("POST", "/events", {
+    eventId: "evt-b5-birth",
+    type: "birth",
+    storyTime: "t6",
+    entityId: "e-b5",
+    entityType: "character",
+    newFacts: [{ entityId: "e-b5", property: "name", value: "临时", modality: "fact" }],
+  });
+
+  // 首次设置 mood（无旧声明可闭合）
+  const r1 = await sendJson("POST", "/entities/e-b5/props", {
+    property: "mood",
+    value: "平静",
+    storyTime: "t6",
+  });
+  assert.equal(r1.ok, true);
+  assert.equal(r1.data.closedDeclarationId, null);
+  const decl1 = r1.data.newDeclarationId as string;
+  assert.ok(decl1, "应返回新声明 ID");
+
+  // 再次编辑：旧声明闭合 + 新值生效
+  const r2 = await sendJson("POST", "/entities/e-b5/props", {
+    property: "mood",
+    value: "愤怒",
+    storyTime: "t7",
+  });
+  assert.equal(r2.ok, true);
+  assert.equal(r2.data.closedDeclarationId, decl1, "应闭合上一版 mood 声明");
+
+  const snap = await api("/entities/e-b5?storyTime=t7");
+  assert.equal(snap.data.properties.find((p: any) => p.property === "mood").value, "愤怒");
+  const history = await api("/entities/e-b5/history");
+  assert.equal(
+    history.data.facts.find((f: any) => f.declarationId === decl1).validTo,
+    "t7",
+    "旧声明应在 t7 闭合",
+  );
+
+  // 错误路径
+  const nf = await sendJson("POST", "/entities/e-ghost/props", {
+    property: "x",
+    value: 1,
+    storyTime: "t7",
+  });
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "ENTITY_NOT_FOUND");
+  const bad = await sendJson("POST", "/entities/e-b5/props", {
+    property: "x",
+    value: 1,
+    storyTime: "t7",
+    modality: "nope",
+  });
+  assert.equal(bad.status, 400);
+});
+
+test("declarations/close：闭合声明生效；不存在 404；重复闭合 409", async () => {
+  const snap = await api("/entities/e-b5?storyTime=t7");
+  const decl = snap.data.properties.find((p: any) => p.property === "mood");
+
+  const r = await sendJson("POST", "/declarations/close", {
+    declarationId: decl.declarationId,
+    entityId: "e-b5",
+    storyTime: "t8",
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.data, { declarationId: decl.declarationId, closed: true });
+
+  const history = await api("/entities/e-b5/history");
+  assert.equal(
+    history.data.facts.find((f: any) => f.declarationId === decl.declarationId).validTo,
+    "t8",
+    "声明应在 t8 闭合",
+  );
+
+  const again = await sendJson("POST", "/declarations/close", {
+    declarationId: decl.declarationId,
+    entityId: "e-b5",
+    storyTime: "t9",
+  });
+  assert.equal(again.status, 409);
+  assert.equal(again.error?.code, "DECLARATION_CLOSED");
+
+  const nf = await sendJson("POST", "/declarations/close", {
+    declarationId: "decl-ghost",
+    entityId: "e-b5",
+    storyTime: "t9",
+  });
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "DECLARATION_NOT_FOUND");
+});
+
+test("entities/:id/kill：实体退场后该时刻快照消失，历史不丢；不存在 404", async () => {
+  const r = await sendJson("POST", "/entities/e-b5/kill", { storyTime: "t9" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.data, { entityId: "e-b5", killedAt: "t9" });
+
+  const after = await api("/entities/e-b5?storyTime=t9");
+  assert.equal(after.status, 404, "t9 起实体已退场");
+  const before = await api("/entities/e-b5?storyTime=t7");
+  assert.equal(before.ok, true, "t7 时刻仍可见（双时态闭合，历史不丢）");
+
+  const nf = await sendJson("POST", "/entities/e-ghost/kill", { storyTime: "t9" });
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "ENTITY_NOT_FOUND");
+});
