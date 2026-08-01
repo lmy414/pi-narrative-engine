@@ -82,17 +82,25 @@ const MOCK_EVENTS = [
 ];
 
 const MOCK_DECLARATIONS = [
-  { declarationId: 'decl-01', entityId: 'char-01', property: 'hasItem', value: null, modality: 'fact', validFrom: 'ch001.ev001', validTo: 'ch001.ev002' },
-  { declarationId: 'decl-02', entityId: 'char-01', property: 'location', value: '第七星港', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'ch003.ev005' },
-  { declarationId: 'decl-03', entityId: 'char-01', property: 'location', value: '迷雾星云', modality: 'fact', validFrom: 'ch003.ev005', validTo: 'Infinity' },
-  { declarationId: 'decl-04', entityId: 'char-02', property: 'faction', value: '游商公会', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
-  { declarationId: 'decl-05', entityId: 'char-03', property: 'alive', value: true, modality: 'fact', validFrom: 'ch001.ev001', validTo: 'ch004.ev006' }
+  { declarationId: 'decl-01', entityId: 'char-01', property: 'hasItem', value: null, modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch001.ev002', closeReason: 'ev002 发现破碎星图（hasItem 转移）' },
+  { declarationId: 'decl-02', entityId: 'char-01', property: 'location', value: '第七星港', modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch003.ev005', closeReason: 'ev005 启程前往迷雾星云' },
+  { declarationId: 'decl-03', entityId: 'char-01', property: 'location', value: '迷雾星云', modality: 'fact', source: 'engine', validFrom: 'ch003.ev005', validTo: 'Infinity' },
+  { declarationId: 'decl-04', entityId: 'char-02', property: 'faction', value: '游商公会', modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+  { declarationId: 'decl-05', entityId: 'char-03', property: 'alive', value: true, modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'ch004.ev006', closeReason: 'ev006 为掩护曙光号撤离' }
 ];
 
 const MOCK_VISIBILITY = [
   { characterId: 'char-01', declarationId: 'decl-04', state: 'known', confidence: 0.9, source: 'informed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
   { characterId: 'char-02', declarationId: 'decl-02', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
-  { characterId: 'char-03', declarationId: 'decl-03', state: 'known', confidence: 0.7, source: 'informed', validFrom: 'ch003.ev005', validTo: 'Infinity' }
+  { characterId: 'char-03', declarationId: 'decl-03', state: 'known', confidence: 0.7, source: 'informed', validFrom: 'ch003.ev005', validTo: 'Infinity' },
+  // 补充记录：覆盖 char-01 各声明的可见性矩阵（known / suspected / unknown 混合展示）
+  { characterId: 'char-01', declarationId: 'decl-02', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+  { characterId: 'char-01', declarationId: 'decl-03', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch003.ev005', validTo: 'Infinity' },
+  { characterId: 'char-02', declarationId: 'decl-01', state: 'known', confidence: 0.85, source: 'informed', validFrom: 'ch001.ev002', validTo: 'Infinity' },
+  { characterId: 'char-02', declarationId: 'decl-03', state: 'suspected', confidence: 0.6, source: 'inferred', validFrom: 'ch003.ev005', validTo: 'Infinity' },
+  { characterId: 'char-03', declarationId: 'decl-02', state: 'known', confidence: 0.8, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+  { characterId: 'char-03', declarationId: 'decl-04', state: 'suspected', confidence: 0.5, source: 'inferred', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+  { characterId: 'char-01', declarationId: 'decl-05', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' }
 ];
 
 const MOCK_CHAT_SESSIONS = [

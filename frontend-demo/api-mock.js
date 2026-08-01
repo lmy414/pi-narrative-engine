@@ -269,11 +269,14 @@ const ApiMock = {
     return ok({ visibility: MOCK_VISIBILITY.filter(v => v.declarationId === declId) });
   },
 
-  async setVisibility(characterId, declarationId, confidence, source, storyTime) {
+  async setVisibility(characterId, declarationId, confidence, source, storyTime, state = 'known') {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    MOCK_VISIBILITY.push({ characterId, declarationId, state: 'known', confidence, source, validFrom: storyTime || currentStoryTime, validTo: 'Infinity' });
+    // 事件溯源：先闭合该「角色 × 声明」现存生效的可见性记录，再写入新记录
+    const existing = MOCK_VISIBILITY.find(v => v.characterId === characterId && v.declarationId === declarationId && v.validTo === 'Infinity');
+    if (existing) existing.validTo = storyTime || currentStoryTime;
+    MOCK_VISIBILITY.push({ characterId, declarationId, state, confidence, source, validFrom: storyTime || currentStoryTime, validTo: 'Infinity' });
     return ok({ set: true });
   },
 
