@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WorldGraph } from "underworld-graph";
 import { ProjectRegistry } from "../src/app/project-registry.ts";
+import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
 import { startUnifiedServer } from "../src/app/unified-server.ts";
 import type { UnifiedServer } from "../src/app/unified-server.ts";
 
@@ -159,6 +160,7 @@ before(async () => {
     templatesDir: join(root, "templates"),
     uiDir,
     appConfigDir,
+    llmConfigStore: new LlmConfigStore(),
   });
   base = server.url;
 });
@@ -224,6 +226,24 @@ test("projects/activate: 切换到乙后数据隔离", async () => {
     graph.data.entities.some((e: any) => e.entityId === "e-乙"),
     "实体列表应包含 e-乙",
   );
+});
+
+test("projects/activate→close: lastProjectDir 持久化与清除", async () => {
+  const cfgPath = join(appConfigDir, "app-config.json");
+
+  // 激活甲 → app-config 记住
+  const act = await sendJson("POST", "/projects/activate", { dir: projA });
+  assert.equal(act.ok, true);
+  let raw = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(raw.launcher.lastProjectDir, act.data.dir, "activate 应写 lastProjectDir");
+
+  // 关闭当前活跃项目 → 清除
+  await sendJson("POST", "/projects/close", { dir: projA });
+  raw = JSON.parse(readFileSync(cfgPath, "utf8"));
+  assert.equal(raw.launcher.lastProjectDir, null, "关闭活跃项目应清 lastProjectDir");
+
+  // 恢复活跃项目乙，不影响后续测试
+  await sendJson("POST", "/projects/activate", { dir: projB });
 });
 
 test("projects/activate: 无 world.db 的项目自动初始化空库（闭环）", async () => {
@@ -408,13 +428,122 @@ test("admin/embedder/warmup: 无 embedder 时 501", async () => {
   assert.equal(r.error?.code, "EMBEDDER_UNAVAILABLE");
 });
 
-test("admin/pi-status: 未装配 LlmConfigStore 时降级（model=null, hasKey=false）", async () => {
+test("admin/pi-status: 已装配 store，返回形状正确（model 取决于 env 配置）", async () => {
   const r = await api("/admin/pi-status");
   assert.equal(r.ok, true);
-  assert.equal(r.data.model, null);
-  assert.equal(r.data.hasKey, false);
   assert.equal(r.data.piVersion, null);
   assert.ok(Array.isArray(r.data.warnings));
+  assert.equal(typeof r.data.hasKey, "boolean");
+  if (r.data.model !== null) {
+    assert.equal(typeof r.data.model.id, "string");
+    assert.equal(typeof r.data.model.provider, "string");
+  }
+});
+
+// ============ /api/admin/llm ============
+
+test("admin/llm: GET 初始状态（configured=null，source 为 env/none）", async () => {
+  const r = await api("/admin/llm");
+  assert.equal(r.ok, true);
+  const slots = r.data.slots;
+  assert.deepEqual(
+    Object.keys(slots).sort(),
+    ["default", "planner", "reasoning", "renderer", "role"],
+  );
+  assert.equal(slots.default.configured, null);
+  assert.ok(["env", "none"].includes(slots.default.source), `初始来源应为 env/none，实际 ${slots.default.source}`);
+  // 响应不得包含任何 key 明文字段
+  assert.ok(!JSON.stringify(r.data).includes("apiKey"), "响应不含 apiKey 字段");
+});
+
+test("admin/llm: PUT slot 校验失败（非法 slot / 未知模型）", async () => {
+  const bad = await sendJson("PUT", "/admin/llm/slot", {
+    slot: "nope",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.error?.code, "INVALID_SLOT");
+
+  const unknown = await sendJson("PUT", "/admin/llm/slot", {
+    slot: "default",
+    provider: "deepseek",
+    model: "no-such-model-xyz",
+  });
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.error?.code, "INVALID_MODEL");
+});
+
+test("admin/llm: PUT slot default 生效并持久化；其他 slot 回退 default", async () => {
+  const r = await sendJson("PUT", "/admin/llm/slot", {
+    slot: "default",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.source, "slot");
+  assert.deepEqual(r.data.configured, { provider: "deepseek", model: "deepseek-v4-flash" });
+  assert.deepEqual(r.data.resolved, { provider: "deepseek", model: "deepseek-v4-flash" });
+
+  // 持久化到 app-config.json
+  const raw = JSON.parse(readFileSync(join(appConfigDir, "app-config.json"), "utf8"));
+  assert.deepEqual(raw.llm.slots.default, { provider: "deepseek", model: "deepseek-v4-flash" });
+
+  // 未配置的 planner 经 default 解析
+  const all = await api("/admin/llm");
+  assert.equal(all.data.slots.planner.configured, null);
+  assert.equal(all.data.slots.planner.source, "default");
+  assert.equal(all.data.slots.planner.resolved.model, "deepseek-v4-flash");
+});
+
+test("admin/llm: PUT key 写 auth.json 且不回传明文；DELETE key 移除", async () => {
+  const secret = "sk-test-secret-001";
+  const put = await sendJson("PUT", "/admin/llm/key", { provider: "deepseek", apiKey: secret });
+  assert.equal(put.ok, true);
+  assert.deepEqual(put.data, { provider: "deepseek", hasKey: true });
+  assert.ok(!JSON.stringify(put).includes(secret), "PUT key 响应不得包含明文");
+
+  // 落盘到临时 configDir 的 auth.json（存储包含 key 是预期行为）
+  const authPath = join(appConfigDir, "pi-agent", "auth.json");
+  const authRaw = JSON.parse(readFileSync(authPath, "utf8"));
+  assert.equal(authRaw.deepseek?.type, "api_key");
+  assert.equal(authRaw.deepseek?.key, secret);
+
+  // GET /api/admin/llm：hasKey=true 且不含明文
+  const all = await api("/admin/llm");
+  assert.equal(all.data.slots.default.hasKey, true, "auth.json 有 key 应为 true");
+  assert.ok(!JSON.stringify(all).includes(secret), "GET llm 响应不得包含明文");
+
+  const del = await fetch(`${base}api/admin/llm/key/deepseek`, { method: "DELETE" });
+  const delJson = (await del.json()) as any;
+  assert.equal(delJson.ok, true);
+  assert.deepEqual(delJson.data, { provider: "deepseek", hasKey: false });
+  const authRaw2 = JSON.parse(readFileSync(authPath, "utf8"));
+  assert.ok(!("deepseek" in authRaw2), "DELETE 后 auth.json 不应再有 deepseek");
+});
+
+test("admin/llm: PUT/DELETE 参数校验（缺字段 400）", async () => {
+  const missKey = await sendJson("PUT", "/admin/llm/key", { provider: "deepseek" });
+  assert.equal(missKey.status, 400);
+  const empty = await sendJson("PUT", "/admin/llm/key", { provider: " ", apiKey: " " });
+  assert.equal(empty.status, 400);
+  const missSlot = await sendJson("PUT", "/admin/llm/slot", { slot: "default" });
+  assert.equal(missSlot.status, 400);
+});
+
+test("admin/llm: DELETE slot 恢复 env/none 解析并落盘", async () => {
+  const del = await fetch(`${base}api/admin/llm/slot/default`, { method: "DELETE" });
+  const r = (await del.json()) as any;
+  assert.equal(r.ok, true);
+  assert.equal(r.data.configured, null);
+  assert.ok(["env", "none"].includes(r.data.source), `删除后回退 env/none，实际 ${r.data.source}`);
+
+  const raw = JSON.parse(readFileSync(join(appConfigDir, "app-config.json"), "utf8"));
+  assert.ok(!("default" in (raw.llm?.slots ?? {})), "app-config 中 default slot 应被删除");
+
+  // 非法 slot 的 DELETE → 400
+  const bad = await fetch(`${base}api/admin/llm/slot/nope`, { method: "DELETE" });
+  assert.equal(bad.status, 400);
 });
 
 // ============ /api/admin/app-config ============

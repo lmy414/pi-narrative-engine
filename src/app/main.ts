@@ -8,18 +8,21 @@
  *   存在即显式传入，不存在回退开发模式自动探测）
  *
  * 用法：
- *   node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
- *   node server/main.js          [--project <dir>] [--port 7421] [--embed]
+ *   node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed] [--config-dir <dir>]
+ *   node server/main.js          [--project <dir>] [--port 7421] [--embed] [--config-dir <dir>]
  */
 import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { KnownProvider } from "@earendil-works/pi-ai";
 import { Embedder } from "../embedder.ts";
 import { LlmConfigStore } from "../orchestrator/llm-config.ts";
+import type { LlmSlot } from "../orchestrator/llm-config.ts";
 import { ChatContext } from "./chat-context.ts";
 import { ProjectRegistry } from "./project-registry.ts";
+import { activateStartupProject } from "./startup-project.ts";
 import { startUnifiedServer } from "./unified-server.ts";
-import { _defaultConfigDir } from "@pi/admin";
+import { _defaultConfigDir, readAppConfig } from "@pi/admin";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,10 +30,11 @@ interface CliArgs {
   projectDir: string | null;
   port: number;
   embed: boolean;
+  configDir: string | null;
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { projectDir: null, port: 7421, embed: false };
+  const args: CliArgs = { projectDir: null, port: 7421, embed: false, configDir: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--project" && argv[i + 1]) {
@@ -43,8 +47,10 @@ function parseArgs(argv: string[]): CliArgs {
       }
     } else if (a === "--embed") {
       args.embed = true;
+    } else if (a === "--config-dir" && argv[i + 1]) {
+      args.configDir = resolve(argv[++i]);
     } else if (a === "--help" || a === "-h") {
-      console.log("用法: node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]");
+      console.log("用法: node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed] [--config-dir <dir>]");
       process.exit(0);
     }
   }
@@ -60,20 +66,31 @@ async function main(): Promise<void> {
     embedder = new Embedder();
   }
 
+  // 应用配置目录：--config-dir（测试/冒烟隔离）优先，缺省平台目录
+  const configDir = args.configDir ?? _defaultConfigDir();
+  const appConfig = await readAppConfig(configDir);
+
+  // 主会话/子代理共用配置中心：启动时用 app-config 持久化的 slot 映射水合
+  const llmStore = new LlmConfigStore();
+  for (const [slot, cfg] of Object.entries(appConfig.llm.slots)) {
+    if (!cfg) continue;
+    llmStore.setConfig(slot as LlmSlot, {
+      model: { provider: cfg.provider as KnownProvider, name: cfg.model },
+    });
+  }
+
   const registry = new ProjectRegistry({ embedder });
-  if (args.projectDir) {
-    try {
-      const handle = await registry.setActive(args.projectDir);
-      console.log(`[app-server] 已激活项目: ${handle.meta.name}（${handle.dir}）`);
-    } catch (err) {
-      console.error(`[app-server] 激活项目失败: ${(err as Error).message}`);
-      console.error("[app-server] 服务仍将启动，可稍后经 /api/projects/activate 激活");
-    }
+  // 启动项目：--project 优先；其次 app-config 记住的 lastProjectDir（失败只警告不阻断）
+  const startupHandle = await activateStartupProject(registry, {
+    cliProjectDir: args.projectDir,
+    lastProjectDir: appConfig.launcher.lastProjectDir,
+    warn: (msg) => console.error(`[app-server] ${msg}`),
+  });
+  if (startupHandle) {
+    console.log(`[app-server] 已激活项目: ${startupHandle.meta.name}（${startupHandle.dir}）`);
   }
 
   // 主会话运行时上下文（/api/chat/*）：模型配置与子代理同源（LlmConfigStore，env 兜底）
-  const configDir = _defaultConfigDir();
-  const llmStore = new LlmConfigStore();
   const chatContext = new ChatContext({
     registry,
     llmStore,
@@ -87,6 +104,7 @@ async function main(): Promise<void> {
     embedder,
     chatContext,
     configDir,
+    appConfigDir: configDir,
     llmConfigStore: llmStore,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "visualizer-ui"))

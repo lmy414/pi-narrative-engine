@@ -208,6 +208,20 @@ export class ChatContext {
     this.storyTimes.clear();
   }
 
+  /**
+   * LLM 配置变更（default slot / key）后热应用到运行中的主会话。
+   *
+   * 尽力而为：host 未启动时无操作（下次 ensureHost 自然用新配置）；
+   * 模型解析不出或 setModel 失败时抛给调用方（路由层兜底为"下次会话生效"）。
+   * 子代理每次调用都经 LlmConfigStore 现取配置，无需额外处理。
+   */
+  async applyLlmChange(): Promise<void> {
+    if (!this.host) return;
+    const modelConfig = this.resolveModelConfig();
+    if (!modelConfig.model) return;
+    await this.host.applyModelConfig(modelConfig.model, modelConfig.runtimeApiKey);
+  }
+
   private async disposeRuntime(): Promise<void> {
     if (this.host) {
       await this.host.dispose();

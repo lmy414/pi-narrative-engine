@@ -113,10 +113,13 @@ export {
   readAppConfig,
   writeAppConfig,
   getAppConfigPath,
+  LLM_SLOT_NAMES,
 } from "./app-config.ts";
 export type {
   AppConfig,
   AppConfigUpdates,
+  LlmSlotName,
+  LlmSlotConfig,
 } from "./app-config.ts";
 
 // ============ 公共类型与错误 ============

@@ -14,6 +14,9 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import { getModel } from "@earendil-works/pi-ai";
+import type { KnownProvider } from "@earendil-works/pi-ai";
+import type { AuthStorage } from "@earendil-works/pi-coding-agent";
 import {
   listFileTree,
   readProjectFile,
@@ -36,10 +39,12 @@ import {
   readAppConfig,
   writeAppConfig,
   RULESET_NAMES,
+  LLM_SLOT_NAMES,
   type RulesetName,
   type PiStatusDeps,
   type EmbedderLike,
   type AppConfigUpdates,
+  type LlmSlotName,
 } from "@pi/admin";
 import {
   discoverProjects,
@@ -48,7 +53,18 @@ import {
   openInFileManager,
 } from "@pi/novel-launcher";
 import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
+import type { LlmConfigStore, LlmSlot } from "../orchestrator/llm-config.ts";
 import type { ProjectRegistry } from "./project-registry.ts";
+import { getSlotStatus } from "./llm-resolver.ts";
+
+/** /api/admin/llm 端点的装配依赖（null 时 llm 端点 503） */
+export interface LlmApiDeps {
+  store: LlmConfigStore;
+  /** 可写 AuthStorage（set/remove 落盘 auth.json） */
+  authStorage: AuthStorage;
+  /** slot/key 变更回调（主会话热生效，尽力而为） */
+  onChange?: () => void;
+}
 
 export interface ExtApiContext {
   registry: ProjectRegistry;
@@ -58,6 +74,8 @@ export interface ExtApiContext {
   templatesDir: string;
   /** LLM 状态依赖（authStorage + resolveModel；null 时 pi-status 降级展示） */
   piStatus: PiStatusDeps | null;
+  /** LLM 配置端点依赖（/api/admin/llm*；null 时这些端点 503） */
+  llm: LlmApiDeps | null;
   /** embedder 实例（embedder status/warmup 用，可为 null） */
   embedder: EmbedderLike | null;
   /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
@@ -69,6 +87,8 @@ const ERROR_STATUS: Record<string, number> = {
   MISSING_FIELD: 400,
   INVALID_BODY: 400,
   INVALID_EXT: 400,
+  INVALID_SLOT: 400,
+  INVALID_MODEL: 400,
   PATH_ESCAPE: 403,
   FILE_NOT_FOUND: 404,
   NOT_A_FILE: 404,
@@ -82,6 +102,7 @@ const ERROR_STATUS: Record<string, number> = {
   MIGRATION_REQUIRED: 409,
   PROJECT_OPEN: 409,
   EMBEDDER_UNAVAILABLE: 501,
+  LLM_UNAVAILABLE: 503,
 };
 
 /** 取活跃项目目录，未设置时抛 NO_ACTIVE_PROJECT */
@@ -112,6 +133,38 @@ function requireBody(body: unknown, fields: string[]): Record<string, unknown> {
     }
   }
   return obj;
+}
+
+/** 持久化 lastProjectDir（书签性质：写失败不阻断 activate/close 主流程） */
+async function persistLastProjectDir(ctx: ExtApiContext, dir: string | null): Promise<void> {
+  try {
+    await writeAppConfig({ launcher: { lastProjectDir: dir } }, ctx.appConfigDir);
+  } catch {
+    // app-config 不可写时静默跳过——书签丢失不影响激活/关闭本身
+  }
+}
+
+/** 取 LLM 端点依赖，未装配时抛 LLM_UNAVAILABLE（503） */
+function requireLlm(ctx: ExtApiContext): LlmApiDeps {
+  if (!ctx.llm) {
+    const err = new Error("LLM 配置端点未装配（服务未注入 LlmConfigStore）") as Error & {
+      code?: string;
+    };
+    err.code = "LLM_UNAVAILABLE";
+    throw err;
+  }
+  return ctx.llm;
+}
+
+/** 校验 slot 名合法（5 个 LlmSlot 之一） */
+function assertLlmSlot(name: string): asserts name is LlmSlotName {
+  if (!(LLM_SLOT_NAMES as readonly string[]).includes(name)) {
+    const err = new Error(
+      `未知 slot: ${name}（可选 ${LLM_SLOT_NAMES.join("/")}）`,
+    ) as Error & { code?: string };
+    err.code = "INVALID_SLOT";
+    throw err;
+  }
 }
 
 /**
@@ -254,6 +307,7 @@ async function handleProjects(
   if (sub === "activate" && method === "POST") {
     const obj = requireBody(body, ["dir"]);
     const handle = await ctx.registry.setActive(String(obj.dir), { allowInit: true });
+    await persistLastProjectDir(ctx, handle.dir);
     ok(res, { dir: handle.dir, name: handle.meta.name, forceFulltext: handle.forceFulltext });
     return;
   }
@@ -289,8 +343,12 @@ async function handleProjects(
   // POST /api/projects/close — body { dir }（关闭句柄释放 wg）
   if (sub === "close" && method === "POST") {
     const obj = requireBody(body, ["dir"]);
-    await ctx.registry.closeProject(String(obj.dir));
-    ok(res, { dir: String(obj.dir) });
+    const dir = String(obj.dir);
+    const wasActive = ctx.registry.getActive()?.dir === dir;
+    await ctx.registry.closeProject(dir);
+    // 关闭的是当前活跃项目 → 清除"记住的项目"（下次启动停入口页）
+    if (wasActive) await persistLastProjectDir(ctx, null);
+    ok(res, { dir });
     return;
   }
 
@@ -333,6 +391,93 @@ async function handleAdmin(
     ok(res, ctx.piStatus
       ? getPiStatus(ctx.piStatus)
       : { model: null, hasKey: false, piVersion: null, warnings: ["未装配 LLM 状态依赖"] });
+    return;
+  }
+
+  // ===== LLM 配置（slot 映射持久化到 app-config.json；apiKey 权威存储为 auth.json）=====
+
+  // GET /api/admin/llm — 5 个 slot 的配置/解析/来源/hasKey（不返回 key 明文）
+  if (sub === "llm" && segments.length === 2 && method === "GET") {
+    const deps = requireLlm(ctx);
+    const slots: Record<string, unknown> = {};
+    for (const slot of LLM_SLOT_NAMES) {
+      slots[slot] = getSlotStatus(deps.store, deps.authStorage, slot as LlmSlot);
+    }
+    ok(res, { slots });
+    return;
+  }
+
+  // PUT /api/admin/llm/slot — body { slot, provider, model }（校验模型存在后持久化 + 即时生效）
+  if (sub === "llm" && name === "slot" && segments.length === 3 && method === "PUT") {
+    const deps = requireLlm(ctx);
+    const obj = requireBody(body, ["slot", "provider", "model"]);
+    const slot = String(obj.slot);
+    assertLlmSlot(slot);
+    const provider = String(obj.provider).trim();
+    const modelId = String(obj.model).trim();
+    if (!provider || !modelId) {
+      const err = new Error("provider 与 model 不能为空") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    // pi-ai 模型表校验（第二参数为字面量联合，运行时 string 无法静态匹配，同 llm-config.ts 的 as never 约定）
+    if (!getModel(provider as KnownProvider, modelId as never)) {
+      const err = new Error(
+        `模型不存在: provider=${provider} model=${modelId}`,
+      ) as Error & { code?: string };
+      err.code = "INVALID_MODEL";
+      throw err;
+    }
+    await writeAppConfig({ llm: { slots: { [slot]: { provider, model: modelId } } } }, ctx.appConfigDir);
+    deps.store.setConfig(slot as LlmSlot, {
+      model: { provider: provider as KnownProvider, name: modelId },
+    });
+    deps.onChange?.();
+    ok(res, getSlotStatus(deps.store, deps.authStorage, slot as LlmSlot));
+    return;
+  }
+
+  // DELETE /api/admin/llm/slot/:slot — 清除该 slot 配置（持久化 + store 同步）
+  if (sub === "llm" && name === "slot" && segments.length === 4 && method === "DELETE") {
+    const deps = requireLlm(ctx);
+    const slot = segments[3];
+    assertLlmSlot(slot);
+    await writeAppConfig({ llm: { slots: { [slot]: null } } }, ctx.appConfigDir);
+    deps.store.clear(slot as LlmSlot);
+    deps.onChange?.();
+    ok(res, getSlotStatus(deps.store, deps.authStorage, slot as LlmSlot));
+    return;
+  }
+
+  // PUT /api/admin/llm/key — body { provider, apiKey }（写 auth.json；不返回明文）
+  if (sub === "llm" && name === "key" && segments.length === 3 && method === "PUT") {
+    const deps = requireLlm(ctx);
+    const obj = requireBody(body, ["provider", "apiKey"]);
+    const provider = String(obj.provider).trim();
+    const apiKey = String(obj.apiKey).trim();
+    if (!provider || !apiKey) {
+      const err = new Error("provider 与 apiKey 不能为空") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    deps.authStorage.set(provider, { type: "api_key", key: apiKey });
+    deps.onChange?.();
+    ok(res, { provider, hasKey: true });
+    return;
+  }
+
+  // DELETE /api/admin/llm/key/:provider — 从 auth.json 移除该 provider 凭据
+  if (sub === "llm" && name === "key" && segments.length === 4 && method === "DELETE") {
+    const deps = requireLlm(ctx);
+    const provider = segments[3];
+    if (!provider) {
+      const err = new Error("provider 不能为空") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    deps.authStorage.remove(provider);
+    deps.onChange?.();
+    ok(res, { provider, hasKey: false });
     return;
   }
 

@@ -32,6 +32,7 @@ import type { LlmConfigStore } from "../orchestrator/llm-config.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { handleExtApi } from "./routes-ext.ts";
 import { handleChatApi } from "./routes-chat.ts";
+import { resolveSlot } from "./llm-resolver.ts";
 import type { ChatContext } from "./chat-context.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,24 +72,21 @@ export interface UnifiedServer {
  * 从 LlmConfigStore 解析当前模型（pi-status 展示用）
  *
  * 解析链与 chat-context resolveModelConfig 一致：default slot → env。
- * getModel 不依赖 API Key；hasKey 单独经 getApiKey 探测（无 key 不抛错，记 false）。
- * 完全解析不出（无显式配置且 env 无 key）时返回 null。
+ * 模型解析复用 llm-resolver.resolveSlot（与 /api/admin/llm 单一口径）；
+ * hasKey 由 getPiStatus 内部经 authStorage 回退判定，此处只覆盖配置链。
  */
 function resolveModelFromStore(store: LlmConfigStore | null): ResolvedModel | null {
   if (!store) return null;
+  const resolved = resolveSlot(store, "default");
+  if (!resolved) return null;
+  let hasKey = false;
   try {
-    const model = store.getModel("default");
-    let hasKey = false;
-    try {
-      store.getApiKey("default");
-      hasKey = true;
-    } catch {
-      // 配置链与 env 均无 key —— 模型可展示，hasKey=false
-    }
-    return { provider: model.provider, modelId: model.id, hasKey };
+    store.getApiKey("default");
+    hasKey = true;
   } catch {
-    return null;
+    // 配置链与 env 均无 key —— getPiStatus 会再查 auth.json
   }
+  return { provider: resolved.provider, modelId: resolved.modelId, hasKey };
 }
 
 /**
@@ -101,8 +99,8 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
   const repoRoot = opts.repoRoot ?? resolve(__dirname, "../..");
   const uiDir = opts.uiDir ?? resolveDefaultUiDir();
 
-  // pi-status 依赖：authStorage 独立只读实例（与主会话运行时实例读同一 auth.json）；
-  // resolveModel 走 LlmConfigStore default slot → env（同 chat-context resolveModelConfig 解析链）
+  // LLM 依赖：authStorage 实例（与主会话运行时实例读写同一 auth.json）；
+  // resolveModel 走 LlmConfigStore default slot → env（与 /api/admin/llm 共用 llm-resolver 口径）
   const configDir = opts.configDir ?? opts.appConfigDir ?? _defaultConfigDir();
   const authStorage = AuthStorage.create(join(configDir, "pi-agent", "auth.json"));
   const llmStore = opts.llmConfigStore ?? null;
@@ -116,8 +114,21 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
     repoRoot,
     templatesDir: opts.templatesDir ?? resolve(repoRoot, "templates", "novel"),
     piStatus: piStatusDeps,
+    llm: llmStore
+      ? {
+          store: llmStore,
+          authStorage,
+          // slot/key 变更后尽力热应用到运行中的主会话；失败时下次会话生效
+          onChange: () => {
+            void opts.chatContext?.applyLlmChange().catch(() => {
+              // 热生效失败（如模型无可用 key）不阻断配置写入，下次会话生效
+            });
+          },
+        }
+      : null,
     embedder: opts.embedder ?? null,
-    appConfigDir: opts.appConfigDir,
+    // app-config.json 与 auth.json 同一配置目录（缺省 = configDir，避免写穿到平台默认目录）
+    appConfigDir: opts.appConfigDir ?? configDir,
   };
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {

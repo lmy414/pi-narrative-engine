@@ -54,6 +54,8 @@ export interface MainSessionHostOptions {
 export class MainSessionHost {
   private runtime!: Awaited<ReturnType<typeof createAgentSessionRuntime>>;
   private readonly opts: MainSessionHostOptions;
+  /** 最近一次创建的 services（热应用模型配置用；与 runtime 同生命周期） */
+  private services: Awaited<ReturnType<typeof createAgentSessionServices>> | null = null;
 
   constructor(opts: MainSessionHostOptions) {
     this.opts = opts;
@@ -68,6 +70,7 @@ export class MainSessionHost {
       sessionStartEvent,
     }) => {
       const services = await createAgentSessionServices({ cwd, agentDir });
+      this.services = services;
       // 运行时注入 API Key（不写 auth.json；provider 标准 env 兜底仍生效）
       if (this.opts.runtimeApiKey) {
         services.authStorage.setRuntimeApiKey(
@@ -91,6 +94,25 @@ export class MainSessionHost {
       agentDir: this.opts.agentDir,
       sessionManager,
     });
+  }
+
+  /**
+   * 热应用模型配置（LLM 设置变更后由 ChatContext 调用）
+   *
+   * - authStorage.reload()：让运行中会话读到经 /api/admin/llm/key 落盘的 key
+   * - setModel：SDK 直接换模型（模型无可用 auth 时抛错，调用方兜底为"下次会话生效"）
+   */
+  async applyModelConfig(
+    model: Model<any>,
+    runtimeApiKey?: { provider: string; apiKey: string },
+  ): Promise<void> {
+    const services = this.services;
+    if (!services) return;
+    if (runtimeApiKey) {
+      services.authStorage.setRuntimeApiKey(runtimeApiKey.provider, runtimeApiKey.apiKey);
+    }
+    services.authStorage.reload();
+    await this.session.setModel(model);
   }
 
   /** 当前会话 */

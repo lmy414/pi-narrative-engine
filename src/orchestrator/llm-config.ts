@@ -102,6 +102,11 @@ export class LlmConfigStore {
     return Array.from(this.configs.keys());
   }
 
+  /** 查看某 slot 的显式配置（不走回退链；未配置返回 undefined） */
+  peekConfig(slot: LlmSlot): LlmConfig | undefined {
+    return this.configs.get(slot);
+  }
+
   /** 解析某 slot 配置：slot 显式 → default → env 兜底（env 解析一次并缓存） */
   private resolveConfig(slot: LlmSlot): LlmConfig {
     const hit = this.configs.get(slot) ?? this.configs.get("default");

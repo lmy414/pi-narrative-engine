@@ -20,17 +20,42 @@ export interface AppConfig {
   launcher: {
     /** 项目扫描默认根目录 */
     defaultScanRoots: string[];
+    /** 最近激活的项目目录（启动时恢复用；null = 无） */
+    lastProjectDir: string | null;
   };
   embedder: {
     /** 向量模型（对应 PI_EMBEDDER_MODEL） */
     model: string;
   };
+  llm: {
+    /** slot → {provider, model} 映射（apiKey 不落盘于此，权威存储为 AuthStorage auth.json） */
+    slots: Partial<Record<LlmSlotName, LlmSlotConfig>>;
+  };
 }
 
-/** 应用配置更新（深层部分合并） */
+/** LLM slot 名（与 src/orchestrator/llm-config.ts 的 LlmSlot 字面量一致，admin 包不依赖 src） */
+export type LlmSlotName = "planner" | "role" | "reasoning" | "renderer" | "default";
+
+export const LLM_SLOT_NAMES: readonly LlmSlotName[] = [
+  "planner",
+  "role",
+  "reasoning",
+  "renderer",
+  "default",
+];
+
+export interface LlmSlotConfig {
+  provider: string;
+  model: string;
+}
+
+/** 应用配置更新（深层部分合并；llm.slots 值传 null 表示删除该 slot） */
 export interface AppConfigUpdates {
   launcher?: Partial<AppConfig["launcher"]>;
   embedder?: Partial<AppConfig["embedder"]>;
+  llm?: {
+    slots?: Partial<Record<LlmSlotName, LlmSlotConfig | null>>;
+  };
 }
 
 // ============================================================================
@@ -69,9 +94,13 @@ function _defaultConfig(): AppConfig {
   return {
     launcher: {
       defaultScanRoots: [],
+      lastProjectDir: null,
     },
     embedder: {
       model: "Xenova/bge-small-zh-v1.5",
+    },
+    llm: {
+      slots: {},
     },
   };
 }
@@ -90,9 +119,12 @@ export async function readAppConfig(configDir?: string): Promise<AppConfig> {
     return defaults;
   }
   const obj = (raw ?? {}) as Record<string, Record<string, unknown>>;
+  const rawLlm = (obj.llm ?? {}) as Record<string, unknown>;
+  const rawSlots = (rawLlm.slots ?? {}) as AppConfig["llm"]["slots"];
   return {
     launcher: { ...defaults.launcher, ...(obj.launcher ?? {}) },
     embedder: { ...defaults.embedder, ...(obj.embedder ?? {}) },
+    llm: { slots: { ...rawSlots } },
   };
 }
 
@@ -108,14 +140,32 @@ export async function writeAppConfig(
 ): Promise<AppConfig> {
   const filePath = getAppConfigPath(configDir);
   const current = await readAppConfig(configDir);
+
+  // llm.slots：应用更新（null = 删除），只保留已知 slot 名
+  const slots: AppConfig["llm"]["slots"] = { ...current.llm.slots };
+  if (updates.llm?.slots) {
+    for (const [name, value] of Object.entries(updates.llm.slots)) {
+      if (!(LLM_SLOT_NAMES as readonly string[]).includes(name)) continue;
+      const slotName = name as LlmSlotName;
+      if (value === null || value === undefined) delete slots[slotName];
+      else slots[slotName] = value;
+    }
+  }
+
   const merged: AppConfig = {
     launcher: {
       defaultScanRoots:
         updates.launcher?.defaultScanRoots ?? current.launcher.defaultScanRoots,
+      // lastProjectDir 可置 null，需区分"未提供"与"显式 null"
+      lastProjectDir:
+        updates.launcher && "lastProjectDir" in updates.launcher
+          ? (updates.launcher.lastProjectDir ?? null)
+          : current.launcher.lastProjectDir,
     },
     embedder: {
       model: updates.embedder?.model ?? current.embedder.model,
     },
+    llm: { slots },
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = filePath + ".tmp";

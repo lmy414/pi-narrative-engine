@@ -103,3 +103,89 @@ test("writeAppConfig: 剥离磁盘文件中的废弃键", async () => {
   assert.ok(!("piExecutable" in raw.launcher), "废弃键 piExecutable 应被剥离");
   assert.ok(!("extension" in raw), "未知顶层键应被剥离");
 });
+
+// ============ llm.slots ============
+
+test("readAppConfig: llm.slots 缺省为空对象", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const cfg = await readAppConfig(d2);
+    assert.deepEqual(cfg.llm.slots, {});
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+test("writeAppConfig: llm.slots 设置/更新/删除（null）", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const c1 = await writeAppConfig(
+      { llm: { slots: { default: { provider: "deepseek", model: "deepseek-v4-flash" } } } },
+      d2,
+    );
+    assert.deepEqual(c1.llm.slots.default, { provider: "deepseek", model: "deepseek-v4-flash" });
+
+    // 第二个 slot 不影响第一个
+    const c2 = await writeAppConfig(
+      { llm: { slots: { planner: { provider: "openai", model: "gpt-5.1" } } } },
+      d2,
+    );
+    assert.deepEqual(c2.llm.slots.default, { provider: "deepseek", model: "deepseek-v4-flash" });
+    assert.deepEqual(c2.llm.slots.planner, { provider: "openai", model: "gpt-5.1" });
+
+    // null 删除该 slot
+    const c3 = await writeAppConfig({ llm: { slots: { planner: null } } }, d2);
+    assert.ok(!("planner" in c3.llm.slots), "planner 应被删除");
+    assert.ok("default" in c3.llm.slots, "default 保留");
+
+    // 回读验证落盘
+    const back = await readAppConfig(d2);
+    assert.deepEqual(back.llm.slots, c3.llm.slots);
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+test("writeAppConfig: llm.slots 忽略未知 slot 名", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const cfg = await writeAppConfig(
+      {
+        llm: {
+          slots: {
+            default: { provider: "deepseek", model: "deepseek-v4-flash" },
+            hacker: { provider: "x", model: "y" },
+          } as never,
+        },
+      },
+      d2,
+    );
+    assert.ok("default" in cfg.llm.slots);
+    assert.ok(!("hacker" in cfg.llm.slots), "未知 slot 名应被忽略");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+// ============ launcher.lastProjectDir ============
+
+test("writeAppConfig: lastProjectDir 设置与显式置 null", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const c1 = await writeAppConfig({ launcher: { lastProjectDir: "D:\\novels\\a" } }, d2);
+    assert.equal(c1.launcher.lastProjectDir, "D:\\novels\\a");
+
+    // 更新其他 launcher 字段不影响 lastProjectDir
+    const c2 = await writeAppConfig({ launcher: { defaultScanRoots: ["D:\\novels"] } }, d2);
+    assert.equal(c2.launcher.lastProjectDir, "D:\\novels\\a", "未提供时保留");
+
+    // 显式 null 清除
+    const c3 = await writeAppConfig({ launcher: { lastProjectDir: null } }, d2);
+    assert.equal(c3.launcher.lastProjectDir, null);
+
+    const back = await readAppConfig(d2);
+    assert.equal(back.launcher.lastProjectDir, null);
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
