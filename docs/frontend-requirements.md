@@ -22,7 +22,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/projects/scan?root=&maxDepth=` | 扫描目录找工程（认 novel.json），返回 `{dir, relativePath, meta, chapterCount, lastModified}[]` |
+| GET | `/api/projects/scan?root=&maxDepth=` | 扫描目录找工程（认 novel.json），返回 `{dir, relativePath, meta, chapterCount, lastModified, needsMigration, stats: {entityCount, eventCount}|null}[]`（B4：db 不可用/需迁移时 stats=null） |
 | GET | `/api/projects/meta?dir=` | 单工程元信息 |
 | GET | `/api/projects/active` | `{active: {dir,name,forceFulltext}\|null, open: [...]}` |
 | POST | `/api/projects/activate` `{dir}` | 激活（无 world.db 自动初始化；schema 过旧返回 `MIGRATION_REQUIRED`）。**成功后自动持久化 lastProjectDir，下次启动自动恢复** |
@@ -66,6 +66,8 @@
 | POST | `/api/chat/message` `{text}` | 发消息（单流约束，忙碌 409 `CHAT_BUSY`） |
 | GET | `/api/chat/events` | SSE 事件流（AI 回复、工具调用全程事件） |
 | GET | `/api/chat/status` | 会话状态 |
+| GET | `/api/chat/sessions` | 历史会话列表（id/name/created/modified/messageCount/firstMessage，SDK SessionManager） |
+| GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `[{role, text, ts}]`（未知 id 404 `SESSION_NOT_FOUND`） |
 
 主会话 AI 持有 28 个工具（world_*/render_*/role_*/scheduler_*/import_*），编排调度由 AI 经工具触发，事件流经 SSE 可见。
 
@@ -106,7 +108,8 @@
 | POST | `/api/scheduler/dispatch` | 派发事件，body 同 `scheduler_dispatch` 工具参数 `{storyTime, instruction, characterIds, executionHints?, mode?, chapterPath?}`；返回 `{queueId, mode}`（planId 经 status 轮询获取） |
 | POST | `/api/scheduler/commit` `{planId}` | 提交 plan（写世界图+渲染章节）；plan 不存在 404 `PLAN_NOT_FOUND`，失败 409 `COMMIT_FAILED` |
 | POST | `/api/scheduler/discard` `{planId}` | 丢弃 plan；plan 不存在 404 `PLAN_NOT_FOUND` |
-| GET | `/api/scheduler/status` | 队列状态 + 待确认 plan 列表 `{queue, plans[]}` |
+| GET | `/api/scheduler/status` | 队列状态 + 待确认 plan 列表 + 默认模式 `{queue, plans[], defaultMode}` |
+| PUT | `/api/scheduler/mode` `{mode}` | 会话级默认执行模式（plan|yolo；写 app-config `scheduler.defaultMode` 即时生效；dispatch 未传 mode 时使用） |
 
 与主会话 `scheduler_*` 工具同一 OrchestratorService 实例、同一 EventQueue，语义完全一致。
 
@@ -132,8 +135,8 @@
 |---|---|---|---|
 | 扫描根目录输入 + 扫描 | 默认取 app-config `launcher.defaultScanRoots`（GET /api/admin/app-config），扫描后记忆 | scan + app-config | ✅ |
 | 项目卡片列表 | 名称、路径、章节数、最后更新 | scan | ✅ |
-| 卡片统计（实体数/事件数） | 设计稿有"128 实体 · 342 事件" | scan 不返回，需后端补 | ❌ B4 |
-| 需迁移徽章 | 设计稿有"正常/需迁移" | scan 不返回迁移状态，需后端补 | ❌ B4 |
+| 卡片统计（实体数/事件数） | 设计稿有"128 实体 · 342 事件" | scan `stats` 字段 | ✅（B4 已完成） |
+| 需迁移徽章 | 设计稿有"正常/需迁移" | scan `needsMigration` 字段 | ✅（B4 已完成） |
 | 激活（点卡） | `MIGRATION_REQUIRED` 时弹确认→migrate→再 activate | activate/migrate | ✅ |
 | 新建项目 | 路径 + 可选名称 → create→activate 串联 | create+activate | ✅ |
 | 浏览文件夹按钮 | Web 形态下手输路径；原生对话框待 Tauri | — | ✂ |
@@ -161,14 +164,14 @@
 | 头部：类型/名称/ID/摘要/编辑摘要 | | entities/:id + POST summary | ✅ |
 | 历史时间滑块 | 拖动查看该实体各时刻快照 | entities/:id/history | ✅ |
 | 声明 Tab | 声明列表：内容、生效/闭合、时间范围、来源 | history（声明含 source） | ✅ |
-| 声明"闭合"按钮 | 手动结束声明 | 无 API | ❌ B5 |
+| 声明"闭合"按钮 | 手动结束声明 | ⚠️ B5 受阻：WorldGraph 无 closeDeclaration（需 underworld-graph 包补方法） | 🚫 B5 |
 | 声明"查看详情"（推理过程） | AI 溯源，本期不做 | — | ✂ |
 | 关系 Tab | 出边/入边分组；新建关系；闭合关系 | history + relations/close | ✅ |
 | 可见性 Tab | 角色×声明矩阵（已知/推测/未知）；手动设置/闭合可见性 | declarations/:id/visibility + POST visibility(/close) | ✅ |
 | 角色视角开关 | "以该角色视角看世界"（信息差过滤） | character-view | ✅ |
 | 事件 Tab | 该实体参与的事件时间线 | events 过滤 | ✅ |
-| 编辑实体属性（摘要以外） | 无通用属性写接口 | — | ❌ B5 |
-| 删除实体 | 二次确认 | 无 API | ❌ B5 |
+| 编辑实体属性（摘要以外） | ⚠️ B5 受阻：WorldGraph 无 updateEntityProps | 🚫 B5 |
+| 删除实体 | 二次确认 | ⚠️ B5 受阻：WorldGraph 无 deleteEntity（killEntity 为时态闭合非删除） | 🚫 B5 |
 
 ## 5. 视图三：事件链
 
@@ -183,24 +186,24 @@
 
 ## 6. 视图四：创作编排（核心页，缺口最多）
 
-本页 = 主会话聊天 + 叙事编排控制的合体。后端现状：聊天与 SSE 已通，但**编排控制（计划确认/进度）只在 AI 工具层，没有 HTTP 直连**。
+本页 = 主会话聊天 + 叙事编排控制的合体。后端现状：聊天/SSE/编排控制/进度埋点全部 HTTP 化（B1/B3/B6/B7 已交付）。
 
 | 功能 | 说明 | 依赖 | 状态 |
 |---|---|---|---|
 | 中栏对话流 | 发消息、AI 逐字流式回复、工具调用过程展示 | chat/message + chat/events SSE | ✅ |
 | 单流约束提示 | 忙碌时输入框禁用 + 提示 | 409 CHAT_BUSY | ✅ |
-| 会话列表（左栏） | 历史会话分组、切换、新建 | SessionManager 无 HTTP 暴露 | ❌ B3 |
-| plan/yolo 模式切换 | 当前由 AI 经工具参数决定，用户无显式开关 | 需新增会话级设置 | ❌ B7 |
+| 会话列表（左栏） | 历史会话分组、切换、新建 | GET /api/chat/sessions(+/:id/messages) | ✅（B3 已完成；"新建/切换会话"的写操作仍由主会话自管理） |
+| plan/yolo 模式切换 | 用户显式开关（dispatch 未传 mode 时生效；持久化 app-config `scheduler.defaultMode`） | PUT /api/scheduler/mode + status.defaultMode | ✅（B7 已完成） |
 | 队列状态徽章（"1 个计划待审核"） | GET /api/scheduler/status | ✅（B1 已完成） |
 | 计划卡片 | dispatch(plan 模式) 产物：变更项清单、影响预估；**提交执行 / 丢弃**按钮 | /api/scheduler/dispatch|commit|discard | ✅（B1 已完成，本页核心） |
-| 右栏：执行状态（进度/耗时） | 四代理（规划/角色/推理/渲染）运行状态推送 | 无进度事件流 | ❌ B6 |
-| 右栏：世界图变更摘要 | commit 结果含变更，无推送 | ❌ B6 |
-| 右栏：生成章节卡（标题/字数） | render_result 里有，无推送 | ❌ B6 |
+| 右栏：执行状态（进度/耗时） | 四代理（规划/角色/推理/渲染）运行状态 | /api/debug/stream 的 span 事件（orchestrator/planner/role/reasoner/renderer，含 durationMs） | ✅（B6 已完成） |
+| 右栏：世界图变更摘要 | reasoner span end 载荷（changes/visibilityChanges/changeList）+ commit 响应 | /api/debug/stream + commit | ✅（B6 已完成） |
+| 右栏：生成章节卡（标题/字数） | renderer span end 载荷（chapterPath/chars/title） | /api/debug/stream | ✅（B6 已完成） |
 | 输入区 @提及 | 前端辅助面板，数据走 /api/search | search | ✅ |
 | 输入区附件 | 本期不做 | — | ✂ |
 | 输入区提示词模板 | 本期不做（或纯前端本地模板） | — | ✂ |
 
-**降级方案（B1 已完成，此过渡已不需要；B6 未做前仍适用）**：~~编排页先只交付"聊天 + 流式回复"，计划确认通过与 AI 对话完成~~（B1 已交付 HTTP 直连，计划卡片可直接实现）。右栏三卡片待 B6。
+**右栏数据源（B6 已定）**：进度 = `/api/debug/stream` 的 span 事件流（orchestrator/planner/role/reasoner/renderer）；计划 = `GET /api/scheduler/status`；落地结果 = `POST /api/scheduler/commit` 响应。降级对话式确认（AI 自调 scheduler_commit/discard）依然可用但已非必需。
 
 ## 7. 视图五：调试
 
@@ -239,10 +242,10 @@
 
 | 功能 | 说明 | 依赖 | 状态 |
 |---|---|---|---|
-| 文件树 | 目录 + .md；设计稿还要求显示 .json/.env | tree 只列 .md，需放宽 | 🟡 B8 |
+| 文件树 | 目录 + .md/.txt/.json + 特判 .env（隐藏目录与 node_modules 仍跳过） | tree | ✅（B8 已完成） |
 | 打开/编辑/保存 | 多 Tab、未保存圆点、字数/行列（前端态）；保存带 baseMtime 乐观锁，冲突弹提示 | read/write | ✅ |
 | 新建/删除文件 | 删除需确认 | create/delete | ✅ |
-| 重命名 | 无 API | ❌ B8 |
+| 重命名 | POST /api/files/rename（只许 .md，目标已存在 409） | ✅（B8 已完成） |
 | 渲染/源码切换、字号 | 前端态 | — | ✅ |
 | assets 二进制文件（封面图等） | 不支持，本期不做 | — | ✂ |
 
@@ -252,14 +255,14 @@
 |---|---|---|---|---|
 | B1 | ~~**编排控制 HTTP 化**~~：✅ 已完成——`/api/scheduler/dispatch|commit|discard|status` 已上线（src/app/routes-scheduler.ts，与 scheduler_* 工具同一 service） | 创作编排（核心交互） | ~~P0~~ 完成 | — |
 | B2 | ~~**DebugBus 接入 main.ts**~~：✅ 已完成——main.ts 注入 + orchestrator/planner/role/reasoner/renderer/chat.message span 埋点 | 调试整页 | ~~P0~~ 完成 | — |
-| B3 | 会话列表/历史 HTTP 端点（SDK SessionManager → 只读列表 + 消息历史） | 创作编排左栏 | P1 | 中 |
-| B4 | scan 返回 needsMigration + 实体/事件统计 | 项目管理卡片 | P1 | 小 |
-| B5 | 世界图写接口补齐：声明闭合、实体删除、实体属性编辑 | 实体详情抽屉 | P1 | 中（涉及 underworld-graph 包） |
-| B6 | 编排进度事件流（四代理状态/变更摘要/章节结果推送，可复用 chat SSE 或 debug 通道） | 创作编排右栏 | P1 | 中 |
-| B7 | plan/yolo 会话级显式设置（存 app-config 或会话状态） | 创作编排控制栏 | P1 | 小 |
-| B8 | files/tree 放宽类型（.json/.env）+ 文件重命名 API | 文件编辑 | P1 | 小 |
+| B3 | ~~会话列表/历史 HTTP 端点~~：✅ 已完成——GET /api/chat/sessions(+/:id/messages) | 创作编排左栏 | ~~P1~~ 完成 | — |
+| B4 | ~~scan 返回 needsMigration + 统计~~：✅ 已完成（probeWorldDb，WorldGraph.create 口径） | 项目管理卡片 | ~~P1~~ 完成 | — |
+| B5 | 世界图写接口补齐：**🚫 受阻**——WorldGraph 缺 closeDeclaration/deleteEntity/updateEntityProps，需 underworld-graph 包先补方法（本仓库护栏不改该包） | 实体详情抽屉 | P1 | 中（涉及 underworld-graph 包） |
+| B6 | ~~编排进度事件流~~：✅ 已完成——复用 /api/debug/stream span（reasoner 变更摘要/renderer 章节卡/commit appliedEventIds） | 创作编排右栏 | ~~P1~~ 完成 | — |
+| B7 | ~~plan/yolo 会话级显式设置~~：✅ 已完成——app-config `scheduler.defaultMode` + PUT /api/scheduler/mode | 创作编排控制栏 | ~~P1~~ 完成 | — |
+| B8 | ~~files 放宽 + 重命名~~：✅ 已完成——tree 列 .md/.txt/.json/.env + POST /api/files/rename | 文件编辑 | ~~P1~~ 完成 | — |
 
-**建议排期**：~~B1+B2 先做~~（B1/B2 已完成），前端可并行先搭不依赖缺口的视图；B3~B8 随前端进度逐个补。
+**建议排期**：B1~B4、B6~B8 已全部完成；B5 受阻于 underworld-graph 包缺方法（待该包补 closeDeclaration/deleteEntity/updateEntityProps 后再做）。前端可全量接入。
 
 ## 11. 设计稿中本期不做（✂ 汇总）
 

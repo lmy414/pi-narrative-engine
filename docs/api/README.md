@@ -14,7 +14,11 @@
 |------|------|
 | [overview.md](overview.md) | 架构概览（扩展装配 / 应用化运行模式 / 核心依赖）、存储路径、storyTime 管理约定 |
 
-### PI 扩展工具（31 个，按工具域拆分）
+### PI 扩展工具（历史文档）
+
+> ⚠️ pi 扩展入口与 31 个 `pi.registerTool` 工具已随 pure-SDK 架构迁移（2026-08）删除，
+> 以下文档仅作历史参考。当前主会话工具（SDK customTools）与 HTTP 端点见
+> [chat.md](chat.md) 与 [unified-server.md](unified-server.md)。
 
 | 文档 | 工具 | 数量 |
 |------|------|------|
@@ -46,8 +50,8 @@
 | 文档 | 内容 |
 |------|------|
 | [visualizer.md](visualizer.md) | 可视化服务：三入口（pi 会话 / standalone / 应用）+ HTTP JSON API（含错误码）+ 前端 `visualizer-ui` |
-| [unified-server.md](unified-server.md) | 统一服务（应用化）：`startUnifiedServer` + `ProjectRegistry` 多项目 + `/api/files|projects|admin` 扩展端点 + `@pi/admin` / `@pi/novel-launcher` 子包 |
-| [chat.md](chat.md) | 主会话聊天 API：`MainSessionHost`（PI SDK）+ `ChatContext` + `/api/chat/message|events|status`（SSE 事件流契约） |
+| [unified-server.md](unified-server.md) | 统一服务（应用化）：`startUnifiedServer` + `ProjectRegistry` 多项目 + `/api/files|projects|admin|chat|scheduler|debug` 全端点参考 + `@pi/admin` / `@pi/novel-launcher` 子包 |
+| [chat.md](chat.md) | 主会话聊天 API：`MainSessionHost`（PI SDK）+ `ChatContext` + `/api/chat/message|events|status|sessions`（SSE 事件流契约） |
 | [debug-bus.md](debug-bus.md) | 调试模块（DebugBus / SSE / startSpan 埋点） |
 
 ### 附录
@@ -58,7 +62,7 @@
 
 ## 阅读建议
 
-- **写工具（主会话/scheduler 开发者）**：先读 overview.md，再按工具域读 pi-tools-*.md
+- **编排/主会话开发者**：先读 overview.md，再读 chat.md + unified-server.md（scheduler 端点）
 - **子包二次开发**：直接读对应子包文档，导出面已按软隔离约定标注（`_` 前缀 = 内部实现）
 - **前端/桌面应用**：读 visualizer.md + unified-server.md + debug-bus.md
 - **了解存储与检索模型**：读 overview.md §2/§3 + world-graph.md + sdk-search.md

@@ -5,7 +5,24 @@
 
 ## [Unreleased]
 
+### 架构（2026-08，pure-SDK 迁移）
+
+- **pi 扩展入口移除**：31 个 `pi.registerTool` 工具、`src/index.ts` 扩展装配、ExtensionContext 适配链全部删除；
+  运行时为独立 HTTP 服务（`src/app/main.ts` → `startUnifiedServer`）+ pi SDK 主会话（`MainSessionHost`）。
+- **后端能力 HTTP 化**：`/api/scheduler/dispatch|commit|discard|status|mode`（编排控制）、
+  `/api/chat/sessions(+/:id/messages)`（历史会话）、`/api/admin/llm*`（LLM 配置，apiKey 权威存储为
+  AuthStorage auth.json，端点不返回明文）、`/api/files/rename`；scan 返回 `needsMigration` + `stats`。
+- **调试总线接入**：main.ts 注入 DebugBus；编排四阶段（orchestrator/planner/role/reasoner/renderer）
+  与 chat.message 的 span 埋点上线（`/api/debug/stream|events|clear`）。
+- **应用配置扩展**：app-config 新增 `llm.slots`（slot→模型映射持久化）、`launcher.lastProjectDir`
+  （启动恢复上次项目）、`scheduler.defaultMode`（plan/yolo 默认模式）；写入剥离扩展时代废弃键。
+- **已知受阻**：世界图写接口补齐（声明闭合/实体删除/实体属性编辑）依赖 underworld-graph 包新增
+  `closeDeclaration` / `deleteEntity` / `updateEntityProps`，该包未改，暂缓。
+
 ### 文档
+
+- `docs/api/unified-server.md` 按 pure-SDK 实际端点重写；`docs/api/README.md` 的 pi-tools 区块标注为历史文档；
+  `docs/frontend-requirements.md` 缺口清单 B1~B8 状态同步（B5 受阻）。
 
 - **API 文档拆分**：`docs/api.md`（2000+ 行）拆分为 `docs/api/` 18 个小文档（按工具域 / 子包 / HTTP 服务 / 调试模块），
   `docs/README.md` 文档地图与根 README 引用同步更新；构建脚本 `references/` 改复制整个 `api/` 目录（`SKILL.md` 路径同步）。
