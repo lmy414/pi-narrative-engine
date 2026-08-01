@@ -1,285 +1,382 @@
-# 前端需求文档（后端能力对齐版）
+# 前端需求文档（交付对接版）
 
-- 版本：v1.0 · 2026-08-01
-- 依据代码：narrative-engine @ master（`ea59d99` 之后，含 LLM 配置后端与项目持久化，工作区未提交部分）
-- 设计原型：`D:\claude\pi-ex\narrative-engine-design`（8 页高保真设计稿 + design-spec.html）
-- 本文档目的：**以后端实际提供的 API 为准**，定义前端重做的功能范围。每条功能标注支撑状态，避免"前端做了交互、后端没有接口"的脱节。
-
-## 状态标记约定
-
-| 标记 | 含义 |
+| | |
 |---|---|
-| ✅ | 后端已有对应 API，可直接实现 |
-| 🟡 | 后端部分支持（数据口径有差异 / 需小改），见备注 |
-| ❌ | 后端缺失，已列入"后端缺口清单"（第 10 节），前端先行设计但标注依赖 |
-| ✂ | 设计稿中的虚构/超前内容，本期不做（第 11 节） |
+| 版本 | v2.0 · 2026-08-02 |
+| 读者 | 前端 DEMO 开发团队（可不读任何其他文档完成接入） |
+| 目标 | 按本文实现的前端可**直接对接后端 API 进行生产环境测试验证**，零口径偏差 |
+| 后端基线 | narrative-engine @ master `3e67a4a`（API v1，冻结口径） |
+| 设计原型 | `D:\claude\pi-ex\narrative-engine-design`（视觉/布局/组件规范的唯一依据） |
+| 配套文档 | `docs/api/unified-server.md`、`docs/api/visualizer.md`、`docs/api/chat.md`（API 细节争议时以这三份为准） |
 
-## 1. 后端 API 能力总表（现状事实）
+> v1 版本的"缺口清单"已清零（8 项缺口全部补齐，B5 经事件溯源路径落地）。本文不再是差距分析，而是**交付规格**：每页需要什么内容、提供什么功能、明确不提供什么、页面间如何跳转、每个功能对应哪个 API。
 
-统一约定：所有接口返回信封 `{ok, data, error}`；项目级接口在无活跃项目时返回 409 `NO_ACTIVE_PROJECT`；服务只听 `127.0.0.1:7421`。
+---
 
-### 1.1 项目管理 `/api/projects/*`
+## 0. 30 分钟快速接入
 
-| 方法 | 路径 | 说明 |
+```bash
+# 1. 启动后端（在 narrative-engine 目录）
+node scripts/app-server.mjs --port 7421
+#    可选：--project <小说工程目录> 预激活；--embed 启用向量检索（首次下载模型较慢）
+
+# 2. 健康检查
+curl http://127.0.0.1:7421/api/projects/active
+# → {"ok":true,"data":{"active":null,"open":[]},"error":null}
+
+# 3. 激活一个项目（唯一前置状态；多数端点依赖它）
+curl -X POST http://127.0.0.1:7421/api/projects/activate \
+  -H "content-type: application/json" -d '{"dir":"D:/claude/pi-ex/novel"}'
+
+# 4. 拉世界图状态
+curl "http://127.0.0.1:7421/api/status"
+```
+
+**接入四条军规：**
+
+1. 所有响应都是信封 `{ ok, data, error: { code, message } }`——先判 `ok`，错误分支读 `error.code` 做针对性处理（错误码总表见 §2.3）。
+2. **"活跃项目"是唯一全局门控**：带项目数据的端点在未激活时返回 `409 NO_ACTIVE_PROJECT`，前端统一兜底为"跳项目管理页"。
+3. 写操作全部都是 POST（GET 只读）；body 为 JSON；路径穿越有防护（403）。
+4. 服务允许跨域（`access-control-allow-origin: *`）——DEMO 可以跑在任意端口/域名下独立开发，不需要同源部署。
+
+---
+
+## 1. 系统的一页纸理解
+
+- 这是一个**本地单服务应用**：`http://127.0.0.1:7421` 一个端口承载全部 API + 静态前端。无鉴权、无多用户、无云端。
+- 核心领域对象：**世界图**（实体/声明/关系/可见性，全部带双时态：故事时间 storyTime + 闭合区间）。**所有修改都是事件**（事件溯源：没有原地改、没有物理删除，"改属性"= 闭合旧声明 + 写新声明，"删实体"= 退场事件）。
+- **storyTime 是查询参数，不是服务器状态**。前端的"当前故事时间"是自己的 UI 状态，查询时随参数传（如 `/api/graph?storyTime=ch009.ev003`）。故事时间列表从 `/api/status` 的 `storyTimes` 拿。
+- AI 能力两条线：**主会话**（聊天，SSE 流式）与**编排器**（规划→角色→推演→渲染四阶段流水线，dispatch/commit/discard 控制）。
+
+## 2. 全局契约
+
+### 2.1 信封与 HTTP 约定
+
+- 成功：`200 { ok: true, data, error: null }`；失败：`{ ok: false, data: null, error: { code, message } }`（HTTP 状态码与 code 配套，见 §2.3）。
+- `OPTIONS` 预检统一 204；JSON 解析失败 `400 INVALID_JSON`；未知路由 `404 NOT_FOUND`；兜底 `500 INTERNAL_ERROR`。
+- POST body 缺必填字段统一 `400 MISSING_FIELD`（message 里带字段名）。
+
+### 2.2 活跃项目门控
+
+| 不需要活跃项目 | 需要活跃项目（否则 409 `NO_ACTIVE_PROJECT`） |
+|---|---|
+| `/api/projects/*`、`/api/admin/{app-config, doctor, version, pi-status, llm, embedder/*}` | 世界图全部端点、`/api/files/*`、`/api/chat/*`、`/api/scheduler/*`、`/api/admin/{config, rulesets, novel-json}` |
+
+### 2.3 错误码总表（前端按 code 分支，不要解析 message）
+
+| HTTP | code | 前端建议处理 |
 |---|---|---|
-| GET | `/api/projects/scan?root=&maxDepth=` | 扫描目录找工程（认 novel.json），返回 `{dir, relativePath, meta, chapterCount, lastModified, needsMigration, stats: {entityCount, eventCount}|null}[]`（B4：db 不可用/需迁移时 stats=null） |
-| GET | `/api/projects/meta?dir=` | 单工程元信息 |
-| GET | `/api/projects/active` | `{active: {dir,name,forceFulltext}\|null, open: [...]}` |
-| POST | `/api/projects/activate` `{dir}` | 激活（无 world.db 自动初始化；schema 过旧返回 `MIGRATION_REQUIRED`）。**成功后自动持久化 lastProjectDir，下次启动自动恢复** |
-| POST | `/api/projects/migrate` `{dir}` | 迁移（自动备份 world.db） |
-| POST | `/api/projects/create` `{dir,name?,force?}` | 从模板六件套创建（不自动激活，前端串联 activate） |
-| POST | `/api/projects/open-folder` `{dir}` | 系统文件管理器打开 |
-| POST | `/api/projects/close` `{dir}` | 关闭；关活跃项目时清除 lastProjectDir |
+| 400 | `MISSING_FIELD` / `INVALID_BODY` / `INVALID_JSON` / `VALIDATION_ERROR` / `INVALID_SLOT` / `INVALID_MODEL` / `INVALID_STORY_TIME` / `INVALID_EXT` / `BUSINESS_ERROR` / `MODEL_NOT_READY` | 表单/参数错误，toast 展示 message |
+| 403 | `PATH_ESCAPE` | 文件路径非法（编辑器防护触发） |
+| 404 | `ENTITY_NOT_FOUND` / `DECLARATION_NOT_FOUND` / `PLAN_NOT_FOUND` / `SESSION_NOT_FOUND` / `FILE_NOT_FOUND` / `NOVEL_JSON_NOT_FOUND` / `WORLD_DB_NOT_FOUND` / `TEMPLATE_NOT_FOUND` / `NOT_FOUND` | 资源不存在，刷新对应列表 |
+| 409 | `NO_ACTIVE_PROJECT` | **全局兜底：跳项目管理页** |
+| 409 | `MIGRATION_REQUIRED` | 弹确认 → 调 migrate → 重新 activate |
+| 409 | `CHAT_BUSY` | 聊天输入框禁用并提示"上一条回复中" |
+| 409 | `MTIME_CONFLICT` | 编辑器提示"文件已被他人修改"，提供重载/强制保存 |
+| 409 | `COMMIT_FAILED` / `DECLARATION_CLOSED` / `FILE_EXISTS` / `PROJECT_OPEN` | 状态冲突，toast + 刷新 |
+| 501 | `EMBEDDER_UNAVAILABLE` / `SEARCH_UNAVAILABLE` | 提示"服务未以 --embed 启动"，降级为全文检索 |
+| 503 | `CHAT_UNAVAILABLE` / `LLM_UNAVAILABLE` / `DEBUG_UNAVAILABLE` | 功能未装配，对应视图显示空态 |
 
-### 1.2 文件 `/api/files/*`（均需活跃项目）
+### 2.4 实时通道（共三条，按用途各就各位）
 
-| 方法 | 路径 | 说明 |
+| 通道 | 类型 | 用途 |
 |---|---|---|
-| GET | `/api/files/tree` | 文件树（**只列目录 + .md**，跳过点开头目录与 node_modules） |
-| GET | `/api/files/read?path=` | 读文件（允许 .md/.txt/.json） |
-| PUT | `/api/files/write` `{path,content,baseMtime?}` | 写 .md，mtime 乐观锁（冲突 409 `MTIME_CONFLICT`） |
-| POST | `/api/files/create` `{path}` | 新建 .md |
-| POST | `/api/files/delete` `{path}` | 删除 |
+| `GET /api/chat/events` | SSE | 主会话回复与工具调用全程（先开连接再发消息；30s 心跳 `:heartbeat`） |
+| `GET /api/debug/stream` | SSE | 调试事件流（先历史快照后实时；编排四阶段进度也走这里） |
+| `GET /api/scheduler/status` | 轮询 | 队列长度、待确认计划列表、defaultMode（建议编排页 2s 轮询） |
 
-### 1.3 配置 `/api/admin/*`
+**Chat SSE 事件渲染规则（关键，易踩坑）：**`message_update` 携带的是**完整 message 快照**（不是 delta），UI 全量替换重绘；工具卡片按 `toolCallId` 随 `tool_execution_start/update/end` 增量更新；以 `agent_end` 作为一轮的收尾信号。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/admin/llm` | **5 个 slot（planner/role/reasoning/renderer/default）状态**：已配值、解析结果、来源（slot/default/env/none）、hasKey。**永不返回密钥明文** |
-| PUT | `/api/admin/llm/slot` `{slot,provider,model}` | 设置 slot（pi-ai 校验模型存在，400 `INVALID_MODEL`），落盘 app-config + 即时生效 |
-| DELETE | `/api/admin/llm/slot/:slot` | 清除 slot，回退 default→env |
-| PUT | `/api/admin/llm/key` `{provider,apiKey}` | 写密钥（SDK AuthStorage 落盘 auth.json） |
-| DELETE | `/api/admin/llm/key/:provider` | 删密钥 |
-| GET | `/api/admin/pi-status` | 模型/密钥状态摘要（default slot 口径，与 llm 端点同源） |
-| GET/PUT | `/api/admin/config` | 项目 .env 三键：`HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL` |
-| GET/PUT/POST reset | `/api/admin/rulesets[/:name]` | 规则集三件套读写/从模板重置 |
-| GET/PUT | `/api/admin/novel-json` | novel.json 读写 |
-| GET/PUT | `/api/admin/app-config` | 应用级配置（`launcher.lastProjectDir/defaultScanRoots`、`embedder.model`、`llm.slots`） |
-| GET | `/api/admin/doctor` | 依赖自检 12 项（Node/原生绑定/模板/向量缓存/工程结构） |
-| GET | `/api/admin/version` | 版本号 + git 远程比对 |
-| GET/POST | `/api/admin/embedder/status|warmup|cache/clear` | 向量模型状态/预热/清缓存 |
+**Debug 事件结构**：span 配对模型——`orchestrator` root span + `planner`/`role`/`reasoner`/`renderer` 子 span（plan 模式只有前两个，yolo/commit 才有后两个），start/end 以 `traceId + spanId` 配对。end 载荷：`provider/model/durationMs` + reasoner 带 `changes/visibilityChanges/changeList`（世界图变更摘要）+ renderer 带 `chapterPath/chars/title` + commit 带 `appliedEventIds`。
 
-### 1.4 聊天 `/api/chat/*`（需活跃项目）
+## 3. 信息架构与跳转逻辑
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/chat/message` `{text}` | 发消息（单流约束，忙碌 409 `CHAT_BUSY`） |
-| GET | `/api/chat/events` | SSE 事件流（AI 回复、工具调用全程事件） |
-| GET | `/api/chat/status` | 会话状态 |
-| GET | `/api/chat/sessions` | 历史会话列表（id/name/created/modified/messageCount/firstMessage，SDK SessionManager） |
-| GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `[{role, text, ts}]`（未知 id 404 `SESSION_NOT_FOUND`） |
+### 3.1 视图清单与路由
 
-主会话 AI 持有 28 个工具（world_*/render_*/role_*/scheduler_*/import_*），编排调度由 AI 经工具触发，事件流经 SSE 可见。
-
-### 1.5 世界图 `/api/*`（visualizer 组，需活跃项目）
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/status` | `{entityCount, eventCount, storyTimes[]}` |
-| GET | `/api/graph?storyTime=&includeClosed=` | 某时刻快照：全部实体 + 关系 |
-| GET | `/api/entities/:id?storyTime=` | 实体快照 |
-| GET | `/api/entities/:id/history` | 实体全历史（声明/属性演变 + 关系史） |
-| GET | `/api/declarations/:declId/visibility?storyTime=` | 单声明的角色可见性列表 |
-| GET | `/api/search?q=&storyTime=&type=&mode=` | 实体/事实搜索（fulltext/vector/hybrid，type=character/location/item/concept） |
-| GET | `/api/events` | 全部事件（含 type/storyTime/entityId/source 字段） |
-| GET | `/api/events/:id/chain` | 因果链（前因后果追溯） |
-| GET | `/api/character-view?characterId=&storyTime=` | 角色视角（该角色此刻知道什么——信息差） |
-| POST | `/api/events` | 记事件（强制 source=user） |
-| POST | `/api/entities/:id/summary` | 改摘要 |
-| POST | `/api/relations` / `/api/relations/close` | 新建/闭合关系 |
-| POST | `/api/visibility` / `/api/visibility/close` | 设置/闭合可见性 |
-
-**注意：storyTime 是查询参数不是服务器状态**——"切换故事时间"是纯前端状态，各查询接口带参即可，无需写接口。
-
-### 1.6 调试 `/api/debug/*`
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/debug/stream` | SSE 实时事件流 |
-| GET | `/api/debug/events` | 缓冲事件查询 |
-| POST | `/api/debug/clear` | 清空缓冲 |
-
-✅ DebugBus 已接入 main.ts（B2 已完成）：编排四阶段（orchestrator/planner/role/reasoner/renderer）与 chat.message 的 span 埋点已上线，调试页有真实数据源。
-
-### 1.7 编排控制 `/api/scheduler/*`（需活跃项目）
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/scheduler/dispatch` | 派发事件，body 同 `scheduler_dispatch` 工具参数 `{storyTime, instruction, characterIds, executionHints?, mode?, chapterPath?}`；返回 `{queueId, mode}`（planId 经 status 轮询获取） |
-| POST | `/api/scheduler/commit` `{planId}` | 提交 plan（写世界图+渲染章节）；plan 不存在 404 `PLAN_NOT_FOUND`，失败 409 `COMMIT_FAILED` |
-| POST | `/api/scheduler/discard` `{planId}` | 丢弃 plan；plan 不存在 404 `PLAN_NOT_FOUND` |
-| GET | `/api/scheduler/status` | 队列状态 + 待确认 plan 列表 + 默认模式 `{queue, plans[], defaultMode}` |
-| PUT | `/api/scheduler/mode` `{mode}` | 会话级默认执行模式（plan|yolo；写 app-config `scheduler.defaultMode` 即时生效；dispatch 未传 mode 时使用） |
-
-与主会话 `scheduler_*` 工具同一 OrchestratorService 实例、同一 EventQueue，语义完全一致。
-
-## 2. 信息架构（设计稿 8 页 → 前端 6 个主视图）
-
-设计稿的「世界图」与「实体详情抽屉」是同一视图的两种状态（generation-tree 已标注 derived），实现时合并。
-
-| # | 视图 | 对应设计稿 | 路由建议 |
-|---|---|---|---|
-| 1 | 项目管理 | project-management.html | `#/projects`（无活跃项目时强制落此页） |
-| 2 | 世界图（含详情抽屉） | world-graph.html + world-graph-detail.html | `#/graph` |
-| 3 | 事件链 | event-chain.html | `#/events` |
-| 4 | 创作编排 | orchestration.html | `#/studio` |
-| 5 | 调试 | debug.html | `#/debug` |
-| 6 | 文件编辑 | files.html | `#/files` |
-| 7 | 设置 | settings.html | `#/settings`（**全局/项目两分区**，见第 8 节） |
-
-全局外壳（视图 2~6 共享）：Logo + 项目菜单 + 导航 + storyTime 选择器（前端态）+ 全局搜索。
-
-## 3. 视图一：项目管理
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 扫描根目录输入 + 扫描 | 默认取 app-config `launcher.defaultScanRoots`（GET /api/admin/app-config），扫描后记忆 | scan + app-config | ✅ |
-| 项目卡片列表 | 名称、路径、章节数、最后更新 | scan | ✅ |
-| 卡片统计（实体数/事件数） | 设计稿有"128 实体 · 342 事件" | scan `stats` 字段 | ✅（B4 已完成） |
-| 需迁移徽章 | 设计稿有"正常/需迁移" | scan `needsMigration` 字段 | ✅（B4 已完成） |
-| 激活（点卡） | `MIGRATION_REQUIRED` 时弹确认→migrate→再 activate | activate/migrate | ✅ |
-| 新建项目 | 路径 + 可选名称 → create→activate 串联 | create+activate | ✅ |
-| 浏览文件夹按钮 | Web 形态下手输路径；原生对话框待 Tauri | — | ✂ |
-| 打开所在文件夹 | | open-folder | ✅ |
-| 迁移菜单项 | | migrate | ✅ |
-| 删除项目菜单项 | 危险操作，本期不做 | — | ✂ |
-| 启动行为 | 后端已恢复上次项目（预激活）；前端**始终先停在本页**让用户确认进入（已定方案"记住但停在入口页"） | /api/projects/active | ✅ |
-
-## 4. 视图二：世界图
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 左栏实体列表 | 类型页签（全部/角色/地点/物品/概念）前端过滤；搜索框走 /api/search（type 参数） | graph + search | ✅ |
-| 中栏图画布 | 2D/3D 切换（前端态）；节点=实体（按类型配色/形状），边=关系（含标签、方向）；按外壳 storyTime 取快照 | graph | ✅ |
-| 状态栏 | 实体数/事件数/当前 storyTime + 前后步进（步进=改前端 storyTime 状态，重取 graph） | /api/status | ✅ |
-| 右栏属性检查器 | 点选实体：属性键值、状态、关系列表、最近事件（events 按 entityId 前端过滤） | entities/:id + graph + events | ✅ |
-| 快速记事件 | 弹表单（type/storyTime/entityId/内容） | POST /api/events | ✅ |
-| 快速加关系 | 弹表单（source/target/label/storyTime） | POST /api/relations | ✅ |
-| 多参与实体 chips | 事件当前只有单 entityId 字段，设计稿"参与实体列表"为多方 | 数据模型限制 | 🟡 先单实体展示 |
-
-### 4.1 实体详情抽屉（点实体滑出）
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 头部：类型/名称/ID/摘要/编辑摘要 | | entities/:id + POST summary | ✅ |
-| 历史时间滑块 | 拖动查看该实体各时刻快照 | entities/:id/history | ✅ |
-| 声明 Tab | 声明列表：内容、生效/闭合、时间范围、来源 | history（声明含 source） | ✅ |
-| 声明"闭合"按钮 | 手动结束声明 | ⚠️ B5 受阻：WorldGraph 无 closeDeclaration（需 underworld-graph 包补方法） | 🚫 B5 |
-| 声明"查看详情"（推理过程） | AI 溯源，本期不做 | — | ✂ |
-| 关系 Tab | 出边/入边分组；新建关系；闭合关系 | history + relations/close | ✅ |
-| 可见性 Tab | 角色×声明矩阵（已知/推测/未知）；手动设置/闭合可见性 | declarations/:id/visibility + POST visibility(/close) | ✅ |
-| 角色视角开关 | "以该角色视角看世界"（信息差过滤） | character-view | ✅ |
-| 事件 Tab | 该实体参与的事件时间线 | events 过滤 | ✅ |
-| 编辑实体属性（摘要以外） | ⚠️ B5 受阻：WorldGraph 无 updateEntityProps | 🚫 B5 |
-| 删除实体 | 二次确认 | ⚠️ B5 受阻：WorldGraph 无 deleteEntity（killEntity 为时态闭合非删除） | 🚫 B5 |
-
-## 5. 视图三：事件链
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 中栏时间线 | 按章节分组的事件卡片：时间点/类型徽章/摘要/参与实体/可展开详情；标记"当前 storyTime" | /api/events（全量，前端分组） | ✅ |
-| 左栏筛选 | 实体复选（来自 graph）、事件类型标签、关键词——**全部前端过滤**（事件量百级，无需服务端） | events | ✅ |
-| 右栏因果链 | 点事件 → 前因后果图（节点可点跳） | events/:id/chain | ✅ |
-| 事件详情 | 类型/时间点/来源徽章（AI/user）/描述/实体 | events 字段自带 | ✅ |
-| "跳转到世界图（此时刻）" | 设外壳 storyTime=该事件时间点并跳 #/graph | 前端态 | ✅ |
-| "未来未知"占位节点 | 设计稿虚构 | — | ✂ |
-
-## 6. 视图四：创作编排（核心页，缺口最多）
-
-本页 = 主会话聊天 + 叙事编排控制的合体。后端现状：聊天/SSE/编排控制/进度埋点全部 HTTP 化（B1/B3/B6/B7 已交付）。
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 中栏对话流 | 发消息、AI 逐字流式回复、工具调用过程展示 | chat/message + chat/events SSE | ✅ |
-| 单流约束提示 | 忙碌时输入框禁用 + 提示 | 409 CHAT_BUSY | ✅ |
-| 会话列表（左栏） | 历史会话分组、切换、新建 | GET /api/chat/sessions(+/:id/messages) | ✅（B3 已完成；"新建/切换会话"的写操作仍由主会话自管理） |
-| plan/yolo 模式切换 | 用户显式开关（dispatch 未传 mode 时生效；持久化 app-config `scheduler.defaultMode`） | PUT /api/scheduler/mode + status.defaultMode | ✅（B7 已完成） |
-| 队列状态徽章（"1 个计划待审核"） | GET /api/scheduler/status | ✅（B1 已完成） |
-| 计划卡片 | dispatch(plan 模式) 产物：变更项清单、影响预估；**提交执行 / 丢弃**按钮 | /api/scheduler/dispatch|commit|discard | ✅（B1 已完成，本页核心） |
-| 右栏：执行状态（进度/耗时） | 四代理（规划/角色/推理/渲染）运行状态 | /api/debug/stream 的 span 事件（orchestrator/planner/role/reasoner/renderer，含 durationMs） | ✅（B6 已完成） |
-| 右栏：世界图变更摘要 | reasoner span end 载荷（changes/visibilityChanges/changeList）+ commit 响应 | /api/debug/stream + commit | ✅（B6 已完成） |
-| 右栏：生成章节卡（标题/字数） | renderer span end 载荷（chapterPath/chars/title） | /api/debug/stream | ✅（B6 已完成） |
-| 输入区 @提及 | 前端辅助面板，数据走 /api/search | search | ✅ |
-| 输入区附件 | 本期不做 | — | ✂ |
-| 输入区提示词模板 | 本期不做（或纯前端本地模板） | — | ✂ |
-
-**右栏数据源（B6 已定）**：进度 = `/api/debug/stream` 的 span 事件流（orchestrator/planner/role/reasoner/renderer）；计划 = `GET /api/scheduler/status`；落地结果 = `POST /api/scheduler/commit` 响应。降级对话式确认（AI 自调 scheduler_commit/discard）依然可用但已非必需。
-
-## 7. 视图五：调试
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 实时日志流 | SSE 推送：时间戳/级别/模块/消息 | /api/debug/stream | ✅（B2 已完成） |
-| 级别过滤 / 模块下拉 / 关键词 | 模块枚举：orchestrator/planner/reasoner/renderer/world-graph/embedder/system | /api/debug/events | ✅（B2 已完成） |
-| 错误条目展开（堆栈/原因/降级策略） | 取决于 DebugBus span 记录粒度，接入后确认字段 | — | ✅（span 含 input/output/durationMs/error） |
-| 缓冲区条数 | | /api/debug/events | ✅（B2 已完成，环形缓冲默认 1000 条） |
-| 清空（二次确认） | | POST /api/debug/clear | ✅（B2 已完成） |
-| 自动滚动开关 | 前端态 | — | ✅ |
-
-## 8. 视图六：设置（全局/项目两分区，已定方案）
-
-左栏一级分两组：**应用配置**（无需活跃项目，首次使用先配模型）与**项目配置**（需活跃项目）。
-
-### 8.1 应用配置组
-
-| 子页 | 功能 | 依赖 | 状态 |
-|---|---|---|---|
-| 模型配置 | 5 个 slot（规划/角色/推理/渲染/默认）各一行：Provider 下拉 + Model 输入 + 保存/清除；每行显示来源徽章（已配置/跟随默认/环境变量）与 hasKey 状态 | GET/PUT/DELETE /api/admin/llm(/slot) | ✅ |
-| 密钥管理 | 按 provider 填/删 API Key（密码框+眼睛）；**只显示"已配置"，永不回显明文** | PUT/DELETE /api/admin/llm/key | ✅ |
-| 向量模型 | 模型名（写 .env PI_EMBEDDER_MODEL）、缓存状态、预热、清缓存 | embedder/* + config | ✅ |
-| 应用偏好 | 主题/字号/自动保存（前端 localStorage）；默认扫描根目录 | /api/admin/app-config | ✅ |
-| 关于 | 版本号、检查更新（git 比对）、依赖自检面板（真实 12 项） | version + doctor | ✅ |
-
-### 8.2 项目配置组（需活跃项目）
-
-| 子页 | 功能 | 依赖 | 状态 |
-|---|---|---|---|
-| 规则集 | 三页签（渲染/角色/规划）编辑器 + 保存（即时生效）+ 恢复模板 | rulesets | ✅ |
-| 项目信息 | novel.json 表单（名称/章节目录/故事时间格式） | novel-json | ✅ |
-| 环境变量 | 真实三键表单（HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL） | config | ✅ |
-
-## 9. 视图七：文件编辑
-
-| 功能 | 说明 | 依赖 | 状态 |
-|---|---|---|---|
-| 文件树 | 目录 + .md/.txt/.json + 特判 .env（隐藏目录与 node_modules 仍跳过） | tree | ✅（B8 已完成） |
-| 打开/编辑/保存 | 多 Tab、未保存圆点、字数/行列（前端态）；保存带 baseMtime 乐观锁，冲突弹提示 | read/write | ✅ |
-| 新建/删除文件 | 删除需确认 | create/delete | ✅ |
-| 重命名 | POST /api/files/rename（只许 .md，目标已存在 409） | ✅（B8 已完成） |
-| 渲染/源码切换、字号 | 前端态 | — | ✅ |
-| assets 二进制文件（封面图等） | 不支持，本期不做 | — | ✂ |
-
-## 10. 后端缺口清单（按优先级）
-
-| # | 缺口 | 影响视图 | 级别 | 工作量评估 |
+| # | 视图 | hash 路由 | 设计稿 | 进入条件 |
 |---|---|---|---|---|
-| B1 | ~~**编排控制 HTTP 化**~~：✅ 已完成——`/api/scheduler/dispatch|commit|discard|status` 已上线（src/app/routes-scheduler.ts，与 scheduler_* 工具同一 service） | 创作编排（核心交互） | ~~P0~~ 完成 | — |
-| B2 | ~~**DebugBus 接入 main.ts**~~：✅ 已完成——main.ts 注入 + orchestrator/planner/role/reasoner/renderer/chat.message span 埋点 | 调试整页 | ~~P0~~ 完成 | — |
-| B3 | ~~会话列表/历史 HTTP 端点~~：✅ 已完成——GET /api/chat/sessions(+/:id/messages) | 创作编排左栏 | ~~P1~~ 完成 | — |
-| B4 | ~~scan 返回 needsMigration + 统计~~：✅ 已完成（probeWorldDb，WorldGraph.create 口径） | 项目管理卡片 | ~~P1~~ 完成 | — |
-| B5 | 世界图写接口补齐：**🚫 受阻**——WorldGraph 缺 closeDeclaration/deleteEntity/updateEntityProps，需 underworld-graph 包先补方法（本仓库护栏不改该包） | 实体详情抽屉 | P1 | 中（涉及 underworld-graph 包） |
-| B6 | ~~编排进度事件流~~：✅ 已完成——复用 /api/debug/stream span（reasoner 变更摘要/renderer 章节卡/commit appliedEventIds） | 创作编排右栏 | ~~P1~~ 完成 | — |
-| B7 | ~~plan/yolo 会话级显式设置~~：✅ 已完成——app-config `scheduler.defaultMode` + PUT /api/scheduler/mode | 创作编排控制栏 | ~~P1~~ 完成 | — |
-| B8 | ~~files 放宽 + 重命名~~：✅ 已完成——tree 列 .md/.txt/.json/.env + POST /api/files/rename | 文件编辑 | ~~P1~~ 完成 | — |
+| V1 | 项目管理 | `#/projects` | project-management.html | 无（无活跃项目时的强制落点） |
+| V2 | 世界图 | `#/graph` | world-graph.html（详情抽屉为同视图状态 world-graph-detail.html） | 需活跃项目 |
+| V3 | 事件链 | `#/events` | event-chain.html | 需活跃项目 |
+| V4 | 创作编排 | `#/studio` | orchestration.html | 需活跃项目 |
+| V5 | 调试 | `#/debug` | debug.html | 需活跃项目 |
+| V6 | 文件编辑 | `#/files` | files.html | 需活跃项目 |
+| V7 | 设置 | `#/settings` | settings.html | 部分分区需活跃项目（见 §10） |
 
-**建议排期**：B1~B4、B6~B8 已全部完成；B5 受阻于 underworld-graph 包缺方法（待该包补 closeDeclaration/deleteEntity/updateEntityProps 后再做）。前端可全量接入。
+V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选择器（前端态）+ 全局搜索框。
 
-## 11. 设计稿中本期不做（✂ 汇总）
+### 3.2 跳转逻辑（全量规则）
 
-| 设计稿内容 | 原因 |
-|---|---|
-| Doctor 里的 Python 版本、Qdrant 向量库检查 | 虚构：项目无 Python 依赖；向量用本地 sqlite-vec，无外置库 |
-| .env 的"向量库地址/集合名/最大上下文 token/温度"四键 | 虚构：真实键只有 HF_ENDPOINT/PI_DEBUG/PI_EMBEDDER_MODEL |
-| 因果链"未来未知"节点 | 数据模型无未来事件 |
-| 声明的"查看推理过程与证据" | 无 AI 溯源数据 |
-| 项目删除、实体多参与方 chips | 危险操作/数据模型限制，本期规避 |
-| 聊天附件、提示词模板库 | 超范围 |
-| 跨文件全局搜索（实体+事件+文件混合） | 现有 search 只覆盖实体/事实；文件搜索前端可自行实现 |
-| 浏览文件夹原生对话框 | Web 形态做不到，Tauri 阶段补 |
-| 版本号 v0.8.2-beta | 以 package.json 实际版本（0.1.0-alpha.1）为准 |
+| # | 触发 | 动作 | 跳转与状态 |
+|---|---|---|---|
+| J1 | 应用启动 | 调 `/api/projects/active` | **一律落 V1 项目管理页**（已定方案"记住但停在入口页"：后端已自动恢复上次项目为活跃，V1 显示"当前项目：xxx，进入 ▶"按钮） |
+| J2 | V1 点击"进入"/激活项目卡片 | `POST /api/projects/activate` 成功 | 跳 V2 世界图，storyTime 初始化为 `/api/status` 的最新值 |
+| J3 | V1 激活返回 `MIGRATION_REQUIRED` | 弹确认 → `POST migrate` → 再 activate | 同 J2 |
+| J4 | 任意视图收到 `NO_ACTIVE_PROJECT` | — | 跳 V1（全局兜底） |
+| J5 | 外壳项目菜单"切换项目" | — | 跳 V1，当前活跃项目保留高亮 |
+| J6 | 外壳 storyTime 选择器 | 改前端 storyTime 状态 | 不跳页；V2/V3 重取数据（graph/events 均带 storyTime 参数） |
+| J7 | 外壳全局搜索选中结果 | — | 实体 → 跳 V2 并选中打开详情抽屉；事件 → 跳 V3 并定位该事件卡片 |
+| J8 | V2 双击实体 / 点"详情" | — | 同视图滑出详情抽屉（不跳页），背景压暗 |
+| J9 | 详情抽屉"事件"Tab 点某事件 | — | 跳 V3 并高亮定位该事件 |
+| J10 | V3 事件详情"跳转到世界图（此时刻）" | 设外壳 storyTime = 该事件 storyTime | 跳 V2 |
+| J11 | V4 右栏"查看世界图变更" | — | 跳 V2（storyTime = 本次编排的 storyTime） |
+| J12 | V4 右栏"查看章节" | — | 跳 V6 并打开对应章节文件（chapterPath 来自 renderer span 载荷或 commit 响应） |
+| J13 | V7 设置内各保存动作 | — | 不跳页，toast 确认 |
+| J14 | V1 关闭当前活跃项目 | `POST /api/projects/close` | 停 V1，进入无活跃状态（其他视图再访问即触发 J4） |
 
-## 12. 设计系统沿用约定
+### 3.3 空态规则
 
-- 配色/字体/组件规范直接沿用 `narrative-engine-design/colors_and_type.css` 与 design-spec.html 第 1、11 节（暖调文档工具风，brand-500 #c96442，圆角 8px，按钮 5 类、Toast/Modal/空态/加载态规范）。
-- validation-report.json 的 18 条软警告（多主色、圆角超刻度、硬编码色）在重写时顺带修正，不单独排期。
-- 设计稿 8 页内联重复的同一份导航与主题 CSS，重写时必须抽取为共享外壳组件（app-shell）。
+- V2/V3 无数据（新项目）：显示"从创作编排开始你的第一段剧情"，按钮跳 V4。
+- V4 无历史会话：空态引导语 + 输入框聚焦。
+- V5 调试无事件：显示"暂无调试事件（发起一次编排即可看到流水线）"。
+- 所有列表加载中用骨架屏（设计规范 §11 加载态）。
+
+---
+
+## 4. V1 项目管理
+
+**目的**：小说工程的入口。创建、发现、激活、迁移项目。
+
+**页面内容**：品牌区（标题"Narrative Engine · AI 驱动的小说创作工作台"）；当前项目条（有活跃时显示名称 + "进入 ▶"）；扫描根目录输入 + 扫描按钮；可折叠新建表单；项目卡片网格；卡片菜单。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 扫描项目 | 输入根目录点扫描；进入页面自动用 `defaultScanRoots` 扫一次 | `GET /api/projects/scan?root=&maxDepth=` → 每项 `{dir, relativePath, meta, chapterCount, lastModified, needsMigration, stats: {entityCount, eventCount}\|null}` |
+| 记忆扫描根 | 扫描成功后持久化 | `PUT /api/admin/app-config`，键 `launcher.defaultScanRoots: string[]`；读取用 `GET` 同路径 |
+| 项目卡片 | 显示名称/路径/章节数/最后更新/统计徽章（实体·事件）/迁移徽章（`needsMigration=true` 时） | 数据全部来自 scan；`stats=null` 时统计徽章显示"—" |
+| 激活 | 点卡片 | `POST /api/projects/activate {dir}` → J2/J3 |
+| 新建项目 | 表单：目录（必填）+ 名称（选填）；成功后自动激活 | `POST /api/projects/create {dir, name?}`（201）→ 再 activate |
+| 迁移 | 卡片菜单项 | `POST /api/projects/migrate {dir}`（自动备份 world.db） |
+| 打开所在文件夹 | 卡片菜单项 | `POST /api/projects/open-folder {dir}` |
+| 关闭项目 | 卡片菜单项（仅已打开的项目显示） | `POST /api/projects/close {dir}` |
+| 当前项目状态 | 页头显示 | `GET /api/projects/active` → `{active: {dir,name,forceFulltext}\|null, open: [...]}` |
+
+**不提供的功能**：删除项目（危险操作）；浏览文件夹原生对话框（Web 形态做不到，手输路径）；批量操作。
+
+---
+
+## 5. V2 世界图
+
+**目的**：主工作台——某一 storyTime 时刻的世界状态：实体、关系、属性、视角。
+
+**页面内容**：左栏（类型页签 全部/角色/地点/物品/概念 + 实体搜索框 + 实体列表）；中栏（状态栏：storyTime 步进 + 实体/事件统计 + 2D/3D 切换；图画布）；右栏属性检查器；实体详情抽屉（同视图状态）。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 图快照 | 画布渲染节点（实体，按类型配色）+ 边（关系，含标签/方向） | `GET /api/graph?storyTime=&includeClosed=` → `{entities: EntitySnapshot[], relations[]}`；`includeClosed=1` 显示已闭合关系（置灰） |
+| 状态栏统计 | 实体数/事件数/storyTime 列表 | `GET /api/status` → `{entityCount, eventCount, storyTimes[]}` |
+| storyTime 步进/直跳 | ‹ › 按钮 + 下拉 | 纯前端态，改后重取 graph（J6） |
+| 类型过滤 | 页签 | 前端过滤（实体有 `entityType` 字段） |
+| 实体搜索 | 搜索框 | `GET /api/search?q=&storyTime=&type=&mode=`（mode 缺省 hybrid；服务未带 --embed 时自动降级 fulltext，前端无需处理） |
+| 属性检查器 | 点选实体：属性键值、关系列表、最近事件 | `GET /api/entities/:id?storyTime=`；关系取 graph 的 relations 过滤；事件取 `/api/events` 按 entityId 过滤 |
+| 快速记事件 | 浮动按钮弹表单 | `POST /api/events`，body 至少 `{eventId, type, storyTime, entityId}`（type: birth/change/death；source 服务端强制 user） |
+| 快速加关系 | 浮动按钮弹表单 | `POST /api/relations {sourceId, targetId, label, storyTime}` |
+| 2D/3D 切换 | 切换按钮 | 纯前端态 |
+| 角色视角模式 | 选择角色后按"该角色知道的信息"渲染（信息差） | `GET /api/character-view?characterId=&storyTime=` → `{view}`（可见声明集合） |
+
+### 5.1 实体详情抽屉（J8 打开）
+
+| 区块/功能 | 交互 | API 契约 |
+|---|---|---|
+| 头部：类型/名称/ID/摘要/编辑摘要 | 编辑按钮就地改 | `POST /api/entities/:id/summary {summary}` |
+| 历史时间滑块 | 拖动看各时刻状态 | `GET /api/entities/:id/history` → 实体全历史 + 关系史（含已闭合） |
+| 声明 Tab | 列表：内容/生效中或已闭合/时间范围/来源 | 数据来自 history；闭合按钮 → `POST /api/declarations/close {declarationId, entityId, storyTime}`（已闭合 409） |
+| 编辑属性 | 就地编辑键值 | `POST /api/entities/:id/props {property, value, storyTime, modality?}` → `{closedDeclarationId, newDeclarationId}`（自动闭合旧声明+写新值） |
+| 关系 Tab | 出边/入边；新建；闭合 | 新建同上；闭合 → `POST /api/relations/close {sourceId, targetId, label, storyTime}` |
+| 可见性 Tab | 角色×声明矩阵；手动设置/撤销 | 查：`GET /api/declarations/:declId/visibility?storyTime=`；设：`POST /api/visibility {characterId, declarationId, confidence, source, storyTime}`（source 枚举 `experienced/informed/witnessed`）；撤销：`POST /api/visibility/close {characterId, declarationId, storyTime}` |
+| 事件 Tab | 该实体事件时间线 | `/api/events` 按 entityId 过滤；点事件 → J9 |
+| 实体退场 | 底部危险按钮，二次确认 | `POST /api/entities/:id/kill {storyTime}`（语义"删除"= 双时态闭合退场，**无物理删除**；该时刻起快照消失，历史仍可查） |
+
+**不提供的功能**：物理删除实体/声明（事件溯源设计，明确不做）；声明的"AI 推理溯源"（无数据）；事件的多参与方编辑（事件当前单 entityId 字段）；多值属性批量闭合（同 property 多声明时 props 端点只闭合其一）。
+
+---
+
+## 6. V3 事件链
+
+**目的**：按故事时间线浏览全部事件与因果关系。
+
+**页面内容**：左栏筛选（实体复选/类型标签/关键词 + 重置）；中栏事件卡片时间线（按章分组，标记当前 storyTime）；右栏因果链（SVG 图 + 事件详情）。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 事件时间线 | 卡片：时间点/类型徽章/摘要/参与实体/可展开详情 | `GET /api/events` → `{events: EventRecord[]}`（全量，字段含 `eventId/type/storyTime/entityId/summary/source(newFacts/invalidated)`；前端按 storyTime 章级分组） |
+| 筛选 | 实体复选/类型/关键词 | **全部前端过滤**（事件量百级，无服务端筛选） |
+| 因果链 | 点事件 → 前因后果图；节点可点击继续追溯 | `GET /api/events/:id/chain` → `{events}`（回溯到根） |
+| 事件来源徽章 | "AI"/"手动" | EventRecord.source 字段（`engine`/`user`） |
+| 跳转世界图 | 事件详情按钮 | J10 |
+
+**不提供的功能**：未来事件/未知节点占位（数据模型无未来）；事件编辑与删除（事件即历史，不可变）；服务端分页（数据量不需要）。
+
+---
+
+## 7. V4 创作编排
+
+**目的**：与多代理 AI 协作推进剧情——聊天、发起编排、审核计划、看执行进度。
+
+**页面内容**：左栏会话列表；中栏（控制栏：plan/yolo 模式切换 + 队列状态徽章；消息流含计划卡片；输入区）；右栏结果面板（执行状态/世界图变更摘要/生成章节）。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 发消息/流式回复 | 输入框 → 发送；AI 逐字输出，工具调用以卡片展示 | 先开 `GET /api/chat/events`（SSE），再 `POST /api/chat/message {text}`（接收即回 `{received:true}`；渲染规则见 §2.4） |
+| 忙碌约束 | 回复中禁用输入 | `409 CHAT_BUSY` 兜底 |
+| 会话列表/切换/历史 | 左栏按时间分组；点击加载历史 | `GET /api/chat/sessions` → `[{id, name, created, modified, messageCount, firstMessage}]`；`GET /api/chat/sessions/:id/messages` → `[{role, text, ts}]`（404 `SESSION_NOT_FOUND`） |
+| 新建议程 | 按钮 | 前端新开空白对话（继续发消息即产生新会话记录；无专用端点） |
+| plan/yolo 模式切换 | 控制栏开关 | `GET /api/scheduler/status` 读 `defaultMode`；`PUT /api/scheduler/mode {mode}`（持久化，工具与 HTTP 的 dispatch 都以此为缺省） |
+| 发起编排 | 表单（instruction + characterIds + storyTime，可选 executionHints/chapterPath） | `POST /api/scheduler/dispatch` → `{queueId, mode}`；planId 经 status 轮询出现 |
+| 队列与计划状态 | 状态徽章"N 个计划待审核" | `GET /api/scheduler/status` → `{queue: {length, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount}], defaultMode}`（2s 轮询） |
+| 计划卡片：提交/丢弃 | 卡片按钮 | `POST /api/scheduler/commit {planId}` → `{appliedEventIds, writtenText, chapterPath}`（404 `PLAN_NOT_FOUND`；失败 409 `COMMIT_FAILED`）；`POST /api/scheduler/discard {planId}` |
+| 右栏：四代理运行状态 | 规划/角色/推理/渲染 各阶段实时状态与耗时 | `GET /api/debug/stream`（SSE）：`orchestrator` root + 四子 span 配对（§2.4） |
+| 右栏：世界图变更摘要 | 新增/修改实体、新增关系/事件计数 | reasoner span end 载荷 `changes/visibilityChanges/changeList` |
+| 右栏：生成章节卡 | 标题/字数/查看 | renderer span end 载荷 `chapterPath/chars/title`；或 commit 响应；点查看 → J12 |
+| @提及辅助 | 输入 @ 弹实体面板 | 数据用 `/api/search` |
+
+**不提供的功能**：附件上传；提示词模板库；中断/暂停执行中的编排（无 abort 端点，本期靠等待完成或关闭页面）；多并发编排（队列串行，这是后端保证）。
+
+**成本提示（生产验证注意）**：dispatch 与聊天会产生**真实 LLM 调用**（按 slot 配置计费），plan 模式一次编排约 2 轮调用，yolo 约 4 轮。
+
+---
+
+## 8. V5 调试
+
+**目的**：实时观察引擎内部：编排流水线、聊天处理、错误。
+
+**页面内容**：顶过滤栏（级别/模块/关键词 + 缓冲条数）；日志/事件流（或按 traceId 聚合的 DAG 视图，设计稿为日志流形态）；底部自动滚动开关；清空二次确认。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 实时事件流 | 进入页面自动订阅 | `GET /api/debug/stream`（SSE，先历史快照后实时，30s 心跳） |
+| 缓冲查询 | 过滤/翻查 | `GET /api/debug/events` → `{events: DebugEvent[]}`（环形缓冲默认 1000 条） |
+| 级别/模块/关键词过滤 | 过滤栏 | 前端过滤（事件含级别/stage/模块字段） |
+| span 详情展开 | 点节点看载荷/耗时 | span end 载荷（§2.4） |
+| 清空缓冲 | 按钮 + 二次确认 | `POST /api/debug/clear` |
+| 自动滚动 | 开关 | 前端态 |
+
+**不提供的功能**：日志持久化文件（缓冲纯内存，重启清空）；远程日志上报；模块枚举外的自定义过滤维度。
+
+---
+
+## 9. V6 文件编辑
+
+**目的**：直接编辑项目里的 Markdown 文件（正文、规则集）与查看配置文件。
+
+**页面内容**：左栏文件树（含新建按钮）；右栏编辑器（多 Tab + 工具栏 + 状态栏）。
+
+**提供的功能**：
+
+| 功能 | 交互 | API 契约 |
+|---|---|---|
+| 文件树 | 目录 + .md/.txt/.json + .env | `GET /api/files/tree` |
+| 打开文件 | 点击入 Tab | `GET /api/files/read?path=`（允许 .md/.txt/.json） |
+| 编辑保存 | Ctrl+S / 自动保存；未保存圆点 | `PUT /api/files/write {path, content, baseMtime?}`（只许 .md；**mtime 乐观锁**：保存前带读取时的 mtime，冲突 409 `MTIME_CONFLICT` → 弹"已变更"给重载/强制保存选择） |
+| 新建文件 | 按钮 | `POST /api/files/create {path}`（201） |
+| 重命名/移动 | 树节点右键 | `POST /api/files/rename {path, newPath}`（只许 .md，目标已存在 409） |
+| 删除文件 | 树节点右键，确认 | `POST /api/files/delete {path}` |
+| 编辑器体验 | 渲染/源码切换、字号、字数、行列 | 全部前端态 |
+| 章节目录提示 | novel.json 的 `chaptersDir` 决定正文目录（缺省"正文"） | `GET /api/admin/novel-json` |
+
+**不提供的功能**：二进制文件（图片等 assets 不列入树、不可读）；目录的新建/删除（经新建文件自动建父目录）；文件内搜索替换（可用浏览器查找或后续加）。
+
+---
+
+## 10. V7 设置（全局/项目两分区）
+
+**结构铁律**：**应用配置区无需活跃项目**（首次使用先配模型再开工）；**项目配置区需活跃项目**（无活跃时该区显示引导，应用区正常可用）。
+
+### 10.1 应用配置区
+
+| 子页 | 提供的功能 | API 契约 |
+|---|---|---|
+| 模型配置 | 5 个 slot（planner/role/reasoning/renderer/default）各一行：Provider 下拉 + Model 输入 + 设置/清除；每行显示来源徽章（slot 已配/跟随默认/环境变量）与 hasKey | `GET /api/admin/llm` → 每 slot `{configured, resolved: {provider, model}\|null, source: slot/default/env/none, hasKey}`；`PUT /api/admin/llm/slot {slot, provider, model}`（模型不存在 400 `INVALID_MODEL`）；`DELETE /api/admin/llm/slot/:slot` |
+| 密钥管理 | 按 provider 填/删 API Key（密码框 + 眼睛切换只看刚输入的）；**列表只显示"已配置"，任何端点都不回显明文** | `PUT /api/admin/llm/key {provider, apiKey}`；`DELETE /api/admin/llm/key/:provider`；hasKey 状态从 `GET /api/admin/llm` 或 `GET /api/admin/pi-status` 读 |
+| 向量模型 | 当前模型/维度/缓存状态；改模型名；预热；清缓存 | `GET /api/admin/embedder/status`；`POST /api/admin/embedder/warmup`；`POST /api/admin/embedder/cache/clear`；模型名写入走项目 .env（`PI_EMBEDDER_MODEL`，见下）或 app-config `embedder.model` |
+| 应用偏好 | 主题/字号/自动保存（前端 localStorage）；默认扫描根目录 | `GET/PUT /api/admin/app-config`（已知键 `launcher/embedder/llm/scheduler`；写入会剥离未知键） |
+| 关于 | 版本号 + 检查更新；依赖自检面板（Node/原生绑定/模板/向量缓存/项目结构） | `GET /api/admin/version` → `{local, remote, updateAvailable}`；`GET /api/admin/doctor` → `{checks[], failures, warnings, passed, ok}` |
+
+### 10.2 项目配置区（需活跃项目）
+
+| 子页 | 提供的功能 | API 契约 |
+|---|---|---|
+| 规则集 | 三页签（渲染/角色/规划）编辑器 + 字数；保存即时生效；恢复模板（确认） | `GET /api/admin/rulesets`；`PUT /api/admin/rulesets/:name {content}`（name ∈ render/planner/role）；`POST /api/admin/rulesets/:name/reset` |
+| 项目信息 | novel.json 表单：名称/章节目录/故事时间格式 | `GET/PUT /api/admin/novel-json` |
+| 环境变量 | 三键表单：HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL（空串=删除该键） | `GET/PUT /api/admin/config` |
+
+**不提供的功能**：自定义 .env 键（服务端白名单只收三键）；密钥明文回显（安全设计）；slot 之外的自由模型槽位（5 个固定）；主题之外的 UI 定制。
+
+---
+
+## 11. 数据模型速查（前端 TypeScript 接口可直接按此声明）
+
+```ts
+// 信封
+type Envelope<T> = { ok: true; data: T; error: null } | { ok: false; data: null; error: { code: string; message: string } };
+
+// 世界图（完整字段以 underworld-graph/src/types.ts 的 zod schema 为准）
+type EntitySnapshot = { entityId: string; entityType: "character"|"location"|"item"|"concept";
+  summary?: string; properties: Record<string, unknown>; alive: boolean };
+type EventRecord = { eventId: string; type: "birth"|"change"|"death"; storyTime: string;
+  entityId: string; entityType?: string; summary?: string; source: "engine"|"user";
+  invalidated?: { declarationId: string; property: string }[];
+  newFacts?: { entityId: string; property: string; value: unknown; modality: string }[];
+  causes?: string[]; recordedAt: string };
+type Declaration = { declarationId: string; entityId: string; property: string; value: unknown;
+  modality: string; validFrom: string; validTo: string /* "Infinity"=未闭合 */ };
+type VisibilityDecl = { characterId: string; declarationId: string; state: "known";
+  confidence: number; source: "experienced"|"informed"|"witnessed"; validFrom: string; validTo: string };
+
+// 编排
+type SchedulerStatus = { queue: { length: number; items: unknown[] };
+  plans: { planId: string; storyTime: string; mode: "plan"|"yolo";
+    characterIds: string[]; outputCount: number; errorCount: number }[];
+  defaultMode: "plan"|"yolo" };
+
+// LLM 配置
+type SlotStatus = { configured: { provider: string; model: string } | null;
+  resolved: { provider: string; model: string } | null;
+  source: "slot"|"default"|"env"|"none"; hasKey: boolean };
+type LlmStatus = Record<"planner"|"role"|"reasoning"|"renderer"|"default", SlotStatus>;
+
+// 项目
+type NovelProject = { dir: string; relativePath: string; chapterCount: number;
+  lastModified: string; needsMigration: boolean; stats: { entityCount: number; eventCount: number } | null;
+  meta: { name: string; worldGraphDir: string; chaptersDir: string; storyTimeFormat: string; [k: string]: unknown } };
+
+// 会话
+type ChatSessionMeta = { id: string; name: string | null; created: string; modified: string;
+  messageCount: number; firstMessage: string | null };
+type ChatMessage = { role: "user"|"assistant"|string; text: string; ts: string };
+```
+
+## 12. 生产环境测试验证清单（交付验收标准）
+
+前端 DEMO 完成后，按以下路径逐项验证（后端以 `--project <工程> --embed` 启动）：
+
+| # | 验证路径 | 通过标准 |
+|---|---|---|
+| A1 | 启动 → 落项目页 → 激活 | 卡片统计/徽章正确；跳世界图且图渲染 |
+| A2 | 世界图：步进 storyTime / 搜索 / 点实体 | 快照随时间变化；右栏数据与 API 一致 |
+| A3 | 抽屉：改摘要/改属性/闭合声明/加关系 | 操作后重取数据生效；history 里可见对应 user 事件 |
+| A4 | 事件链：筛选 / 因果链 / 跳世界图 | 过滤正确；因果图渲染；J10 状态正确 |
+| A5 | 编排：切 yolo → dispatch 一条简单指令 | status 轮询见队列；debug SSE 见四阶段 span；世界图与章节文件真实更新 |
+| A6 | 编排：切 plan → dispatch → 计划卡片提交/丢弃 | commit 后变更落盘；discard 后无变更 |
+| A7 | 聊天：发消息 | SSE 逐字输出；CHAT_BUSY 期间输入禁用 |
+| A8 | 设置：配 default slot + 写密钥 | `GET /api/admin/llm` 显示 source=slot、hasKey=true；重启服务后仍在（持久化） |
+| A9 | 文件：编辑 .md 保存 / 重命名 | 磁盘文件变化；并发改触发 MTIME_CONFLICT |
+| A10 | 重启服务 | 上次项目自动恢复活跃；落项目页可一键进入 |
+
+## 13. 本期不做（全量汇总，前端不要为此预留 UI）
+
+删除项目；物理删除实体/声明；事件编辑；附件上传；提示词模板库；浏览文件夹原生对话框；多用户/权限/鉴权；日志持久化与上报；跨文件全局搜索（实体搜索已有，文件内容搜索不做）；编排 abort；AI 推理溯源；未来事件占位。
+
+## 14. 视觉与组件规范
+
+一切以 `narrative-engine-design` 为准：`colors_and_type.css`（暖调文档工具风，brand-500 `#c96442`，圆角 8px）+ `design-spec.html` §1/§11（按钮 5 类、表单、Toast 4 类、Modal 3 类、空态四要素、加载态 4 种、状态徽章胶囊）。设计稿 8 页内联的重复导航/主题 CSS 在实现时必须抽取为共享外壳组件。布局结构（三栏/抽屉/卡片网格）按各页设计稿；**功能与数据以本文为准**——设计稿中出现而本文标注"不提供"的元素，直接删掉不要做。
