@@ -29,7 +29,7 @@ body .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 body .btn-primary { background-color: var(--brand-500); color: var(--primary-foreground); }
 body .btn-primary:hover:not(:disabled) { background-color: var(--brand-600); }
 body .btn-secondary { background-color: var(--secondary); color: var(--secondary-foreground); border-color: var(--border); }
-body .btn-secondary:hover:not(:disabled) { background-color: var(--bg-300); }
+body .btn-secondary:hover:not(:disabled) { background-color: var(--bg-200); }
 body .btn-ghost { color: var(--text-600); }
 body .btn-ghost:hover:not(:disabled) { background-color: var(--bg-200); color: var(--foreground); }
 body .btn-destructive { background-color: var(--destructive); color: var(--destructive-foreground); }
@@ -280,4 +280,4 @@ body .text-muted { color: var(--muted-foreground); }
 body .text-error { color: var(--error); }
 
 /* ---------- 杂项 ---------- */
-.plan-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; background: var(--card); }
+body .plan-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; background: var(--card); }
