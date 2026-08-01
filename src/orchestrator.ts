@@ -285,15 +285,7 @@ export class Orchestrator {
       diffusion,
     );
 
-    // 3. 更新项目记忆（memory.md 重建）
-    const memErrors: string[] = [];
-    try {
-      await this.opts.ports.memory.update(this.opts.cwd);
-    } catch (err) {
-      memErrors.push(`记忆更新失败: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    const errors: string[] = [...memErrors];
+    const errors: string[] = [];
     const writtenText = render.text ?? "";
     const appliedEventIds = diffusion.appliedEventIds ?? [];
     const ok = render.ok !== false && errors.length === 0;

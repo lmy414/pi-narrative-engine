@@ -114,21 +114,15 @@ export type {
   ProjectFileContent,
 } from "./files.ts";
 
-// 应用级配置 + 全局扩展安装/重装（应用化 §5.1/§5.3.2）
+// 应用级配置
 export {
   readAppConfig,
   writeAppConfig,
   getAppConfigPath,
-  defaultGlobalExtPath,
-  installExtension,
-  reinstallExtension,
-  checkExtensionUpdate,
 } from "./app-config.ts";
 export type {
   AppConfig,
   AppConfigUpdates,
-  InstallExtensionOptions,
-  InstallExtensionResult,
 } from "./app-config.ts";
 
 // ============ 公共类型与错误 ============
@@ -196,6 +190,4 @@ export { _resolveSafePath } from "./files.ts";
 // app-config 内部实现
 export {
   _defaultConfigDir,
-  _copyDir,
-  _internals as _appConfigInternals,
 } from "./app-config.ts";

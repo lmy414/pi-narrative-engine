@@ -25,7 +25,7 @@ import { startMcpServer } from "../src/orchestrator/mcp-server.ts";
 import { assemblePorts } from "../src/orchestrator/assembly.ts";
 import { Embedder } from "../src/embedder.ts";
 import { Search } from "../src/search.ts";
-import { resolveWorldGraphDir } from "../src/session-state.ts";
+import { resolveWorldGraphDir } from "../src/orchestrator/assembly.ts";
 import { loadPlannerRuleSet } from "../src/planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";

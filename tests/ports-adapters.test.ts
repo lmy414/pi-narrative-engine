@@ -18,7 +18,6 @@ import {
   createSearchAdapter,
   createEmbedderAdapter,
   createFileRulesetAdapter,
-  createMemoryAdapter,
   createRendererAdapter,
   createRolePoolAdapter,
 } from "../src/ports/adapters.ts";
@@ -136,20 +135,6 @@ test("RulesetPort 适配器：文件缺失时返回空串", async () => {
     assert.equal(planner, "");
     assert.equal(role, "");
     assert.equal(render, "");
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("MemoryPort 适配器：load 文件缺失返回空串，update 空项目不抛错", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ports-memory-"));
-  try {
-    const { wg } = makeMockWg();
-    const port = createMemoryAdapter(wg as never);
-    const loaded = await port.load(dir);
-    assert.equal(loaded, "");
-    // mock wg.getAllEvents 返回空 → updateMemory 直接 return
-    await port.update(dir);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

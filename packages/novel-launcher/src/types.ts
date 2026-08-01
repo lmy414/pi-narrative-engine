@@ -47,33 +47,6 @@ export interface DiscoverOptions {
   includeChapterCount?: boolean;
 }
 
-/** launchPi 选项 */
-export interface LaunchOptions {
-  /** 传给 pi 的额外参数 */
-  args?: string[];
-  /** pi 可执行文件路径，默认 "pi"（依赖 PATH） */
-  executable?: string;
-  /** 新终端窗口标题，默认用项目名 */
-  title?: string;
-  /**
-   * 扩展加载策略（应用化 §5.2.1）：
-   * - "enabled"（缺省）：正常加载扩展
-   * - "disabled"：拼 --no-extensions，PI 以纯净模式运行
-   */
-  extensionMode?: "enabled" | "disabled";
-  /**
-   * 显式扩展路径（应用内置扩展场景）：拼 `-e <path>`，
-   * 不依赖自动发现目录。extensionMode 为 "disabled" 时忽略。
-   */
-  extensionPath?: string;
-}
-
-/** 启动结果 */
-export interface LaunchResult {
-  /** 已启动进程的 PID（进程已 detach，调用方一般无需管理生命周期） */
-  pid: number;
-}
-
 /** createProject 选项 */
 export interface CreateOptions {
   /** 项目名，默认 targetDir 的 basename */
@@ -96,14 +69,6 @@ export interface CreateOptions {
 export interface CreateResult {
   /** 项目目录绝对路径 */
   dir: string;
-}
-
-/** launchVisualizer 选项 */
-export interface VisualizerOptions {
-  /** 监听端口，默认 7421 */
-  port?: number;
-  /** 启用向量检索（加载嵌入模型） */
-  embed?: boolean;
 }
 
 /** novel-launcher 统一错误 */

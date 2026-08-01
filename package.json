@@ -9,8 +9,6 @@
   "license": "GPL-3.0-only",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "sync": "node scripts/sync.mjs",
-    "dev": "node scripts/sync.mjs --watch",
     "import": "node dist/tools/import-novel.js",
     "init": "node scripts/init-novel.mjs",
     "doctor": "tsx scripts/doctor.mjs",
@@ -33,10 +31,5 @@
     "typebox": "^1.1.24",
     "typescript": "^5.4.0",
     "zod": "^4.4.3"
-  },
-  "pi": {
-    "extensions": [
-      "./index.js"
-    ]
   }
 }

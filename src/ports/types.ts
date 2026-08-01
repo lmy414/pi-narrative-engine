@@ -12,7 +12,7 @@
  * - setVisibility.source 引用 VisibilitySource 枚举而非手写字面量
  * - RendererPort 用纯 IO 原语（append/modify/insert），不含 renderToFile
  *   （渲染 LLM 调用由渲染器代理自己完成，工具只落地文本）
- * - MemoryPort.update(cwd) 不含 wg 参数（适配器闭包持有 WorldGraph 实例）
+ * （MemoryPort 已删除 - 2026-08-01 Task7）
  */
 
 import type {
@@ -121,12 +121,6 @@ export interface RulesetPort {
   loadPlanner(cwd: string): Promise<string>;
   loadRole(cwd: string): Promise<string>;
   loadRender(cwd: string): Promise<string>;
-}
-
-/** 项目记忆端口：update 的 wg 由适配器闭包持有 */
-export interface MemoryPort {
-  load(cwd: string): Promise<string>;
-  update(cwd: string): Promise<void>;
 }
 
 /** 渲染器端口：纯 IO 原语，渲染 LLM 调用由渲染器代理完成 */

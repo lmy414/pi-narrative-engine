@@ -13,9 +13,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { EventEmitter } from "node:events";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { handleChatApi } from "../src/app/routes-chat.ts";
-import type { ChatContext } from "../src/app/chat-context.ts";
+import { ChatContext } from "../src/app/chat-context.ts";
+import { ProjectRegistry } from "../src/app/project-registry.ts";
 import type { ProjectHandle } from "../src/app/project-registry.ts";
+import type { MainSessionHost, MainSessionHostOptions } from "../src/chat/main-session.ts";
+import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
+import type { OrchestratorService } from "../src/orchestrator/service.ts";
+import type { Embedder } from "../src/embedder.ts";
+import type { WorldGraph } from "underworld-graph";
+import type { Search } from "../src/search.ts";
 
 // ----------------------------------------------------------------------------
 // stubs
@@ -113,6 +123,90 @@ async function call(
 }
 
 // ----------------------------------------------------------------------------
+
+test("ChatContext.ensureHost：A→B→A 重建 host 并隔离项目 provider/storyTime", async () => {
+  const originalEnv = {
+    provider: process.env.NE_LLM_PROVIDER,
+    model: process.env.NE_LLM_MODEL,
+    apiKey: process.env.NE_LLM_API_KEY,
+    deepseekKey: process.env.DEEPSEEK_API_KEY,
+  };
+  delete process.env.NE_LLM_PROVIDER;
+  delete process.env.NE_LLM_MODEL;
+  delete process.env.NE_LLM_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+
+  const relationCalls: Array<{ project: string; storyTime: string }> = [];
+  const handles = new Map(["/project-a", "/project-b"].map(dir => {
+    const project = dir.at(-1)!;
+    const wg = {
+      processEvent: async () => {},
+      addRelation: async (_source: string, _target: string, _label: string, storyTime: string) => {
+        relationCalls.push({ project, storyTime });
+      },
+    } as WorldGraph;
+    return [dir, { dir, meta: { name: project }, wg, search: { project } as unknown as Search, forceFulltext: false } as ProjectHandle];
+  }));
+  let active = handles.get("/project-a")!;
+  const registry = { getActive: () => active };
+  const hostOptions: MainSessionHostOptions[] = [];
+  const disposed: string[] = [];
+  const llmStore = new LlmConfigStore();
+  llmStore.setConfig("default", {
+    model: { provider: "deepseek", name: "deepseek-v4-flash" },
+    apiKey: "configured-key",
+  });
+
+  const context = new ChatContext({
+    registry: registry as never,
+    llmStore,
+    configDir: "/config",
+    embedder: {} as Embedder,
+    createOrchestratorService: async () => ({} as OrchestratorService),
+    createHost(options) {
+      hostOptions.push(options);
+      return {
+        cwd: options.cwd,
+        session: makeSession(),
+        modelFallbackMessage: undefined,
+        start: async () => {},
+        dispose: async () => { disposed.push(options.cwd); },
+      } as unknown as MainSessionHost;
+    },
+  });
+
+  try {
+    const hostA1 = await context.ensureHost();
+    assert.equal(hostOptions[0]?.runtimeApiKey?.apiKey, "configured-key");
+    const eventA = hostOptions[0]!.customTools.find(tool => tool.name === "world_event_apply")!;
+    await eventA.execute("event-a", { event: { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+
+    active = handles.get("/project-b")!;
+    const hostB = await context.ensureHost();
+    assert.notEqual(hostB, hostA1);
+    const relationB = hostOptions[1]!.customTools.find(tool => tool.name === "world_relation_add")!;
+    await assert.rejects(() => relationB.execute("relation-b", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never), /storyTime required/);
+    const eventB = hostOptions[1]!.customTools.find(tool => tool.name === "world_event_apply")!;
+    await eventB.execute("event-b", { event: { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" } }, undefined, undefined, {} as never);
+
+    active = handles.get("/project-a")!;
+    const hostA2 = await context.ensureHost();
+    assert.notEqual(hostA2, hostA1);
+    const relationA = hostOptions[2]!.customTools.find(tool => tool.name === "world_relation_add")!;
+    await relationA.execute("relation-a", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never);
+
+    assert.deepEqual(hostOptions.map(options => options.cwd), ["/project-a", "/project-b", "/project-a"]);
+    assert.deepEqual(disposed, ["/project-a", "/project-b"]);
+    assert.deepEqual(relationCalls, [{ project: "a", storyTime: "ch001.ev001" }]);
+  } finally {
+    await context.dispose();
+    for (const [name, value] of Object.entries(originalEnv)) {
+      const envName = name === "provider" ? "NE_LLM_PROVIDER" : name === "model" ? "NE_LLM_MODEL" : name === "apiKey" ? "NE_LLM_API_KEY" : "DEEPSEEK_API_KEY";
+      if (value === undefined) delete process.env[envName];
+      else process.env[envName] = value;
+    }
+  }
+});
 
 test("非 /api/chat 路径不命中", async () => {
   const ctx = makeCtx({});
@@ -223,4 +317,105 @@ test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅"
 
   emitClose();
   assert.equal(unsubscribed, true, "客户端断开应取消订阅");
+});
+
+test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项目泄漏", async () => {
+  const tmpDir = path.join(os.tmpdir(), `narrative-isolation-${Date.now()}`);
+  const projA = path.join(tmpDir, "proj-a");
+  const projB = path.join(tmpDir, "proj-b");
+  for (const dir of [projA, projB]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "novel.json"),
+      JSON.stringify({ name: path.basename(dir), worldGraphDir: ".pi/world-graph" }),
+    );
+  }
+
+  const originalEnv = {
+    provider: process.env.NE_LLM_PROVIDER,
+    model: process.env.NE_LLM_MODEL,
+    apiKey: process.env.NE_LLM_API_KEY,
+    deepseekKey: process.env.DEEPSEEK_API_KEY,
+  };
+  delete process.env.NE_LLM_PROVIDER;
+  delete process.env.NE_LLM_MODEL;
+  delete process.env.NE_LLM_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+
+  const registry = new ProjectRegistry();
+  await registry.setActive(projA, { allowInit: true });
+
+  const hostOptions: MainSessionHostOptions[] = [];
+  const disposed: string[] = [];
+  const storyTimeLog: string[] = [];
+  const llmStore = new LlmConfigStore();
+  llmStore.setConfig("default", {
+    model: { provider: "deepseek", name: "deepseek-v4-flash" },
+    apiKey: "configured-key",
+  });
+
+  const context = new ChatContext({
+    registry,
+    llmStore,
+    configDir: "/config",
+    embedder: {} as Embedder,
+    createOrchestratorService: async () => ({} as OrchestratorService),
+    createHost(options) {
+      hostOptions.push(options);
+      return {
+        cwd: options.cwd,
+        session: makeSession(),
+        modelFallbackMessage: undefined,
+        start: async () => {},
+        dispose: async () => { disposed.push(options.cwd); },
+      } as unknown as MainSessionHost;
+    },
+  });
+
+  try {
+    // 激活项目 A，设置 storyTime
+    const hostA1 = await context.ensureHost();
+    assert.equal(hostOptions[0]?.runtimeApiKey?.apiKey, "configured-key");
+    assert.equal(hostOptions[0]?.cwd, projA);
+    const eventA = hostOptions[0]!.customTools.find(tool => tool.name === "world_event_apply")!;
+    await eventA.execute("event-a", { event: { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+    storyTimeLog.push("A:ch001.ev001");
+
+    // 切换到项目 B，设置不同 storyTime
+    await registry.setActive(projB, { allowInit: true });
+    const hostB = await context.ensureHost();
+    assert.notEqual(hostB, hostA1);
+    // B 没有 storyTime → relation_add 应拒绝
+    const relationB = hostOptions[1]!.customTools.find(tool => tool.name === "world_relation_add")!;
+    await assert.rejects(() => relationB.execute("rel-b", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never), /storyTime required/);
+    const eventB = hostOptions[1]!.customTools.find(tool => tool.name === "world_event_apply")!;
+    await eventB.execute("event-b", { event: { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" } }, undefined, undefined, {} as never);
+    storyTimeLog.push("B:ch009.ev003");
+
+    // 切回项目 A，验证 storyTime 恢复为 ch001.ev001
+    await registry.setActive(projA, { allowInit: true });
+    const hostA2 = await context.ensureHost();
+    assert.notEqual(hostA2, hostA1);
+    // A 的 storyTime 应仍为 ch001.ev001（relation_add 不需要 storyTime 参数）
+    const relationA = hostOptions[2]!.customTools.find(tool => tool.name === "world_relation_add")!;
+    await relationA.execute("rel-a", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never);
+
+    // 验证日志
+    assert.deepEqual(hostOptions.map(o => o.cwd), [projA, projB, projA]);
+    assert.deepEqual(disposed, [projA, projB]);
+    assert.deepEqual(storyTimeLog, ["A:ch001.ev001", "B:ch009.ev003"]);
+  } finally {
+    await context.dispose();
+    await registry.closeAll();
+    // 清理临时目录
+    for (const dir of [projA, projB]) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    for (const [name, value] of Object.entries(originalEnv)) {
+      const envName = name === "provider" ? "NE_LLM_PROVIDER" : name === "model" ? "NE_LLM_MODEL" : name === "apiKey" ? "NE_LLM_API_KEY" : "DEEPSEEK_API_KEY";
+      if (value === undefined) delete process.env[envName];
+      else process.env[envName] = value;
+    }
+  }
 });

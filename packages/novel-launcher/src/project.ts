@@ -17,12 +17,9 @@ import { fileURLToPath } from "node:url";
 import type {
   CreateOptions,
   CreateResult,
-  VisualizerOptions,
-  LaunchResult,
 } from "./types.ts";
 import { NovelLauncherError } from "./types.ts";
 import { _readNovelJson } from "./discover.ts";
-import { _spawnNewTerminal } from "./launch.ts";
 
 /**
  * 可替换的内部依赖集合（ESM namespace 属性不可重定义，
@@ -105,35 +102,6 @@ export async function createProject(
     await _copyTemplate(templatesDir, src, join(dir, dest), vars, options?.force ?? false);
   }
   return { dir };
-}
-
-/** 在新终端窗口启动项目可视化（复用 visualizer.mjs） */
-export async function launchVisualizer(
-  projectDir: string,
-  options?: VisualizerOptions,
-): Promise<LaunchResult> {
-  const dir = resolve(projectDir);
-  let meta;
-  try {
-    meta = await _readNovelJson(dir);
-  } catch {
-    throw new NovelLauncherError(
-      `项目未找到 novel.json: ${dir}`,
-      "NOVEL_JSON_NOT_FOUND",
-    );
-  }
-  const dbDir = join(dir, meta.worldGraphDir);
-  const scriptPath = _resolveScript("visualizer.mjs");
-  const visualizerArgs = [scriptPath, "--db", dbDir];
-  if (options?.port !== undefined) visualizerArgs.push("--port", String(options.port));
-  if (options?.embed) visualizerArgs.push("--embed");
-  const pid = _spawnNewTerminal(
-    dir,
-    process.execPath,
-    visualizerArgs,
-    `可视化 - ${meta.name}`,
-  );
-  return { pid };
 }
 
 /** 在系统文件管理器中打开项目目录 */

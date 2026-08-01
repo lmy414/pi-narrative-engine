@@ -3,25 +3,18 @@
  * project.ts 测试：
  * - _resolveScript 纯函数直接测
  * - createProject / openInFileManager 通过替换 project._internals.{spawn,spawnSync} 拦截
- * - launchVisualizer 通过替换 launch._internals.spawn 拦截（它复用 _spawnNewTerminal）
  */
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import type { ChildProcess, SpawnOptions, SpawnSyncReturns } from "node:child_process";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 
 interface SpawnCall {
   command: string;
   args: string[];
   options: SpawnOptions;
-}
-
-interface SpawnSyncCall {
-  command: string;
-  args: string[];
-  options: Record<string, unknown>;
 }
 
 function makeFakeChild(pid: number): ChildProcess {
@@ -33,24 +26,18 @@ function makeFakeChild(pid: number): ChildProcess {
 }
 
 type ProjectInternals = typeof import("../src/project.ts")._internals;
-type LaunchInternals = typeof import("../src/launch.ts")._internals;
 
 let savedProject: ProjectInternals;
-let savedLaunch: LaunchInternals;
 
 beforeEach(async () => {
   const proj = await import("../src/project.ts");
-  const lau = await import("../src/launch.ts");
   savedProject = { ...proj._internals };
-  savedLaunch = { ...lau._internals };
 });
 
 afterEach(async () => {
   const proj = await import("../src/project.ts");
-  const lau = await import("../src/launch.ts");
   proj._internals.spawn = savedProject.spawn;
   proj._internals.spawnSync = savedProject.spawnSync;
-  lau._internals.spawn = savedLaunch.spawn;
 });
 
 test("_resolveScript 返回仓库内 scripts/<name> 绝对路径", async () => {
@@ -143,66 +130,6 @@ test("createProject: 模板目录不存在抛 TEMPLATE_NOT_FOUND", async () => {
       () => proj.createProject(join(root, "p"), { templatesDir: join(root, "不存在") }),
       (err: Error) =>
         err instanceof NovelLauncherError && err.code === "TEMPLATE_NOT_FOUND",
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("launchVisualizer 透传 --db 与 --port --embed", async () => {
-  // launchVisualizer 调 _spawnNewTerminal（来自 launch.ts），
-  // 需 mock launch._internals.spawn
-  const lau = await import("../src/launch.ts");
-  const proj = await import("../src/project.ts");
-  const spawnCalls: SpawnCall[] = [];
-  lau._internals.spawn = ((
-    command: string,
-    args: string[],
-    options: SpawnOptions,
-  ) => {
-    spawnCalls.push({ command, args, options });
-    return makeFakeChild(77777);
-  }) as typeof lau._internals.spawn;
-
-  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
-  try {
-    const dir = join(root, "projectA");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "novel.json"),
-      JSON.stringify({
-        name: "可视化测试",
-        worldGraphDir: ".pi/world-graph-v3",
-      }),
-      "utf8",
-    );
-    const result = await proj.launchVisualizer(dir, { port: 9999, embed: true });
-    assert.equal(result.pid, 77777);
-    assert.equal(spawnCalls.length, 1);
-    const flat = spawnCalls[0].args.join(" ");
-    assert.ok(flat.includes("visualizer.mjs"));
-    assert.ok(flat.includes("--db"));
-    assert.ok(flat.includes("world-graph-v3"));
-    assert.ok(flat.includes("--port"));
-    assert.ok(flat.includes("9999"));
-    assert.ok(flat.includes("--embed"));
-    assert.equal(spawnCalls[0].options.cwd, resolve(dir));
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("launchVisualizer 缺少 novel.json 抛 NOVEL_JSON_NOT_FOUND", async () => {
-  const proj = await import("../src/project.ts");
-  const { NovelLauncherError } = await import("../src/types.ts");
-  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
-  try {
-    const dir = join(root, "empty");
-    await mkdir(dir, { recursive: true });
-    await assert.rejects(
-      () => proj.launchVisualizer(dir),
-      (err: Error) =>
-        err instanceof NovelLauncherError && err.code === "NOVEL_JSON_NOT_FOUND",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

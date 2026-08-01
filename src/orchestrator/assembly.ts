@@ -8,15 +8,19 @@
  * OrchestratorPorts 集合。编排器与子代理只依赖 Ports 接口，不依赖具体模块。
  */
 
+import path from "node:path";
 import type { WorldGraph } from "underworld-graph";
 import type { Search } from "../search.ts";
 import type { Embedder } from "../embedder.ts";
+
+export function resolveWorldGraphDir(cwd: string): string {
+  return path.join(cwd, ".pi", "world-graph-v3");
+}
 import {
   createWorldGraphAdapter,
   createSearchAdapter,
   createEmbedderAdapter,
   createFileRulesetAdapter,
-  createMemoryAdapter,
   createRendererAdapter,
   createRolePoolAdapter,
 } from "../ports/adapters.ts";
@@ -25,7 +29,6 @@ import type {
   SearchPort,
   EmbedderPort,
   RulesetPort,
-  MemoryPort,
   RendererPort,
   RolePoolPort,
 } from "../ports/types.ts";
@@ -36,7 +39,6 @@ export interface OrchestratorPorts {
   search: SearchPort;
   embedder: EmbedderPort;
   ruleset: RulesetPort;
-  memory: MemoryPort;
   renderer: RendererPort;
   rolePool: RolePoolPort;
 }
@@ -52,7 +54,6 @@ export function assemblePorts(deps: {
     search: createSearchAdapter(deps.search),
     embedder: createEmbedderAdapter(deps.embedder),
     ruleset: createFileRulesetAdapter(),
-    memory: createMemoryAdapter(deps.wg),
     renderer: createRendererAdapter(),
     rolePool: createRolePoolAdapter(),
   };

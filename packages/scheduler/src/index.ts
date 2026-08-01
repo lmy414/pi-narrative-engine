@@ -21,13 +21,6 @@
 
 // ============ 公共 API ============
 
-// Re-export 核心编排函数
-export { plan } from "./plan.ts";
-export { commit } from "./commit.ts";
-
-// Re-export discard + loadAllPlans（扩展层 session_start 使用）
-export { discard, loadAllPlans } from "./cache.ts";
-
 // Re-export 默认 staticCard 加载器
 export { defaultStaticCardLoader } from "./static-card-loader.ts";
 
@@ -52,19 +45,6 @@ export type { DebugBus } from "./debug.ts";
 
 // ============ 内部导出（_ 前缀，软隔离） ============
 
-// 缓存操作（plan.ts / commit.ts 内部使用，测试经相对路径访问）
-export {
-  getPlan as _getPlan,
-  setPlan as _setPlan,
-  deletePlan as _deletePlan,
-  resetPlanCache as _resetPlanCache,
-  planCacheSize as _planCacheSize,
-  removePlansDir as _removePlansDir,
-} from "./cache.ts";
-
-// 检索执行器（commit.ts 内部使用）
-export { executeRetrievalItem as _executeRetrievalItem } from "./retrieve.ts";
-
 // 章节锚点插入（commit.ts 内部使用；阶段 A 数据层 Ports 的 RendererPort 复用）
 export { insertChapterSection as _insertChapterSection } from "./chapter-edit.ts";
 
@@ -84,13 +64,4 @@ export { randomId as _randomId, groupBy as _groupBy } from "./utils.ts";
 export { startSpan as _startSpan, newTraceId as _newTraceId } from "./debug.ts";
 
 // 内部类型
-export type {
-  FactSnapshot as _FactSnapshot,
-  PlanResult as _PlanResult,
-  PlanOutput as _PlanOutput,
-  CommitResult as _CommitResult,
-  DispatchPlanOutput as _DispatchPlanOutput,
-  DispatchYoloOutput as _DispatchYoloOutput,
-} from "./types.ts";
-
 export type { DebugSpan as _DebugSpan, DebugEvent as _DebugEvent } from "./debug.ts";

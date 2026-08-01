@@ -19,6 +19,96 @@ import { Search } from "../src/search.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
+import { createWorldTools } from "../src/chat/world-tools.ts";
+
+test("createWorldTools：注册 18 个唯一工具且全部提供 promptSnippet", () => {
+  const provider = {
+    wg: {} as WorldGraph,
+    search: {} as Search,
+    cwd: "test",
+    currentStoryTime: null,
+    setCurrentStoryTime() {},
+  };
+  const tools = createWorldTools(provider);
+  assert.equal(tools.length, 18);
+  assert.equal(new Set(tools.map(t => t.name)).size, 18);
+  assert.ok(tools.every(t => t.promptSnippet));
+});
+
+test("createWorldTools：18 个工具均可执行并返回 content/details envelope", async () => {
+  const wg = {
+    listStoryTimes: async () => ["ch001.ev001"],
+    getAllEntities: async () => [],
+    getAllEvents: async () => [],
+    recordedNow: async () => "tx-1",
+    birthEntity: async () => {},
+    killEntity: async () => {},
+    getEntityAt: async () => null,
+    updateEntitySummary: async () => {},
+    getEntityHistory: async () => [],
+    addRelation: async () => {},
+    closeRelation: async () => {},
+    getRelations: async () => [],
+    getRelationHistory: async () => [],
+    processEvent: async () => {},
+    traceCauses: async () => [],
+    getCharacterView: async () => [],
+    setVisibility: async () => {},
+    closeVisibility: async () => {},
+    inferVisibility: async () => {},
+  } as unknown as WorldGraph;
+  const provider = {
+    wg,
+    search: { search: async () => [] } as unknown as Search,
+    cwd: "test",
+    currentStoryTime: "ch001.ev001",
+    setCurrentStoryTime() {},
+  };
+  const params: Record<string, Record<string, unknown>> = {
+    world_status: {},
+    world_entity_create: { entityId: "e1", type: "character", storyTime: "ch001.ev001" },
+    world_entity_kill: { entityId: "e1", storyTime: "ch001.ev002" },
+    world_entity_get: { entityId: "e1" },
+    world_entity_update_summary: { entityId: "e1", summary: "摘要" },
+    world_entity_history: { entityId: "e1" },
+    world_relation_add: { sourceId: "e1", targetId: "e2", label: "knows" },
+    world_relation_close: { sourceId: "e1", targetId: "e2", label: "knows" },
+    world_relations: { entityId: "e1" },
+    world_relation_history: { entityId: "e1" },
+    world_event_apply: { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } },
+    world_event_chain: { eventId: "evt-1" },
+    world_character_view: { characterId: "e1" },
+    world_visibility_set: { characterId: "e1", declarationId: "d1", confidence: 1, source: "seen", isExplicit: true },
+    world_visibility_close: { characterId: "e1", declarationId: "d1" },
+    world_visibility_infer: {},
+    world_query: { query: "林冲" },
+    world_story_times: {},
+  };
+  const executed: string[] = [];
+  for (const tool of createWorldTools(provider)) {
+    const result = await tool.execute(tool.name, params[tool.name]!, undefined, undefined, {} as never);
+    assert.ok(Array.isArray(result.content), `${tool.name} 应返回 content`);
+    assert.ok("details" in result, `${tool.name} 应返回 details`);
+    executed.push(tool.name);
+  }
+  assert.equal(executed.length, 18);
+});
+
+test("world_event_apply：更新 storyTime 且不写 memory 文件", async () => {
+  const current = { value: null as string | null };
+  const calls: unknown[] = [];
+  const provider = {
+    wg: { processEvent: async (event: unknown) => calls.push(event) } as WorldGraph,
+    search: {} as Search,
+    cwd: mkdtempSync(join(tmpdir(), "world-tools-memory-")),
+    currentStoryTime: null,
+    setCurrentStoryTime(value: string) { current.value = value; },
+  };
+  const tool = createWorldTools(provider).find(t => t.name === "world_event_apply")!;
+  await tool.execute("event-1", { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+  assert.equal(current.value, "ch001.ev001");
+  assert.equal(calls.length, 1);
+});
 
 async function setup() {
   const dir = mkdtempSync(join(tmpdir(), "tools-test-"));

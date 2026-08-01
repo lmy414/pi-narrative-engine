@@ -9,7 +9,7 @@
  * - SearchPort → src/search.ts Search
  * - EmbedderPort → src/embedder.ts Embedder
  * - RulesetPort → loadPlannerRuleSet / loadRoleRuleSet / loadRuleSet
- * - MemoryPort → loadMemory / updateMemory（闭包持有 WorldGraph）
+ * （MemoryPort 已删除 - 2026-08-01 Task7）
  * - RendererPort → @pi/renderer chapter-io + @pi/scheduler insertChapterSection
  * - RolePoolPort → 本阶段未接线（角色由编排器直接驱动 Agent）
  */
@@ -28,13 +28,11 @@ import {
   _modifyChapterSection,
 } from "@pi/renderer";
 import { _insertChapterSection } from "@pi/scheduler";
-import { loadMemory, updateMemory } from "../memory.ts";
 import type {
   WorldGraphPort,
   SearchPort,
   EmbedderPort,
   RulesetPort,
-  MemoryPort,
   RendererPort,
   RolePoolPort,
 } from "./types.ts";
@@ -85,14 +83,6 @@ export function createFileRulesetAdapter(): RulesetPort {
     loadPlanner: (cwd) => loadPlannerRuleSet(cwd),
     loadRole: (cwd) => loadRoleRuleSet(cwd),
     loadRender: (cwd) => loadRuleSet(cwd),
-  };
-}
-
-/** 记忆适配器：闭包持有 wg（updateMemory 需要 WorldGraph.getAllEvents） */
-export function createMemoryAdapter(wg: WorldGraph): MemoryPort {
-  return {
-    load: (cwd) => loadMemory(cwd),
-    update: (cwd) => updateMemory(wg, cwd),
   };
 }
 

@@ -9,14 +9,12 @@
  *                                含原生模块 better-sqlite3 / sqlite-vec / onnxruntime-node
  *   <out>/server/visualizer-ui/  前端静态资源
  *   <out>/server/templates/      规则集模板
- *   <out>/server/extension-snapshot/  扩展快照（reinstall 端点的安装源）
  *
  * 用法：
- *   node scripts/package-sidecar.mjs [--out <dir>] [--skip-install] [--skip-snapshot]
+ *   node scripts/package-sidecar.mjs [--out <dir>] [--skip-install]
  *
  * - --out            输出目录，默认 tauri-app/src-tauri/resources
  * - --skip-install   跳过 npm install（离线验证 bundle 用，node_modules 不生成）
- * - --skip-snapshot  跳过扩展快照构建（需要先 npm run build 生成 dist/）
  *
  * 跨平台注意：node_modules 含原生绑定，必须在目标平台/目标 Node 大版本上
  * 执行本脚本（CI 按平台跑）。Windows 产物不可直接分发到 macOS/Linux。
@@ -50,12 +48,10 @@ function parseArgs() {
   const args = {
     out: resolve(repoRoot, "tauri-app", "src-tauri", "resources"),
     skipInstall: false,
-    skipSnapshot: false,
   };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out" && argv[i + 1]) args.out = resolve(argv[++i]);
     else if (argv[i] === "--skip-install") args.skipInstall = true;
-    else if (argv[i] === "--skip-snapshot") args.skipSnapshot = true;
   }
   return args;
 }
@@ -147,26 +143,7 @@ async function main() {
   cpSync(resolve(repoRoot, "templates"), join(serverDir, "templates"), { recursive: true });
   console.log("[package] 已复制 visualizer-ui/ 与 templates/");
 
-  // 4. 扩展快照（reinstall 端点安装源）：复刻 sync 布局
-  // 2026-07-31 underworld-graph 独立化完成（npm 已发布 ^0.1.0）：
-  //   - package.json 依赖 underworld-graph: ^0.1.0，reinstall 时 npm install 从 npm 拉取
-  if (!args.skipSnapshot) {
-    const distDir = resolve(repoRoot, "dist");
-    if (!existsSync(distDir)) {
-      console.error("[package] dist/ 不存在，请先 npm run build（或用 --skip-snapshot 跳过）");
-      process.exit(1);
-    }
-    const snapDir = join(serverDir, "extension-snapshot");
-    mkdirSync(snapDir, { recursive: true });
-    cpSync(distDir, snapDir, { recursive: true });
-    cpSync(resolve(repoRoot, "packages"), join(snapDir, "packages"), { recursive: true });
-    cpSync(resolve(repoRoot, "visualizer-ui"), join(snapDir, "visualizer-ui"), { recursive: true });
-    cpSync(resolve(repoRoot, "templates"), join(snapDir, "templates"), { recursive: true });
-    copyFileSync(resolve(repoRoot, "package.json"), join(snapDir, "package.json"));
-    console.log("[package] 已构建 extension-snapshot/");
-  }
-
-  // 5. 内置 Node 运行时（当前平台；CI 应按平台下载对应 Node 发行版）
+  // 4. 内置 Node 运行时（当前平台；CI 应按平台下载对应 Node 发行版）
   const nodeName = process.platform === "win32" ? "node.exe" : "node";
   copyFileSync(process.execPath, join(runtimeDir, nodeName));
   console.log(`[package] 已复制 Node 运行时: ${process.version} → runtime/${nodeName}`);

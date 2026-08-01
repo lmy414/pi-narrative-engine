@@ -28,7 +28,7 @@
         createDir: "",
         createName: "",
         creating: false,
-        busyDir: ""   // 正在操作（激活/启动PI）的项目目录
+        busyDir: ""   // 正在操作（激活）的项目目录
       };
     },
     mounted: function () {
@@ -88,17 +88,6 @@
             return;
           }
           self.$emit("toast", { message: "激活失败：" + err.message, type: "error" });
-        });
-      },
-      launchPi: function (p) {
-        var self = this;
-        this.busyDir = p.dir;
-        api.projectLaunchPi(p.dir).then(function () {
-          self.busyDir = "";
-          self.$emit("toast", { message: "PI 已在新终端窗口启动：" + p.meta.name, type: "success" });
-        }).catch(function (err) {
-          self.busyDir = "";
-          self.$emit("toast", { message: "启动 PI 失败：" + err.message, type: "error" });
         });
       },
       openFolder: function (p) {
@@ -180,10 +169,6 @@
                 {{ isActive(p) ? "活跃" : "未激活" }}
               </span>
               <span class="project-actions" @click.stop>
-                <button class="pbtn small" :disabled="busyDir === p.dir"
-                        @click="launchPi(p)" title="在新终端启动 PI 创作">
-                  <span data-icon="send-horizontal"></span>PI
-                </button>
                 <button class="pbtn small ghost" @click="openFolder(p)" title="在文件管理器中打开">
                   <span data-icon="external-link"></span>
                 </button>

@@ -21,6 +21,78 @@ import {
 } from "@pi/renderer";
 import { checkNarrative } from "../src/checker.ts";
 import type { RenderLlmCaller } from "@pi/renderer";
+import { createRenderTools } from "../src/chat/render-tools.ts";
+import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
+
+test("createRenderTools：注册 5 个唯一工具且全部提供 promptSnippet", () => {
+  const store = new LlmConfigStore();
+  store.setConfig("renderer", { model: { provider: "deepseek", name: "deepseek-v4-flash" }, apiKey: "test-key" });
+  const tools = createRenderTools({ cwd: process.cwd(), llmStore: store });
+  assert.deepEqual(tools.map(t => t.name), ["render_append", "render_modify", "render_preview", "render_check", "render_rule_set"]);
+  assert.ok(tools.every(t => t.promptSnippet));
+});
+
+test("createRenderTools：执行时读取 renderer slot 的 model 和 apiKey", async () => {
+  const calls: string[] = [];
+  const llmStore = {
+    getModel(slot: string) { calls.push(`model:${slot}`); return { provider: "test", id: "renderer-model" }; },
+    getApiKey(slot: string) { calls.push(`key:${slot}`); return "renderer-key"; },
+    getHeaders() { return undefined; },
+  } as unknown as LlmConfigStore;
+  const tools = createRenderTools({
+    cwd: process.cwd(),
+    llmStore,
+    createLlmCaller(model, apiKey) {
+      assert.equal(model.id, "renderer-model");
+      assert.equal(apiKey, "renderer-key");
+      return async () => "预览正文";
+    },
+  });
+  const preview = tools.find(tool => tool.name === "render_preview")!;
+  const result = await preview.execute("preview", {
+    eventId: "evt-1",
+    storyTime: "ch001.ev001",
+    instruction: "预览",
+    payload: [],
+  }, undefined, undefined, {} as never);
+  assert.deepEqual(calls, ["model:renderer", "key:renderer"]);
+  assert.equal(result.content[0]?.text, "预览正文");
+  assert.deepEqual(result.details, { ok: true, eventId: "evt-1", preview: true, contextWarning: undefined });
+});
+
+test("createRenderTools：5 个工具均可执行并返回 content/details envelope", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "render-tools-"));
+  try {
+    await writeFile(path.join(dir, "规则集.md"), "规则", "utf8");
+    const store = new LlmConfigStore();
+    store.setConfig("renderer", { model: { provider: "deepseek", name: "deepseek-v4-flash" }, apiKey: "test-key" });
+    const tools = createRenderTools({
+      cwd: dir,
+      llmStore: store,
+      createLlmCaller: () => async systemPrompt => systemPrompt.includes("文本检验员")
+        ? JSON.stringify({ violations: [], suggestions: [] })
+        : "渲染正文",
+    });
+    const chapterPath = path.join(dir, "chapter.md");
+    const params: Record<string, Record<string, unknown>> = {
+      render_append: { chapterPath, eventId: "evt-1", storyTime: "ch001.ev001", instruction: "追加", payload: [] },
+      render_modify: { chapterPath, eventId: "evt-1", modifyAnchorEventId: "evt-1", storyTime: "ch001.ev002", instruction: "重写", payload: [] },
+      render_preview: { eventId: "evt-2", storyTime: "ch001.ev002", instruction: "预览", payload: [] },
+      render_check: { target: "chapter", chapterPath },
+      render_rule_set: {},
+    };
+    const executed: string[] = [];
+    for (const tool of tools) {
+      const result = await tool.execute(tool.name, params[tool.name]!, undefined, undefined, {} as never);
+      assert.ok(Array.isArray(result.content), `${tool.name} 应返回 content`);
+      assert.ok("details" in result, `${tool.name} 应返回 details`);
+      executed.push(tool.name);
+    }
+    assert.equal(executed.length, 5);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("e2e: append → append → modify → check 完整流程", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "renderer-e2e-"));

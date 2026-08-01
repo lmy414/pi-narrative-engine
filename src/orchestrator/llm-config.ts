@@ -112,6 +112,10 @@ export class LlmConfigStore {
     return this.envFallback;
   }
 
+  getHeaders(slot: LlmSlot): Record<string, string> | undefined {
+    return this.resolveConfig(slot).headers;
+  }
+
   /** 取某 slot 的 pi-ai Model（getModel 未命中返回 undefined，此处显式抛错） */
   getModel(slot: LlmSlot): Model<any> {
     const cached = this.modelCache.get(slot);
@@ -128,14 +132,17 @@ export class LlmConfigStore {
     return model;
   }
 
-  /** 取某 slot 的 apiKey：配置 apiKey → provider 标准 env（getEnvApiKey） */
+  /** 取某 slot 的 apiKey：slot → default → NE_LLM_API_KEY → provider 标准 env */
   getApiKey(slot: LlmSlot): string {
     const cfg = this.resolveConfig(slot);
-    const key = cfg.apiKey ?? getEnvApiKey(cfg.model.provider);
+    const key = this.configs.get(slot)?.apiKey
+      ?? this.configs.get("default")?.apiKey
+      ?? process.env.NE_LLM_API_KEY
+      ?? getEnvApiKey(cfg.model.provider);
     if (!key) {
       throw new Error(
-        `slot=${slot} 缺 API Key：setConfig 未提供且 ${cfg.model.provider} 无标准 env` +
-          "（可 setConfig 注入 apiKey，或用 NE_LLM_API_KEY 兜底）",
+        `slot=${slot} 缺 API Key：已尝试 slot/default 配置、NE_LLM_API_KEY 与 ${cfg.model.provider} 标准 env` +
+          "（可 setConfig 注入 apiKey，或设置环境变量）",
       );
     }
     return key;

@@ -1,9 +1,8 @@
 /**
- * server.ts — world-graph 可视化 HTTP 服务（node:http，零新增依赖）
+ * server.ts — world-graph 可视化 HTTP 服务辅助函数（统一服务内部使用）
  *
- * 双入口共用：
- * - standalone（scripts/visualizer.mjs → src/visualizer/standalone.ts）
- * - pi 扩展内（src/index.ts 的 open_visualizer 工具）
+ * 本文件只保留 unified-server 导入的静态服务与请求体解析 helper。
+ * 独立启动入口（startVisualizer / VisualizerServer）已移除。
  *
  * 静态服务：uiDir 默认为 <仓库根>/visualizer-ui。
  * - 开发态：src/visualizer/server.ts 上两级 = 仓库根
@@ -12,35 +11,13 @@
  *   上两级落在 extensions/ 下（错误），因此回退探测 ../visualizer-ui
  *   （= 扩展目录根，sync.mjs 将 visualizer-ui 复制到那里）。
  */
-import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { WorldGraph } from "underworld-graph";
-import type { Search } from "../search.ts";
-import type { DebugBus } from "../debug/types.ts";
-import { handleApi } from "./routes.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-export interface StartVisualizerOptions {
-  wg: WorldGraph;
-  search?: Search | null;
-  port?: number;
-  uiDir?: string;
-  /** standalone 无 embedder 时置 true：/api/search 强制 fulltext */
-  forceFulltext?: boolean;
-  /** 调试事件总线（注入后启用 /api/debug/* 端点） */
-  debugBus?: DebugBus;
-}
-
-export interface VisualizerServer {
-  url: string;
-  port: number;
-  close(): void;
-}
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -112,76 +89,4 @@ export async function serveStatic(res: ServerResponse, uiDir: string, pathname: 
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not Found");
   }
-}
-
-/**
- * 启动可视化服务。
- * port 缺省 7421；传 0 由系统分配（测试用），实际端口从返回值读取。
- */
-export function startVisualizer(opts: StartVisualizerOptions): Promise<VisualizerServer> {
-  const uiDir = opts.uiDir ?? resolveDefaultUiDir();
-  const ctx = {
-    wg: opts.wg,
-    search: opts.search ?? null,
-    forceFulltext: opts.forceFulltext ?? false,
-    debugBus: opts.debugBus ?? null,
-  };
-
-  const server = createServer((req, res) => {
-    void (async () => {
-      const url = new URL(req.url ?? "/", "http://localhost");
-      // 仅匹配 /api 或 /api/...，避免 /api.js 这类静态文件被误判为 API
-      if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-        let body: unknown = null;
-        if (req.method === "POST") {
-          try {
-            body = await readBody(req);
-          } catch (err) {
-            res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
-            res.end(JSON.stringify({
-              ok: false,
-              data: null,
-              error: { code: "INVALID_JSON", message: (err as Error).message },
-            }));
-            return;
-          }
-        }
-        await handleApi(ctx, req, res, url, body);
-        return;
-      }
-      if (req.method === "GET" || req.method === "HEAD") {
-        await serveStatic(res, uiDir, url.pathname);
-        return;
-      }
-      res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
-      res.end("Method Not Allowed");
-    })().catch((err) => {
-      // 兜底：任何未捕获异常都返回 500 envelope，绝不让连接悬挂
-      try {
-        res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({
-          ok: false,
-          data: null,
-          error: { code: "INTERNAL_ERROR", message: (err as Error).message },
-        }));
-      } catch {
-        // 响应已部分写出时无法再补救
-      }
-    });
-  });
-
-  return new Promise((resolvePromise, rejectPromise) => {
-    server.once("error", rejectPromise);
-    server.listen(opts.port ?? 7421, () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : (opts.port ?? 7421);
-      resolvePromise({
-        url: `http://localhost:${port}/`,
-        port,
-        close() {
-          server.close();
-        },
-      });
-    });
-  });
 }

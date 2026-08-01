@@ -14,7 +14,7 @@ import {
   extractPngChunks,
   parseCardFile,
   importCardToWorldGraph,
-} from "../src/tools/import-card.ts";
+} from "../src/chat/import-card.ts";
 
 // ---------------------------------------------------------------------------
 // extractCardData

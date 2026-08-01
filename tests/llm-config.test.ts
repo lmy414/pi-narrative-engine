@@ -124,6 +124,23 @@ test("store: getApiKey 配置 key 优先，provider 标准 env 兜底", async ()
   assert.equal(store.getApiKey("role"), "sk-openai-env");
 });
 
+test("store: slot 只覆盖模型时 key 回退 default 配置", () => {
+  cleanEnv();
+  const store = new LlmConfigStore();
+  store.setConfig("default", cfg("deepseek", "deepseek-v4-flash", "sk-default"));
+  store.setConfig("role", cfg("openai", "gpt-5.1"));
+  assert.equal(store.getApiKey("role"), "sk-default");
+});
+
+test("store: slot 和 default 都无 key 时回退 NE_LLM_API_KEY", () => {
+  cleanEnv();
+  process.env.NE_LLM_API_KEY = "sk-ne-env";
+  const store = new LlmConfigStore();
+  store.setConfig("default", cfg("deepseek", "deepseek-v4-flash"));
+  store.setConfig("renderer", cfg("openai", "gpt-5.1"));
+  assert.equal(store.getApiKey("renderer"), "sk-ne-env");
+});
+
 test("store: slot 优先于 default", () => {
   cleanEnv();
   process.env.DEEPSEEK_API_KEY = "sk-env";

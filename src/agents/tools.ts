@@ -17,8 +17,62 @@
 
 import { Type, StringEnum } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { retrievalPlanSchema } from "../planner-llm.ts";
-import { characterActionSchema } from "../role-pool-llm.ts";
+
+export const retrievalPlanSchema = Type.Object({
+  items: Type.Array(Type.Object({
+    type: StringEnum([
+      "character_view",
+      "entity_snapshot",
+      "relations",
+      "search_text",
+      "search_vector",
+      "search_hybrid",
+    ], { description: "检索类型" }),
+    params: Type.Object({
+      entityId: Type.Optional(Type.String({ description: "character_view / entity_snapshot / relations 用" })),
+      query: Type.Optional(Type.String({ description: "search_* 用（自然语言查询）" })),
+      nodeType: Type.Optional(StringEnum(["Entity", "Fact", "Relation", "Visibility"], {
+        description: "search_* 必填：检索节点类型。注意：search_vector/search_hybrid 仅支持 Entity/Fact（只有这两种节点声明了 embedding 字段），Relation/Visibility 请用 search_text",
+      })),
+      limit: Type.Optional(Type.Integer({ description: "检索上限（search_* 用）" })),
+      fieldPath: Type.Optional(Type.String({ description: "向量字段路径（search_vector/hybrid 用，缺省 embedding）" })),
+      modalityFilter: Type.Optional(Type.Array(StringEnum(["fact", "belief", "hypothesis"]), {
+        description: "模态过滤（character_view 用）",
+      })),
+      recordedAsOf: Type.Optional(Type.String({
+        description: "事务时间坐标（可选，P0-2 修复）。modify/insert 锚定历史事件时，若要\"查改写前的世界状态\"，调用 wg.recordedNow() 取当前事务时间传入。日常推进（add）不需要使用。仅 character_view/entity_snapshot/relations 生效；search_* 暂不支持（会降级为 console.warn）。",
+      })),
+    }),
+    assignTo: Type.Array(Type.String(), {
+      description: "这条检索结果分配给哪些角色 ID（信息差分配）",
+    }),
+    label: Type.String({ description: "检索项语义标签（注入角色提示词时用作小标题）" }),
+  })),
+});
+
+export const characterActionSchema = Type.Object({
+  characterId: Type.String({ description: "你自己的 entityId（即 prompt 中的[你的 entityId]，如 e_lin_chong）" }),
+  actor: Type.String({ description: "行动者名字（角色卡中的 name）" }),
+  action: Type.String({ description: "可观察的行动描述" }),
+  target: Type.Optional(Type.String({ description: "行动对象" })),
+  emotion: Type.Optional(Type.String({ description: "角色情绪" })),
+  relation_update: Type.Optional(Type.Array(Type.Object({
+    target: Type.String({ description: "对方角色的 characterId（不是名字，如 e_lu_qian）" }),
+    label: Type.String({ description: "关系标签" }),
+  }))),
+  thought: Type.Optional(Type.String({ description: "内心独白（其他角色不可见）" })),
+  knowledge_gained: Type.Optional(Type.Array(Type.String(), {
+    description: "获得的知识列表",
+  })),
+  state_changes: Type.Optional(Type.Array(Type.Object({
+    entityId: Type.String({ description: "目标实体 ID" }),
+    property: Type.String({ description: "属性路径（如 mood / location）" }),
+    value: Type.Unknown({ description: "新值" }),
+    modality: StringEnum(["fact", "belief", "hypothesis"], {
+      description: "fact=客观 / belief=信念 / hypothesis=猜测",
+    }),
+  }))),
+});
 
 /**
  * diffusion_result 工具 schema — 可见推理代理的结构化产出

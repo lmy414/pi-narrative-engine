@@ -19,22 +19,16 @@
 // 项目发现
 export { discoverProjects, getProjectMeta } from "./discover.ts";
 
-// 启动 pi（新终端窗口，扩展自动加载）
-export { launchPi } from "./launch.ts";
-
 // 项目级操作
-export { createProject, launchVisualizer, openInFileManager } from "./project.ts";
+export { createProject, openInFileManager } from "./project.ts";
 
 // 类型
 export type {
   NovelProject,
   NovelProjectMeta,
   DiscoverOptions,
-  LaunchOptions,
-  LaunchResult,
   CreateOptions,
   CreateResult,
-  VisualizerOptions,
 } from "./types.ts";
 
 // 统一错误
@@ -44,9 +38,6 @@ export { NovelLauncherError } from "./types.ts";
 
 // 项目发现内部实现（测试经相对路径访问）
 export { _readNovelJson, _countChapters, _discoverProjects } from "./discover.ts";
-
-// 启动内部实现
-export { _buildPiCommand, _buildExtensionArgs, _spawnNewTerminal, _internals as _launchInternals } from "./launch.ts";
 
 // 项目内部实现
 export { _resolveScript, _internals as _projectInternals } from "./project.ts";

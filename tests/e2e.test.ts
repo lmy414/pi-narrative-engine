@@ -5,7 +5,55 @@ import { Embedder } from "../src/embedder.ts";
 import { Search } from "../src/search.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { createImportTools } from "../src/chat/import-tools.ts";
+
+test("createImportTools：注册 2 个唯一工具且全部提供 promptSnippet", () => {
+  const tools = createImportTools({
+    cwd: process.cwd(),
+    wg: {} as WorldGraph,
+    embedder: {} as Embedder,
+    currentStoryTime: "ch001.ev001",
+    setCurrentStoryTime() {},
+  });
+  assert.deepEqual(tools.map(t => t.name), ["import_novel", "import_character_card"]);
+  assert.ok(tools.every(t => t.promptSnippet));
+});
+
+test("createImportTools：2 个工具均可执行并保持项目状态", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "import-tools-"));
+  const cardPath = join(dir, "card.json");
+  writeFileSync(cardPath, JSON.stringify({ name: "林冲", description: "豹子头" }), "utf8");
+  const storyTimes: string[] = [];
+  const wg = {
+    listStoryTimes: async () => ["ch003.ev007"],
+    processEvent: async () => {},
+    setVisibility: async () => {},
+  } as unknown as WorldGraph;
+  const pipelineCalls: unknown[] = [];
+  const tools = createImportTools({
+    cwd: dir,
+    wg,
+    embedder: {} as Embedder,
+    currentStoryTime: "ch001.ev001",
+    setCurrentStoryTime(value) { storyTimes.push(value); },
+    runImportPipeline: async options => {
+      pipelineCalls.push(options);
+      return { entityCount: 1, eventCount: 1, relationCount: 0, visibilityCount: 0, worldGraphDir: dir, dumpPath: join(dir, "dump.json") };
+    },
+  });
+  const params: Record<string, Record<string, unknown>> = {
+    import_novel: { epubPath: join(dir, "novel.epub") },
+    import_character_card: { cardPath, entityId: "e_lin_chong" },
+  };
+  for (const tool of tools) {
+    const result = await tool.execute(tool.name, params[tool.name]!, undefined, undefined, {} as never);
+    assert.ok(Array.isArray(result.content), `${tool.name} 应返回 content`);
+    assert.ok("details" in result, `${tool.name} 应返回 details`);
+  }
+  assert.equal(pipelineCalls.length, 1);
+  assert.deepEqual(storyTimes, ["ch003.ev007", "ch001.ev001"]);
+});
 
 test("完整工作流：创建实体 → 关系 → 事件 → 可见性 → 检索", async () => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-"));

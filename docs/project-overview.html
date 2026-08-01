@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>narrative-engine 项目全景图（2026-08-01）</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --panel2: #22262f;
+    --border: #2e333d;
+    --text: #e6e9ef;
+    --muted: #9aa3b2;
+    --accent: #4f8cff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #a371f7;
+    --cyan: #39c5cf;
+    --orange: #db6d28;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.6;
+    padding: 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+  .subtitle { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 8px; vertical-align: middle; }
+  .badge-done { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .badge-partial { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.4); }
+  .badge-todo { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.4); }
+  .badge-pending { background: rgba(154,163,178,.15); color: var(--muted); border: 1px solid rgba(154,163,178,.4); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-top: 12px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    transition: transform .15s, border-color .15s;
+  }
+  .card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .card h4 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .card p { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .card .files { font-size: 12px; color: var(--muted); background: var(--panel2); padding: 8px 10px; border-radius: 6px; font-family: Consolas, monospace; word-break: break-all; }
+  .card .status { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .s-green { color: var(--green); }
+  .s-yellow { color: var(--yellow); }
+  .s-red { color: var(--red); }
+  .arch-flow {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 12px;
+    overflow-x: auto;
+  }
+  .arch-flow pre {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--panel2); color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot-green { background: var(--green); }
+  .dot-yellow { background: var(--yellow); }
+  .dot-red { background: var(--red); }
+  .dot-gray { background: var(--muted); }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .note { background: rgba(79,140,255,.08); border: 1px solid rgba(79,140,255,.3); border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 12px; }
+  .warn { background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.3); border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 12px; }
+  code { background: var(--panel2); padding: 2px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 12px; }
+  .mono { font-family: Consolas, monospace; }
+  .timeline { margin-top: 12px; }
+  .tl-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .tl-date { flex-shrink: 0; width: 100px; color: var(--muted); font-family: Consolas, monospace; font-size: 12px; padding-top: 2px; }
+  .tl-body { flex: 1; }
+  .tl-body .t { font-weight: 600; }
+  .tl-body .d { color: var(--muted); font-size: 12px; }
+  .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; text-align: center; flex: 1; min-width: 120px; }
+  .stat .num { font-size: 28px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<h1>🖋️ narrative-engine 项目全景图</h1>
+<div class="subtitle">叙事引擎 —— 面向小说创作的「世界图 + AI 编排」引擎 ｜ 数据截至 2026-08-01</div>
+
+<!-- ============ 一句话介绍 ============ -->
+<div class="note">
+  <b>这是什么？</b>
+  一个帮助 AI 写小说的引擎：用「世界图」记录故事里谁是谁、发生过什么、谁知道了什么；用「编排器」让多个 AI 子代理（策划/角色/推理/渲染）像剧组一样协作推进剧情，最后把剧情写成章节正文。当前正在从「依赖 PI 扩展」转型为「基于 PI SDK 的独立应用」。
+</div>
+
+<!-- ============ 数据概览 ============ -->
+<h2>📊 项目数据概览</h2>
+<div class="stat-row">
+  <div class="stat"><div class="num" style="color:var(--accent)">7</div><div class="lbl">npm 子包（packages/）</div></div>
+  <div class="stat"><div class="num" style="color:var(--green)">663</div><div class="lbl">测试用例（全绿）</div></div>
+  <div class="stat"><div class="num" style="color:var(--purple)">31</div><div class="lbl">PI 扩展工具（扩展模式）</div></div>
+  <div class="stat"><div class="num" style="color:var(--cyan)">17</div><div class="lbl">子代理内部工具（编排器）</div></div>
+  <div class="stat"><div class="num" style="color:var(--yellow)">4</div><div class="lbl">子代理类型</div></div>
+  <div class="stat"><div class="num" style="color:var(--orange)">3</div><div class="lbl">对外接入形态</div></div>
+</div>
+
+<!-- ============ 分层架构 ============ -->
+<h2>🏗️ 分层架构（当前形态）</h2>
+<div class="arch-flow"><pre>
+┌─────────────────────────────────────────────────────────────────────────┐
+│  对外接入层（3 种形态并存）                                                │
+│                                                                          │
+│  ① PI 扩展模式（旧）      ② MCP stdio 服务（编排器）   ③ unified-server   │
+│  · src/index.ts           · scripts/orchestrator-mcp    HTTP API 7421     │
+│  · 31 个 pi.registerTool  · 4 个调度工具               · /api/* 全套      │
+│  · 需 PI 运行时启动        · 独立进程，无需 PI           · 世界图/文件/项目 │
+│                                                     · 聊天（新增）        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  主会话层（新增，PI SDK 模式）                                             │
+│  · src/chat/main-session.ts  —— MainSessionHost                          │
+│  · 基于 createAgentSessionRuntime（PI 本体同构三层结构）                   │
+│  · 最简提示词：.pi/SYSTEM.md 自动发现（无记忆注入）                        │
+│  · 经 customTools 调编排器（scheduler_dispatch/commit/discard/queue）    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  编排器层（纯代码，零 PI 依赖）                                            │
+│  · src/orchestrator.ts —— Orchestrator（planner→角色→推理→渲染 调度）      │
+│  · src/event-queue.ts —— 内存队列 + 后台 worker                          │
+│  · src/orchestrator/service.ts —— OrchestratorService（调度入口）         │
+│  · src/orchestrator/llm-config.ts —— LlmConfigStore（每角色独立模型）      │
+│  · src/agents/* —— 4 类子代理 + 17 个内部 AgentTool                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│  数据层接口（Ports，标准 API 契约）                                        │
+│  · src/ports/types.ts —— 7 个端口（WorldGraph/Search/Embedder/...）       │
+│  · src/ports/adapters.ts —— 默认适配器（薄包装，可替换）                   │
+│  · src/orchestrator/assembly.ts —— 装配                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  数据层（真实实现，零 PI 依赖）                                            │
+│  · underworld-graph（已独立 npm 包） / Search / Embedder / memory        │
+│  · @pi/renderer（渲染） / @pi/role-pool（角色） / @pi/scheduler（旧流水线）│
+└─────────────────────────────────────────────────────────────────────────┘
+</pre></div>
+
+<!-- ============ 数据流 ============ -->
+<h2>🔀 数据流（目标形态：从用户话到章节正文）</h2>
+<div class="arch-flow"><pre>
+用户说话 ──▶ 主会话（PI SDK 聊天）
+              │  AI 判断意图（闲聊/写设定/推进剧情）
+              ▼
+         scheduler_dispatch（事件派发）
+              ▼
+        ┌─ 编排器 Orchestrator ────────────────────────┐
+        │ ① planner 子代理：查世界图 → 定检索策略        │
+        │ ② 角色子代理 ×N：扮演角色 → 输出行动/心理      │
+        │ ③ 可见推理子代理：推理 → 写世界图（状态扩散）   │
+        │ ④ 渲染器子代理：读章节 → 写正文                │
+        └──────────────────────────────────────────────┘
+              ▼
+        世界图（world.db）    章节文件（正文）
+        角色状态/关系/可见性    <!-- event 锚点 --> 正文
+</pre></div>
+
+<!-- ============ 模块清单 ============ -->
+<h2>📦 模块清单（全部源码模块）</h2>
+
+<h3>🧩 npm 子包（packages/，7 个）</h3>
+<div class="grid">
+  <div class="card">
+    <h4>🔗 scheduler <span class="badge badge-partial">旧流水线</span></h4>
+    <p>调度器核心：plan（10 步线性流水线）/ commit / retrieve / cache。设计上是编排器的「前任」，当前仍被 PI 扩展工具使用。</p>
+    <div class="files">packages/scheduler/src/{plan,commit,retrieve,cache,...}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🎭 role-pool <span class="badge badge-partial">被新编排器替代</span></h4>
+    <p>角色池批处理演绎：把角色卡+动态事实 → LLM → 结构化行动。新编排器改为每角色一个 Agent 子代理。</p>
+    <div class="files">packages/role-pool/src/{role-pool,transforms,prompts}.ts</div>
+  </div>
+  <div class="card">
+    <h4>✍️ renderer <span class="badge badge-done">在用</span></h4>
+    <p>渲染器：LLM 生成正文 + 章节文件 IO（锚点追加/修改/插入），供渲染器子代理使用。</p>
+    <div class="files">packages/renderer/src/{renderer,chapter-io,prompts}.ts</div>
+  </div>
+  <div class="card">
+    <h4>📥 novel-importer <span class="badge badge-done">在用</span></h4>
+    <p>小说导入器：EPUB/文本 → 世界图实体/事件/关系 + 章节文件。多阶段流水线。</p>
+    <div class="files">packages/novel-importer/src/{pipeline,stages,write}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🛠️ admin <span class="badge badge-done">在用</span></h4>
+    <p>管理模块：文件编辑器、规则集、novel.json、应用配置、更新检查、embedder 状态。</p>
+    <div class="files">packages/admin/src/{files,rulesets,updater,...}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🚀 novel-launcher <span class="badge badge-done">在用</span></h4>
+    <p>项目发现/创建/启动 PI：扫描含 novel.json 的目录，管理多项目。</p>
+    <div class="files">packages/novel-launcher/src/{discover,launch,project}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🌐 underworld-graph <span class="badge badge-done">已独立</span></h4>
+    <p>世界图（已拆为独立 npm 包）：实体/关系/事件/可见性存储，SQLite + 向量检索。核心资产，零 PI 依赖。</p>
+    <div class="files">npm 依赖 "underworld-graph": "^0.1.0"（独立仓库）</div>
+  </div>
+</div>
+
+<h3>⚙️ 运行时源码（src/，按目录）</h3>
+<div class="grid">
+  <div class="card">
+    <h4>🤖 agents/ <span class="badge badge-done">新编排器</span></h4>
+    <p>4 类子代理工厂（planner/role/reasoning/renderer）+ 产出收集 + 17 个内部工具（world-tools/chapter-tools）。</p>
+    <div class="files">src/agents/{planner,role,reasoning,renderer}-agent.ts</div>
+  </div>
+  <div class="card">
+    <h4>🎛️ orchestrator/ <span class="badge badge-done">新编排器</span></h4>
+    <p>编排器基础设施：LlmConfigStore（每角色独立模型）、OrchestratorService、MCP 包装、pi-adapter（唯一 PI 耦合）。</p>
+    <div class="files">src/orchestrator/{llm-config,service,mcp-server,assembly}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🔌 ports/ <span class="badge badge-done">标准接口</span></h4>
+    <p>数据层 7 个端口接口 + 默认适配器。编排器只依赖接口，换数据库=换适配器。</p>
+    <div class="files">src/ports/{types,adapters}.ts</div>
+  </div>
+  <div class="card">
+    <h4>💬 chat/ <span class="badge badge-done">新增</span></h4>
+    <p>主会话宿主（PI SDK 模式）+ 编排器工具注册（customTools）。</p>
+    <div class="files">src/chat/{main-session,scheduler-tools}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🌐 app/ <span class="badge badge-done">在用</span></h4>
+    <p>应用层：unified-server（HTTP 7421）、多项目注册表、扩展路由、聊天路由、ChatContext。</p>
+    <div class="files">src/app/{unified-server,routes-ext,routes-chat,chat-context}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🔧 tools/ <span class="badge badge-partial">PI 扩展旧路</span></h4>
+    <p>PI 扩展工具 6 域 31 个（world/render/role/scheduler/import/visualizer）。仍走旧流水线。</p>
+    <div class="files">src/tools/{world,render,role,scheduler}-tools.ts</div>
+  </div>
+  <div class="card">
+    <h4>🗄️ 数据/LLM 单文件</h4>
+    <p>embedder（向量化）/ search（检索）/ memory（记忆）/ 4 路 LLM caller / session-state / index（扩展入口）。</p>
+    <div class="files">src/{embedder,search,memory,*llm*.ts,index.ts}</div>
+  </div>
+  <div class="card">
+    <h4>🖥️ visualizer/ <span class="badge badge-done">在用</span></h4>
+    <p>世界图 HTTP 路由（/api/status、graph、entities...）+ 静态服务。</p>
+    <div class="files">src/visualizer/{routes,server,standalone}.ts</div>
+  </div>
+</div>
+
+<h3>🖼️ 前端（visualizer-ui/，Vue3 + Element Plus，纯 HTML 无构建）</h3>
+<div class="grid">
+  <div class="card">
+    <h4>📊 6 个页签 <span class="badge badge-done">在用</span></h4>
+    <p>项目管理 / 世界图（3D 图+实体列表+详情）/ 事件链 / 调试（SSE）/ 文件编辑器 / 设置。</p>
+    <div class="files">visualizer-ui/app.js + components/*.js</div>
+  </div>
+  <div class="card">
+    <h4>⚠️ 缺聊天 UI <span class="badge badge-todo">不做</span></h4>
+    <p>聊天界面未做（用户决策：只留 API 给未来前端）。API 已就绪：POST /api/chat/message + SSE 事件流。</p>
+    <div class="files">docs/api/chat.md（契约文档）</div>
+  </div>
+</div>
+
+<!-- ============ 架构转型进度 ============ -->
+<h2>🔄 架构转型进度（3 大核心）</h2>
+<div class="legend">
+  <span><span class="dot dot-green"></span>已完成</span>
+  <span><span class="dot dot-yellow"></span>部分完成</span>
+  <span><span class="dot dot-red"></span>未做/待办</span>
+</div>
+<table>
+  <tr>
+    <th>核心</th><th>状态</th><th>内容</th><th>关键提交/文件</th>
+  </tr>
+  <tr>
+    <td><b>① 世界图独立化</b></td>
+    <td><span class="dot dot-green"></span>✅ 完成</td>
+    <td>world-graph → underworld-graph 独立 npm 包（核心资产，零 PI 依赖）</td>
+    <td class="mono">42e2fb5 → d2a3e04</td>
+  </tr>
+  <tr>
+    <td><b>② 编排器独立化</b></td>
+    <td><span class="dot dot-green"></span>✅ 阶段 0/1 + A1-A4</td>
+    <td>4 类子代理 + EventQueue + MCP 包装 + 数据层 Ports 接线（写世界图/章节）</td>
+    <td class="mono">c4db7e3 → 2e4ce1a</td>
+  </tr>
+  <tr>
+    <td><b>③ 主会话 SDK 化</b></td>
+    <td><span class="dot dot-yellow"></span>🔶 C1-C3 完成</td>
+    <td>MainSessionHost（PI SDK 模式）+ 编排器工具 + HTTP 聊天 API。记忆注入/提示词优化后续。</td>
+    <td class="mono">⚠️ 未提交（工作区）</td>
+  </tr>
+</table>
+
+<!-- ============ 待办 ============ -->
+<h2>📋 待办与下一步</h2>
+<table>
+  <tr><th>优先级</th><th>事项</th><th>说明</th></tr>
+  <tr>
+    <td><b style="color:var(--red)">P0</b></td>
+    <td>提交主会话工作</td>
+    <td>15 个文件未提交（src/chat、routes-chat、chat-context、3 smoke、2 测试、docs/api/chat.md），按 AGENTS.md 需走分支流程</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--yellow)">P1</b></td>
+    <td>老调度链路切换</td>
+    <td>PI 扩展 scheduler_dispatch 仍走旧 @pi/scheduler 流水线，与新编排器双链路并行，职责未收敛</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--yellow)">P1</b></td>
+    <td>编排器 HTTP 化</td>
+    <td>/api/schedule/* 端点（与主会话 API 对齐，前端接入支撑完整）</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--muted)">P2</b></td>
+    <td>A5 配置持久化</td>
+    <td>LlmConfigStore 写配置文件 + 注入入口（每 slot 独立模型的读取入口）</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--muted)">P2</b></td>
+    <td>记忆注入 + 提示词优化</td>
+    <td>用户决策后续排期；.pi/SYSTEM.md 机制已预留改入口</td>
+  </tr>
+</table>
+
+<!-- ============ 对外 API 契约 ============ -->
+<h2>📡 对外 API 契约（已交付）</h2>
+<table>
+  <tr><th>形态</th><th>入口</th><th>内容</th></tr>
+  <tr>
+    <td>🧩 PI 扩展（旧）</td>
+    <td class="mono">src/index.ts</td>
+    <td>31 工具（world 18 / render 5 / role 2 / scheduler 3 / import 2 / visualizer 1）</td>
+  </tr>
+  <tr>
+    <td>🔌 MCP stdio</td>
+    <td class="mono">scripts/orchestrator-mcp.ts</td>
+    <td>scheduler_dispatch / commit / discard / queue_status（编排器，独立进程）</td>
+  </tr>
+  <tr>
+    <td>🌐 HTTP /api/*</td>
+    <td class="mono">127.0.0.1:7421</td>
+    <td>世界图全量 / files / projects / admin / debug / <b>chat（新增）</b></td>
+  </tr>
+  <tr>
+    <td>💬 HTTP /api/chat/*</td>
+    <td class="mono">routes-chat.ts</td>
+    <td>POST message（接收即回）/ GET events（SSE）/ GET status</td>
+  </tr>
+</table>
+
+<!-- ============ 时间线 ============ -->
+<h2>🕐 开发时间线（近两周）</h2>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-date">07-24</div><div class="tl-body"><span class="t">role-pool / renderer 子包设计</span><div class="d">角色池批处理 + 渲染器设计落地</div></div></div>
+  <div class="tl-item"><div class="tl-date">07-25</div><div class="tl-body"><span class="t">scheduler 调度器设计</span><div class="d">10 步线性流水线 plan/commit 落地</div></div></div>
+  <div class="tl-item"><div class="tl-date">07-29</div><div class="tl-body"><span class="t">应用架构 + 配置 UI 设计</span><div class="d">unified-server 双模式、LLM 调用链改造</div></div></div>
+  <div class="tl-item"><div class="tl-date">07-31</div><div class="tl-body"><span class="t">架构转型启动</span><div class="d">world-graph 独立化（underworld-graph）+ 子代理编排器设计 + SDK 集成架构决策</div></div></div>
+  <div class="tl-item"><div class="tl-date">08-01</div><div class="tl-body"><span class="t">编排器闭环 + 主会话</span><div class="d">数据层 Ports 接线（A1-A4）→ 主会话 SDK（C1-C3）→ HTTP 聊天 API。测试 646→663 全绿</div></div></div>
+</div>
+
+<!-- ============ 技术栈 ============ -->
+<h2>🧰 技术栈</h2>
+<table>
+  <tr><th>类别</th><th>技术</th><th>用途</th></tr>
+  <tr><td>运行时</td><td>Node.js ≥ 22.19 / TypeScript 5.4 / esbuild</td><td>主体开发 / 构建</td></tr>
+  <tr><td>AI 依赖</td><td>@earendil-works/pi-ai / pi-agent-core / pi-coding-agent</td><td>LLM 统一调用 / 子代理 Agent / 主会话 SDK</td></tr>
+  <tr><td>存储</td><td>underworld-graph（SQLite + sqlite-vec + typegraph）</td><td>世界图（实体/关系/事件/可见性）</td></tr>
+  <tr><td>嵌入</td><td>@xenova/transformers（bge-small-zh-v1.5，本地 512 维）</td><td>向量化检索</td></tr>
+  <tr><td>协议</td><td>MCP（@modelcontextprotocol/sdk）/ HTTP / SSE</td><td>对外接入</td></tr>
+  <tr><td>前端</td><td>Vue3 + Element Plus + three.js（纯 HTML 无构建）</td><td>可视化面板</td></tr>
+  <tr><td>打包</td><td>Tauri（sidecar 模式，esbuild bundle）</td><td>桌面应用分发</td></tr>
+</table>
+
+<div class="warn">
+  <b>⚠️ 当前唯一未完成事项（P0）</b>：主会话相关 15 个文件已实现、663 测试全绿，但<b>尚未 git 提交</b>（工作区脏）。建议尽快按 AGENTS.md 分支流程提交，防止丢失。
+</div>
+
+<footer style="margin-top:40px; padding-top:16px; border-top:1px solid var(--border); color:var(--muted); font-size:12px;">
+  narrative-engine v0.1.0-alpha.1 ｜ 生成于 2026-08-01 ｜ 本文档基于全量源码调研（非脑补），数据来源：git log / package.json / src 目录 / docs/plans 落地报告
+</footer>
+
+</body>
+</html>

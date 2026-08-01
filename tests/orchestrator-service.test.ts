@@ -89,6 +89,8 @@ function waitWorker(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 60));
 }
 
+// 保留行为契约：plan commit 与 yolo 后半链路仍返回世界图应用结果（appliedEventIds）
+// 和章节写入结果（chapterPath / writtenText），结果中不要求 memory update/error 字段
 test("plan 模式：dispatch 后 plans 缓存，commit 触发后半链路并清理缓存", async () => {
   const { fake, calls } = makeFakeOrchestrator();
   const service = new OrchestratorService(fake);

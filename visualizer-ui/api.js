@@ -127,9 +127,6 @@
     projectCreate: function (dir, name, force) {
       return request("POST", "/projects/create", { dir: dir, name: name, force: force });
     },
-    projectLaunchPi: function (dir, args) {
-      return request("POST", "/projects/launch-pi", { dir: dir, args: args });
-    },
     projectOpenFolder: function (dir) {
       return request("POST", "/projects/open-folder", { dir: dir });
     },
@@ -200,15 +197,6 @@
     },
     adminAppConfigWrite: function (updates) {
       return request("PUT", "/admin/app-config", updates);
-    },
-    adminExtensionMode: function (mode) {
-      return request("PUT", "/admin/extension/mode", { mode: mode });
-    },
-    adminExtensionUpdateCheck: function () {
-      return request("GET", "/admin/extension/update-check");
-    },
-    adminExtensionReinstall: function (skipNpmInstall) {
-      return request("POST", "/admin/extension/reinstall", { skipNpmInstall: !!skipNpmInstall });
     },
     /* 更新 SSE 流：返回 EventSource（调用方负责 close） */
     adminUpdateStream: function (targetDir) {

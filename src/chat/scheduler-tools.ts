@@ -20,7 +20,17 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { StructuredEvent } from "@pi/scheduler";
 import type { OrchestratorService } from "../orchestrator/service.ts";
-import { validateStoryTime } from "../tools/scheduler-tools.ts";
+
+const STORY_TIME_PATTERN = /^ch\d{3}\.ev\d{3}$/;
+
+export function validateStoryTime(storyTime: string): void {
+  if (!STORY_TIME_PATTERN.test(storyTime)) {
+    throw new Error(
+      `storyTime 格式非法："${storyTime}"。必须为 ch<NNN>.ev<NNN> 3 位零填充格式（如 ch009.ev006），` +
+      `保证字典序 == 故事时序。拒绝 ch-<N> 等格式（会导致 ch-10 < ch-2 的时序错乱）。`,
+    );
+  }
+}
 
 /** OrchestratorService 动态来源（项目切换后 provider 返回新实例，工具不变） */
 export type OrchestratorProvider = () => OrchestratorService;

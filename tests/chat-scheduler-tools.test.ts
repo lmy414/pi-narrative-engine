@@ -11,8 +11,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createSchedulerTools, type OrchestratorProvider } from "../src/chat/scheduler-tools.ts";
+import {
+  createSchedulerTools,
+  validateStoryTime,
+  type OrchestratorProvider,
+} from "../src/chat/scheduler-tools.ts";
 import type { OrchestratorService } from "../src/orchestrator/service.ts";
+import { assembleChatTools, createProjectStoryTimeStore } from "../src/app/chat-context.ts";
+import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
+import type { WorldGraph } from "underworld-graph";
+import type { Search } from "../src/search.ts";
+import type { Embedder } from "../src/embedder.ts";
+
 
 const CTX = {} as ExtensionContext;
 
@@ -56,6 +66,51 @@ function textOf(result: { content: { type: string; text?: string }[] }): string 
     .join("");
 }
 
+test("assembleChatTools：装配 31 个唯一工具且全部提供 promptSnippet", () => {
+  const tools = assembleChatTools({
+    service: makeStubService().service,
+    wg: {} as WorldGraph,
+    search: {} as Search,
+    cwd: process.cwd(),
+    embedder: {} as Embedder,
+    llmStore: new LlmConfigStore(),
+    currentStoryTime: null,
+    setCurrentStoryTime() {},
+  });
+  assert.equal(tools.length, 31);
+  assert.equal(new Set(tools.map(t => t.name)).size, 31);
+  assert.ok(tools.every(t => t.promptSnippet));
+});
+
+test("assembleChatTools：world 工具共享最新 storyTime", async () => {
+  let relationStoryTime: string | null = null;
+  const tools = assembleChatTools({
+    service: makeStubService().service,
+    wg: {
+      processEvent: async () => {},
+      addRelation: async (_source: string, _target: string, _label: string, storyTime: string) => { relationStoryTime = storyTime; },
+    } as WorldGraph,
+    search: {} as Search,
+    cwd: process.cwd(),
+    embedder: {} as Embedder,
+    llmStore: new LlmConfigStore(),
+    currentStoryTime: null,
+    setCurrentStoryTime() {},
+  });
+  await tools.find(t => t.name === "world_event_apply")!.execute("event", { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, CTX);
+  await tools.find(t => t.name === "world_relation_add")!.execute("relation", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, CTX);
+  assert.equal(relationStoryTime, "ch001.ev001");
+});
+
+test("项目 storyTime：A→B→A 切换后状态互不泄漏", () => {
+  const store = createProjectStoryTimeStore();
+  store.set("/project-a", "ch001.ev001");
+  store.set("/project-b", "ch009.ev003");
+  assert.equal(store.get("/project-a"), "ch001.ev001");
+  assert.equal(store.get("/project-b"), "ch009.ev003");
+  assert.equal(store.get("/project-c"), null);
+});
+
 test("注册 4 个工具且全部提供 promptSnippet", () => {
   const tools = createSchedulerTools(() => makeStubService().service);
   assert.deepEqual(
@@ -87,6 +142,16 @@ test("scheduler_dispatch：转发事件并返回 queueId/planId", async () => {
   assert.match(textOf(result), /queueId=q1/);
   assert.match(textOf(result), /planId=plan_1/);
   assert.equal((result as { details?: { planId: string } }).details?.planId, "plan_1");
+});
+
+test("validateStoryTime：按格式表校验", () => {
+  for (const value of ["ch-9.ev6", "", "ch009.ev006"]) {
+    if (value === "ch009.ev006") {
+      assert.doesNotThrow(() => validateStoryTime(value));
+    } else {
+      assert.throws(() => validateStoryTime(value), /storyTime 格式非法/);
+    }
+  }
 });
 
 test("scheduler_dispatch：storyTime 格式非法被拦截", async () => {

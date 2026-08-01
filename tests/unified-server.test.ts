@@ -12,7 +12,7 @@
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WorldGraph } from "underworld-graph";
@@ -23,7 +23,6 @@ import type { UnifiedServer } from "../src/app/unified-server.ts";
 let root: string;
 let projA: string;
 let projB: string;
-let snapshotDir: string;
 let appConfigDir: string;
 let registry: ProjectRegistry;
 let server: UnifiedServer;
@@ -86,16 +85,53 @@ before(async () => {
   await makeProject(projA, "甲", "阿明");
   await makeProject(projB, "乙", "阿红");
 
-  // 应用配置目录与扩展快照（避免写入真实 %APPDATA%）
+  // 丰富 projB 种子数据：增加 visualizer 测试所需实体/关系/可见性
+  {
+    const wgB = await WorldGraph.create({
+      dbPath: join(projB, ".pi", "world-graph-v3", "world.db"),
+      eventLogPath: join(projB, ".pi", "world-graph-v3", "events.jsonl"),
+    });
+    await wgB.processEvent({
+      eventId: "evt-birth-viz1",
+      type: "birth",
+      storyTime: "t1",
+      entityId: "viz1",
+      entityType: "character",
+      summary: "主角",
+      newFacts: [
+        { entityId: "viz1", property: "name", value: "阿明", modality: "fact" },
+        { entityId: "viz1", property: "mood", value: "平静", modality: "fact" },
+      ],
+    });
+    await wgB.processEvent({
+      eventId: "evt-birth-viz2",
+      type: "birth",
+      storyTime: "t1",
+      entityId: "viz2",
+      entityType: "location",
+      newFacts: [{ entityId: "viz2", property: "name", value: "客栈", modality: "fact" }],
+    });
+    await wgB.processEvent({
+      eventId: "evt-change-mood",
+      type: "change",
+      storyTime: "t2",
+      entityId: "viz1",
+      invalidated: [{ declarationId: "decl-viz1-mood-t1", property: "mood" }],
+      newFacts: [{ entityId: "viz1", property: "mood", value: "愤怒", modality: "fact" }],
+    });
+    await wgB.addRelation("viz1", "viz2", "located_in", "t1");
+    await wgB.setVisibility("viz1", "decl-viz2-name-t1", {
+      state: "known",
+      confidence: 1,
+      source: "witnessed",
+      validFrom: "t1",
+      isExplicit: true,
+    });
+    wgB.close();
+  }
+
+  // 应用配置目录（避免写入真实 %APPDATA%）
   appConfigDir = join(root, "appconfig");
-  snapshotDir = join(root, "snapshot");
-  mkdirSync(join(snapshotDir, "dist"), { recursive: true });
-  writeFileSync(
-    join(snapshotDir, "package.json"),
-    JSON.stringify({ name: "narrative-engine", version: "9.9.9" }),
-    "utf8",
-  );
-  writeFileSync(join(snapshotDir, "dist", "index.js"), "// ext\n", "utf8");
 
   // 模板固件（createProject 内联实现需要）
   const tplDir = join(root, "templates");
@@ -111,15 +147,19 @@ before(async () => {
   writeFileSync(join(tplDir, "_gitignore"), ".env\n", "utf8");
   writeFileSync(join(tplDir, "README.md"), "# {{name}}\n", "utf8");
 
+  // 创建 uiDir 与 dummy api.js（供 /api.js 静态路由回归测试）
+  const uiDir = join(root, "ui");
+  mkdirSync(uiDir, { recursive: true });
+  writeFileSync(join(uiDir, "api.js"), "// Viz.api\n", "utf8");
+
   registry = new ProjectRegistry();
   server = await startUnifiedServer({
     registry,
     port: 0,
     repoRoot: root,
     templatesDir: join(root, "templates"),
-    uiDir: join(root, "ui"),
+    uiDir,
     appConfigDir,
-    extensionSnapshotDir: snapshotDir,
   });
   base = server.url;
 });
@@ -181,7 +221,10 @@ test("projects/activate: 激活后世界图路由可用，数据属于甲", asyn
 test("projects/activate: 切换到乙后数据隔离", async () => {
   await sendJson("POST", "/projects/activate", { dir: projB });
   const graph = await api("/graph?storyTime=t1");
-  assert.equal(graph.data.entities[0].entityId, "e-乙");
+  assert.ok(
+    graph.data.entities.some((e: any) => e.entityId === "e-乙"),
+    "实体列表应包含 e-乙",
+  );
 });
 
 test("projects/activate: 无 world.db 的项目自动初始化空库（闭环）", async () => {
@@ -379,12 +422,11 @@ test("admin/update/stream: 无 targetDir 且能解析时返回 SSE 错误事件�
   assert.equal(evt.stage, "error");
 });
 
-// ============ /api/admin/app-config 与扩展管理（§5.1/§5.4） ============
+// ============ /api/admin/app-config ============
 
 test("admin/app-config: 读取默认配置 → 更新 → 回读", async () => {
   const def = await api("/admin/app-config");
   assert.equal(def.ok, true);
-  assert.equal(def.data.extension.mode, "enabled");
   assert.equal(def.data.launcher.piExecutable, "pi");
 
   const w = await sendJson("PUT", "/admin/app-config", {
@@ -395,47 +437,7 @@ test("admin/app-config: 读取默认配置 → 更新 → 回读", async () => {
 
   const back = await api("/admin/app-config");
   assert.equal(back.data.launcher.defaultScanRoots[0], root);
-  assert.equal(back.data.extension.mode, "enabled", "未更新字段保留");
-});
-
-test("admin/extension/mode: 切换禁用 → 回读 → 恢复启用", async () => {
-  const off = await sendJson("PUT", "/admin/extension/mode", { mode: "disabled" });
-  assert.equal(off.ok, true);
-  assert.equal(off.data.mode, "disabled");
-
-  const cfg = await api("/admin/app-config");
-  assert.equal(cfg.data.extension.mode, "disabled");
-
-  const bad = await sendJson("PUT", "/admin/extension/mode", { mode: "bogus" });
-  assert.equal(bad.ok, false);
-
-  const on = await sendJson("PUT", "/admin/extension/mode", { mode: "enabled" });
-  assert.equal(on.data.mode, "enabled");
-});
-
-test("admin/extension/update-check: 未安装时 current 为 null", async () => {
-  const r = await api("/admin/extension/update-check");
-  assert.equal(r.ok, true);
-  assert.equal(r.data.available, "9.9.9");
-  assert.equal(r.data.current, null);
-  assert.equal(r.data.updateAvailable, false);
-});
-
-test("admin/extension/reinstall: 从快照安装并更新配置版本", async () => {
-  const r = await sendJson("POST", "/admin/extension/reinstall", { skipNpmInstall: true });
-  assert.equal(r.ok, true);
-  assert.equal(r.data.npmInstallRan, false);
-  assert.ok(r.data.copiedFiles >= 2, "package.json + dist/index.js");
-
-  // 安装后 update-check 应与快照同版
-  const check = await api("/admin/extension/update-check");
-  assert.equal(check.data.current, "9.9.9");
-  assert.equal(check.data.updateAvailable, false);
-
-  // app-config 的版本与重装时间已更新
-  const cfg = await api("/admin/app-config");
-  assert.equal(cfg.data.extension.version, "9.9.9");
-  assert.ok(cfg.data.extension.lastUpdated.includes("T"));
+  assert.equal(back.data.embedder.model, "Xenova/bge-small-zh-v1.5", "未更新字段保留");
 });
 
 // ============ projects/close ============
@@ -464,4 +466,240 @@ test("chat: 未装配 ChatContext 时 /api/chat/* 返回 503 CHAT_UNAVAILABLE", 
   const r = await api("/chat/status");
   assert.equal(r.status, 503);
   assert.equal(r.error?.code, "CHAT_UNAVAILABLE");
+});
+
+// ============================================================================
+// 世界图路由（已激活 projB，含丰富种子数据 viz1/viz2）
+// ============================================================================
+
+test("GET /api/status 返回 entityCount/eventCount/storyTimes", async () => {
+  const r = await api("/status");
+  assert.equal(r.status, 200);
+  assert.equal(r.ok, true);
+  assert.equal(r.error, null);
+  assert.deepEqual(r.data.storyTimes, ["t1", "t2"]);
+  assert.equal(r.data.entityCount, 3);
+  assert.equal(r.data.eventCount, 4);
+});
+
+test("GET /api/graph 指定 storyTime 返回实体与关系", async () => {
+  const r = await api("/graph?storyTime=t2");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.entities.length, 3);
+  assert.equal(r.data.relations.length, 1);
+  assert.equal(r.data.relations[0].label, "located_in");
+  const e1 = r.data.entities.find((e: any) => e.entityId === "viz1");
+  assert.equal(e1.summary, "主角");
+  const mood = e1.properties.find((p: any) => p.property === "mood");
+  assert.equal(mood.value, "愤怒", "t2 时刻应看到 change 后的新值");
+});
+
+test("GET /api/graph 缺 storyTime → 400 STORY_TIME_REQUIRED", async () => {
+  const r = await api("/graph");
+  assert.equal(r.status, 400);
+  assert.equal(r.ok, false);
+  assert.equal(r.error?.code, "STORY_TIME_REQUIRED");
+});
+
+test("GET /api/entities/:id 返回快照；未知实体 404", async () => {
+  const r = await api("/entities/viz1?storyTime=t2");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.entityId, "viz1");
+
+  const missing = await api("/entities/unknown?storyTime=t2");
+  assert.equal(missing.status, 404);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.error?.code, "ENTITY_NOT_FOUND");
+
+  const noTime = await api("/entities/viz1");
+  assert.equal(noTime.status, 400);
+  assert.equal(noTime.error?.code, "STORY_TIME_REQUIRED");
+});
+
+test("GET /api/entities/:id/history 含已闭合声明与关系历史", async () => {
+  const r = await api("/entities/viz1/history");
+  assert.equal(r.ok, true);
+  const oldMood = r.data.facts.find(
+    (f: any) => f.property === "mood" && f.value === "平静",
+  );
+  assert.ok(oldMood, "历史应含旧 mood 声明");
+  assert.equal(oldMood.validTo, "t2", "旧声明应已在 t2 闭合");
+  assert.ok(
+    r.data.relations.some((rel: any) => rel.label === "located_in"),
+    "历史应含关系记录",
+  );
+});
+
+test("GET /api/declarations/:declId/visibility 返回可见性记录", async () => {
+  const r = await api("/declarations/decl-viz2-name-t1/visibility?storyTime=t1");
+  assert.equal(r.ok, true);
+  assert.equal(r.data.visibility.length, 1);
+  assert.equal(r.data.visibility[0].characterId, "viz1");
+  assert.equal(r.data.visibility[0].isExplicit, true);
+});
+
+test("GET /api/events 与 /api/events/:id/chain", async () => {
+  const all = await api("/events");
+  assert.equal(all.ok, true);
+  assert.equal(all.data.events.length, 4);
+
+  const chain = await api("/events/evt-change-mood/chain");
+  assert.equal(chain.ok, true);
+  assert.ok(
+    chain.data.events.some((e: any) => e.eventId === "evt-change-mood"),
+    "因果链应包含目标事件",
+  );
+});
+
+test("GET /api/search 在 unified-server 中始终可用（fulltext）", async () => {
+  const r = await api("/search?q=阿明&storyTime=t2");
+  assert.equal(r.status, 200);
+  assert.equal(r.ok, true);
+  assert.ok(r.data.results.length >= 1);
+  assert.ok(
+    r.data.results.some((res: any) => res.entityId === "viz1"),
+    "搜索结果应包含 viz1",
+  );
+});
+
+test("未知路由 404 NOT_FOUND", async () => {
+  const r = await api("/no-such-route");
+  assert.equal(r.status, 404);
+  assert.equal(r.ok, false);
+  assert.equal(r.error?.code, "NOT_FOUND");
+});
+
+test("GET /api.js 走静态服务而非 API 路由（回归：/api 前缀误判）", async () => {
+  const res = await fetch(`${base}api.js`);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(text.includes("Viz.api"), "应返回前端 api.js 源码");
+});
+
+// ============================================================================
+// 写端点（顺序敏感：后续测试依赖此处产生的 t3 数据）
+// ============================================================================
+
+test("POST /api/events 应用 change，强制 source=user，旧声明闭合", async () => {
+  const r = await sendJson("POST", "/events", {
+    eventId: "evt-user-edit",
+    type: "change",
+    storyTime: "t3",
+    entityId: "viz1",
+    source: "engine", // 应被服务端强制覆盖为 "user"
+    invalidated: [{ declarationId: "decl-viz1-name-t1", property: "name" }],
+    newFacts: [{ entityId: "viz1", property: "name", value: "明明", modality: "fact" }],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.ok, true);
+  assert.equal(r.data.eventId, "evt-user-edit");
+
+  // 新值生效
+  const snap = await api("/entities/viz1?storyTime=t3");
+  const name = snap.data.properties.find((p: any) => p.property === "name");
+  assert.equal(name.value, "明明");
+
+  // 旧声明已闭合
+  const history = await api("/entities/viz1/history");
+  const oldName = history.data.facts.find(
+    (f: any) => f.property === "name" && f.value === "阿明",
+  );
+  assert.equal(oldName.validTo, "t3");
+
+  // events.jsonl 中该事件 source === "user"
+  const lines = readFileSync(join(projB, ".pi", "world-graph-v3", "events.jsonl"), "utf-8").trim().split("\n");
+  const logged = lines
+    .map((l) => JSON.parse(l))
+    .find((e: any) => e.eventId === "evt-user-edit");
+  assert.ok(logged, "事件应已写入 events.jsonl");
+  assert.equal(logged.source, "user", "source 应被强制覆盖为 user");
+});
+
+test("POST /api/relations 创建，/api/relations/close 闭合，includeClosed=1 可见", async () => {
+  const add = await sendJson("POST", "/relations", {
+    sourceId: "viz2",
+    targetId: "viz1",
+    label: "hosts",
+    storyTime: "t3",
+  });
+  assert.equal(add.ok, true);
+
+  const atT3 = await api("/graph?storyTime=t3");
+  assert.ok(atT3.data.relations.some((rel: any) => rel.label === "hosts"));
+
+  const close = await sendJson("POST", "/relations/close", {
+    sourceId: "viz2",
+    targetId: "viz1",
+    label: "hosts",
+    storyTime: "t4",
+  });
+  assert.equal(close.ok, true);
+
+  const atT4 = await api("/graph?storyTime=t4");
+  assert.ok(!atT4.data.relations.some((rel: any) => rel.label === "hosts"), "闭合后默认不返回");
+
+  const withClosed = await api("/graph?storyTime=t4&includeClosed=1");
+  const closed = withClosed.data.relations.find((rel: any) => rel.label === "hosts");
+  assert.ok(closed, "includeClosed=1 应返回已闭合关系");
+  assert.equal(closed.validTo, "t4");
+
+  // 重复闭合 → 400 业务错误
+  const again = await sendJson("POST", "/relations/close", {
+    sourceId: "viz2",
+    targetId: "viz1",
+    label: "hosts",
+    storyTime: "t5",
+  });
+  assert.equal(again.status, 400);
+  assert.equal(again.ok, false);
+  assert.equal(again.error?.code, "BUSINESS_ERROR");
+});
+
+test("POST /api/visibility 设置，/api/visibility/close 闭合", async () => {
+  const set = await sendJson("POST", "/visibility", {
+    characterId: "viz1",
+    declarationId: "decl-viz1-mood-t2",
+    confidence: 0.8,
+    source: "informed",
+    storyTime: "t3",
+  });
+  assert.equal(set.ok, true);
+
+  const atT3 = await api("/declarations/decl-viz1-mood-t2/visibility?storyTime=t3");
+  assert.equal(atT3.data.visibility.length, 1);
+  assert.equal(atT3.data.visibility[0].confidence, 0.8);
+
+  const close = await sendJson("POST", "/visibility/close", {
+    characterId: "viz1",
+    declarationId: "decl-viz1-mood-t2",
+    storyTime: "t4",
+  });
+  assert.equal(close.ok, true);
+
+  const atT4 = await api("/declarations/decl-viz1-mood-t2/visibility?storyTime=t4");
+  assert.equal(atT4.data.visibility.length, 0, "闭合后该时刻不再可见");
+
+  const allHistory = await api("/declarations/decl-viz1-mood-t2/visibility");
+  assert.equal(allHistory.data.visibility.length, 1, "不传 storyTime 返回含已闭合的全部历史");
+  assert.equal(allHistory.data.visibility[0].validTo, "t4");
+});
+
+test("POST /api/entities/:id/summary 更新摘要", async () => {
+  const r = await sendJson("POST", "/entities/viz2/summary", { summary: "主要场景" });
+  assert.equal(r.ok, true);
+  const snap = await api("/entities/viz2?storyTime=t3");
+  assert.equal(snap.data.summary, "主要场景");
+});
+
+test("POST /api/events 非法 body → 400 VALIDATION_ERROR", async () => {
+  const r = await sendJson("POST", "/events", {
+    eventId: "evt-bad",
+    type: "change",
+    storyTime: "t3",
+    entityId: "viz1",
+    newFacts: [{ entityId: "viz1", property: "x", value: 1, modality: "not-a-modality" }],
+  });
+  assert.equal(r.status, 400);
+  assert.equal(r.ok, false);
+  assert.equal(r.error?.code, "VALIDATION_ERROR");
 });

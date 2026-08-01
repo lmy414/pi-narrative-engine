@@ -52,8 +52,6 @@ export interface UnifiedServerOptions {
   debugBus?: DebugBus | null;
   /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
   appConfigDir?: string;
-  /** 应用内置扩展快照目录（extension update-check / reinstall 用） */
-  extensionSnapshotDir?: string;
   /** 主会话运行时上下文（注入后启用 /api/chat/*；null 时端点返回 503） */
   chatContext?: ChatContext | null;
 }
@@ -81,7 +79,6 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
     piContext: opts.piContext ?? null,
     embedder: opts.embedder ?? null,
     appConfigDir: opts.appConfigDir,
-    extensionSnapshotDir: opts.extensionSnapshotDir,
   };
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {

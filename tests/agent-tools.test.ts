@@ -10,6 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { Value } from "typebox/value";
 import type { OrchestratorPorts } from "../src/orchestrator/assembly.ts";
 import {
   createEntityGetTool,
@@ -23,6 +24,7 @@ import {
   createChapterReadTool,
   createChapterWriteTool,
 } from "../src/agents/chapter-tools.ts";
+import { characterActionSchema, retrievalPlanSchema } from "../src/agents/tools.ts";
 
 interface MockPorts {
   ports: OrchestratorPorts;
@@ -38,6 +40,28 @@ interface MockPorts {
 }
 
 /** 构造 mock ports：各方法记录调用参数，返回值受控（执行时读 set） */
+test("retrievalPlanSchema：合法值通过且缺少必填字段失败", () => {
+  const valid = {
+    items: [{
+      type: "character_view",
+      params: { entityId: "e_lin_chong" },
+      assignTo: ["e_lin_chong"],
+      label: "林冲视角",
+    }],
+  };
+  assert.equal(Value.Check(retrievalPlanSchema, valid), true);
+  assert.equal(Value.Check(retrievalPlanSchema, {}), false);
+  assert.equal(Value.Check(retrievalPlanSchema, { items: [{ ...valid.items[0], label: undefined }] }), false);
+});
+
+test("characterActionSchema：合法值通过且缺少必填字段失败", () => {
+  const valid = { characterId: "e_lin_chong", actor: "林冲", action: "推门而入" };
+  assert.equal(Value.Check(characterActionSchema, valid), true);
+  assert.equal(Value.Check(characterActionSchema, { actor: valid.actor, action: valid.action }), false);
+  assert.equal(Value.Check(characterActionSchema, { characterId: valid.characterId, action: valid.action }), false);
+  assert.equal(Value.Check(characterActionSchema, { characterId: valid.characterId, actor: valid.actor }), false);
+});
+
 function makeMockPorts(): MockPorts {
   const calls: Record<string, unknown[]> = {};
   const set: MockPorts["set"] = {};

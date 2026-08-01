@@ -13,21 +13,72 @@
  * prompt 时由 PI SDK 报可读缺 key 错误。
  */
 import { join } from "node:path";
+import { getModel } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
-import { MainSessionHost } from "../chat/main-session.ts";
+import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
 import { createSchedulerTools } from "../chat/scheduler-tools.ts";
+import { createWorldTools } from "../chat/world-tools.ts";
+import { createRenderTools } from "../chat/render-tools.ts";
+import { createRoleTools } from "../chat/role-tools.ts";
+import { createImportTools } from "../chat/import-tools.ts";
 import { LlmConfigStore, loadLlmConfigFromEnv } from "../orchestrator/llm-config.ts";
 import { Orchestrator } from "../orchestrator.ts";
 import { OrchestratorService } from "../orchestrator/service.ts";
 import { assemblePorts } from "../orchestrator/assembly.ts";
 import { loadPlannerRuleSet } from "../planner-rule-loader.ts";
 import type { Embedder } from "../embedder.ts";
-import { ProjectRegistry } from "./project-registry.ts";
+import { ProjectRegistry, type ProjectHandle } from "./project-registry.ts";
 
 /** ChatContext 统一错误（routes 层按 code 映射 HTTP 状态） */
+export function assembleChatTools(deps: {
+  service: OrchestratorService;
+  wg: ProjectHandle["wg"];
+  search: ProjectHandle["search"];
+  cwd: string;
+  embedder: Embedder;
+  llmStore: LlmConfigStore;
+  currentStoryTime: string | null;
+  setCurrentStoryTime(storyTime: string): void;
+}) {
+  let currentStoryTime = deps.currentStoryTime;
+  const projectDeps = {
+    wg: deps.wg,
+    search: deps.search,
+    cwd: deps.cwd,
+    embedder: deps.embedder,
+    get currentStoryTime() { return currentStoryTime; },
+    setCurrentStoryTime(storyTime: string) {
+      currentStoryTime = storyTime;
+      deps.setCurrentStoryTime(storyTime);
+    },
+  };
+  return [
+    ...createSchedulerTools(() => deps.service),
+    ...createWorldTools(projectDeps),
+    ...createRenderTools(deps),
+    ...createRoleTools(deps),
+    ...createImportTools(projectDeps),
+  ];
+}
+
+export function createProjectStoryTimeStore() {
+  const storyTimes = new Map<string, string>();
+  return {
+    get(cwd: string): string | null {
+      return storyTimes.get(cwd) ?? null;
+    },
+    set(cwd: string, storyTime: string): void {
+      storyTimes.set(cwd, storyTime);
+    },
+    clear(): void {
+      storyTimes.clear();
+    },
+  };
+}
+
 export class ChatContextError extends Error {
   readonly code: string;
   constructor(message: string, code: string) {
@@ -52,10 +103,13 @@ export interface ChatContextOptions {
   configDir: string;
   /** 向量模型实例（null 时主会话不可用，检索降级由 Search 内部处理） */
   embedder?: Embedder | null;
+  createHost?: (options: MainSessionHostOptions) => MainSessionHost;
+  createOrchestratorService?: (active: ProjectHandle, embedder: Embedder) => Promise<OrchestratorService>;
 }
 
 export class ChatContext {
   private host: MainSessionHost | null = null;
+  private readonly storyTimes = createProjectStoryTimeStore();
   /** 按项目目录缓存的编排器服务（项目切换后旧实例随 dispose 释放） */
   private readonly orchestratorServices = new Map<string, OrchestratorService>();
   private readonly opts: ChatContextOptions;
@@ -82,16 +136,26 @@ export class ChatContext {
       throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
 
-    await this.dispose();
+    await this.disposeRuntime();
     const cwd = active.dir;
+    const modelConfig = this.resolveModelConfig();
     await this.ensureOrchestratorService(cwd);
 
-    const host = new MainSessionHost({
+    const host = (this.opts.createHost ?? ((options) => new MainSessionHost(options)))({
       agentDir: join(this.opts.configDir, "pi-agent"),
       cwd,
       sessionDir: join(cwd, ".pi", "sessions"),
-      customTools: createSchedulerTools(() => this.requireService(cwd)),
-      ...this.resolveModelConfig(),
+      customTools: assembleChatTools({
+        service: this.requireService(cwd),
+        wg: active.wg,
+        search: active.search,
+        cwd,
+        embedder: this.opts.embedder,
+        llmStore: this.opts.llmStore,
+        currentStoryTime: this.storyTimes.get(cwd),
+        setCurrentStoryTime: (storyTime) => { this.storyTimes.set(cwd, storyTime); },
+      }),
+      ...modelConfig,
     });
     await host.start();
     this.host = host;
@@ -110,6 +174,12 @@ export class ChatContext {
     const embedder = this.opts.embedder;
     if (!embedder) {
       throw new ChatContextError("未加载向量模型（启动加 --embed），编排器不可用", "EMBEDDER_UNAVAILABLE");
+    }
+
+    if (this.opts.createOrchestratorService) {
+      const service = await this.opts.createOrchestratorService(active, embedder);
+      this.orchestratorServices.set(cwd, service);
+      return service;
     }
 
     const [plannerRuleSet, roleRuleSet, renderRuleSet] = await Promise.all([
@@ -134,6 +204,11 @@ export class ChatContext {
 
   /** 释放主会话与全部编排器服务（服务关闭时调用） */
   async dispose(): Promise<void> {
+    await this.disposeRuntime();
+    this.storyTimes.clear();
+  }
+
+  private async disposeRuntime(): Promise<void> {
     if (this.host) {
       await this.host.dispose();
       this.host = null;
@@ -154,11 +229,22 @@ export class ChatContext {
     model?: Model<any>;
     runtimeApiKey?: { provider: string; apiKey: string };
   } {
+    // 先检查是否有显式配置，有则优先使用，不走 env 兜底（避免 loadLlmConfigFromEnv 抛错）
+    const configuredSlots = this.opts.llmStore.configuredSlots();
+    if (configuredSlots.includes("default")) {
+      try {
+        const model = this.opts.llmStore.getModel("default");
+        const apiKey = this.opts.llmStore.getApiKey("default");
+        return { model, runtimeApiKey: { provider: model.provider, apiKey } };
+      } catch {
+        return {};
+      }
+    }
+    // 无显式 "default" 配置，env 兜底
     try {
-      loadLlmConfigFromEnv();
-      const model = this.opts.llmStore.getModel("default");
-      const apiKey = this.opts.llmStore.getApiKey("default");
-      return { model, runtimeApiKey: { provider: model.provider, apiKey } };
+      const envConfig = loadLlmConfigFromEnv();
+      const model = getModel(envConfig.model.provider, envConfig.model.name as never);
+      return { model, runtimeApiKey: { provider: envConfig.model.provider, apiKey: envConfig.apiKey } };
     } catch {
       return {};
     }
