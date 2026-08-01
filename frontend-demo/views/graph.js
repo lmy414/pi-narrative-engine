@@ -11,7 +11,8 @@
  *   killEntity / drawGraph2D / roundRect / truncate
  *
  * 状态读写约定（T1 命名空间访问器，兼容旧平面字段）：
- *   graphState(key, fallback)  读取：优先 viewState('graph')[key]，回退 App.viewState[key]
+ *   graphState(key, fallback)  读取：一般键优先 viewState('graph')[key] 回退 App.viewState[key]；
+ *                              selectedEntityId/inspectorEntityId 例外：flat 优先（复用函数只写平面字段）
  *   setGraphState(key, value)  写入：命名空间与平面字段同时写，兼容 loadGraph/drawGraph2D 等旧函数
  */
 
@@ -23,6 +24,14 @@ var canvas;
 
 function graphState(key, fallback) {
   const ns = viewState('graph');
+  // 选中态（selectedEntityId / inspectorEntityId）以 flat 平面字段优先：
+  // selectEntity / Inspector 关闭按钮等复用函数（views.js，不可改）只写 App.viewState，
+  // ns 仅由 setGraphState 双写备份，flat 恒不旧于 ns，flat 优先可避免 ns 陈旧导致选中失效。
+  if (key === 'selectedEntityId' || key === 'inspectorEntityId') {
+    if (App.viewState[key] !== undefined) return App.viewState[key];
+    if (ns[key] !== undefined) return ns[key];
+    return fallback;
+  }
   if (ns[key] !== undefined) return ns[key];
   if (App.viewState[key] !== undefined) return App.viewState[key];
   return fallback;
