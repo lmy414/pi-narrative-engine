@@ -363,7 +363,7 @@ async function render() {
     App.viewState.selectedEventId = App.viewState.params.event;
   }
   renderShell();
-  const root = $('#view-root');
+  let root = $('#view-root');
   if (!root) return;
   if (viewLoaders[view]) {
     App.loading = true;
@@ -371,6 +371,8 @@ async function render() {
     try { await viewLoaders[view](); }
     catch (e) { handleApiError(e); }
     finally { App.loading = false; renderShell(); }
+    // renderShell() 重建了壳层，原 root 已脱离 DOM，必须重新获取
+    root = $('#view-root');
   }
   if (ViewRender[view]) root.innerHTML = ViewRender[view]();
   else root.innerHTML = ViewRender.projects();

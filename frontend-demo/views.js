@@ -394,9 +394,12 @@ function openQuickRelation() {
 }
 
 async function submitQuickRelation() {
+  // 先读取表单值再关闭模态（与 submitQuickEvent 同模式）：closeModal 会移除模态 DOM，读值必须在其之前
+  const source = $('#qr-source').value, target = $('#qr-target').value;
+  const label = $('#qr-label').value, st = $('#qr-st').value;
   closeModal();
   await withLoading(async () => {
-    await apiCall('addRelation', $('#qr-source').value, $('#qr-target').value, $('#qr-label').value, $('#qr-st').value);
+    await apiCall('addRelation', source, target, label, st);
     toast('关系已添加', 'success');
     render();
   });
