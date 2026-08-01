@@ -483,6 +483,59 @@ const ApiMock = {
     return ok({ deleted: path });
   },
 
+  // —— 目录操作（frontend-demo 文件页高保真重构 Task 9 最小扩展） ——
+  async createFolder(path) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    if (!path || path.includes('..')) return fail('VALIDATION_ERROR', '路径无效', 400);
+    if (findFileNode(MOCK_FILES, path)) return fail('FILE_EXISTS', '路径已存在', 409);
+    const parts = path.split('/');
+    const parentPath = parts.slice(0, -1).join('/');
+    const parent = parentPath ? findFileNode(MOCK_FILES, parentPath) : null;
+    if (parentPath && !parent) return fail('FILE_NOT_FOUND', '父目录不存在', 404);
+    if (parent && parent.type !== 'dir') return fail('INVALID_PATH', '父路径不是目录', 400);
+    const newNode = { type: 'dir', name: parts[parts.length - 1], path, children: [] };
+    if (parent) parent.children.push(newNode);
+    else MOCK_FILES.push(newNode);
+    return ok({ created: path });
+  },
+
+  async renameNode(path, newPath) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const node = findFileNode(MOCK_FILES, path);
+    if (!node) return fail('FILE_NOT_FOUND', '文件不存在', 404);
+    if (node.type === 'file' && !path.endsWith('.md')) return fail('INVALID_EXT', '只允许重命名目录或 .md 文件', 400);
+    if (findFileNode(MOCK_FILES, newPath)) return fail('FILE_EXISTS', '目标路径已存在', 409);
+    // 迁移扁平内容表（含子树内所有文件）
+    const oldPrefix = path + '/';
+    for (const key of Object.keys(fileContents)) {
+      if (key === path) {
+        fileContents[newPath] = fileContents[key];
+        delete fileContents[key];
+      } else if (key.startsWith(oldPrefix)) {
+        fileContents[newPath + key.slice(path.length)] = fileContents[key];
+        delete fileContents[key];
+      }
+    }
+    renameNodePath(node, path, newPath);
+    return ok({ renamed: newPath });
+  },
+
+  async deleteNode(path) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const node = findFileNode(MOCK_FILES, path);
+    if (!node) return fail('FILE_NOT_FOUND', '文件不存在', 404);
+    if (node.type === 'file' && !path.endsWith('.md')) return fail('INVALID_EXT', '只允许删除目录或 .md 文件', 400);
+    collectFilePaths(node).forEach((p) => { delete fileContents[p]; });
+    if (!removeFileNode(MOCK_FILES, path)) return fail('FILE_NOT_FOUND', '文件不存在', 404);
+    return ok({ deleted: path });
+  },
+
   // 管理
   async getLlmStatus() {
     await delay();
@@ -638,4 +691,23 @@ function removeFileNode(nodes, path) {
     if (nodes[i].children && removeFileNode(nodes[i].children, path)) return true;
   }
   return false;
+}
+
+// 重命名后递归更新节点自身的 path/name（含子树）
+function renameNodePath(node, oldPath, newPath) {
+  if (node.path === oldPath || node.path.startsWith(oldPath + '/')) {
+    node.path = newPath + node.path.slice(oldPath.length);
+    node.name = node.path.split('/').pop();
+  }
+  (node.children || []).forEach((c) => renameNodePath(c, oldPath, newPath));
+}
+
+// 收集节点子树内全部文件 path（用于删除时清理扁平内容表）
+function collectFilePaths(node) {
+  const paths = [];
+  (function walk(n) {
+    if (n.type === 'file') paths.push(n.path);
+    (n.children || []).forEach(walk);
+  })(node);
+  return paths;
 }
