@@ -15,6 +15,8 @@
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
@@ -94,6 +96,20 @@ const DEFAULT_STATIC_CARD_LOADER = async (characterId: string): Promise<SillyTav
   name: characterId,
   description: characterId,
 });
+
+/** 提取 AgentMessage 的纯文本（content 为 string 或 Content[]，只取 text 段） */
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c): c is { type: string; text: string } =>
+        typeof c === "object" && c !== null && (c as { type?: string }).type === "text",
+      )
+      .map((c) => c.text)
+      .join("");
+  }
+  return "";
+}
 
 export interface ChatContextOptions {
   /** 多项目注册表（活跃项目来源） */
@@ -224,6 +240,52 @@ export class ChatContext {
     const modelConfig = this.resolveModelConfig();
     if (!modelConfig.model) return;
     await this.host.applyModelConfig(modelConfig.model, modelConfig.runtimeApiKey);
+  }
+
+  // ============================================================================
+  // 会话列表/历史（只读，B3；SDK SessionManager 持久化于 <项目>/.pi/sessions/）
+  // ============================================================================
+
+  /** 活跃项目的会话目录（与 MainSessionHost 一致） */
+  private requireSessionDir(): string {
+    const active = this.opts.registry.getActive();
+    if (!active) {
+      throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    }
+    return join(active.dir, ".pi", "sessions");
+  }
+
+  /** 列出活跃项目的历史会话（只读元数据，不启动主会话） */
+  async listSessions(): Promise<SessionInfo[]> {
+    const sessionDir = this.requireSessionDir();
+    const active = this.opts.registry.getActive()!;
+    return SessionManager.list(active.dir, sessionDir);
+  }
+
+  /**
+   * 读取指定会话的历史消息（简化为 { role, text, ts }）
+   *
+   * @throws ChatContextError SESSION_NOT_FOUND（id 不在列表中）
+   */
+  async getSessionMessages(
+    sessionId: string,
+  ): Promise<Array<{ role: string; text: string; ts: string }>> {
+    const sessions = await this.listSessions();
+    const info = sessions.find((s) => s.id === sessionId);
+    if (!info) {
+      throw new ChatContextError(`会话不存在: ${sessionId}`, "SESSION_NOT_FOUND");
+    }
+    const manager = SessionManager.open(info.path, this.requireSessionDir());
+    const messages: Array<{ role: string; text: string; ts: string }> = [];
+    for (const entry of manager.getEntries()) {
+      if (entry.type !== "message") continue;
+      messages.push({
+        role: String(entry.message.role),
+        text: extractMessageText(entry.message.content),
+        ts: entry.timestamp,
+      });
+    }
+    return messages;
   }
 
   private async disposeRuntime(): Promise<void> {

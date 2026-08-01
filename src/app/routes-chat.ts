@@ -34,6 +34,7 @@ export interface ChatApiContext {
 const CHAT_ERROR_STATUS: Record<string, number> = {
   NO_ACTIVE_PROJECT: 409,
   CHAT_BUSY: 409,
+  SESSION_NOT_FOUND: 404,
   EMBEDDER_UNAVAILABLE: 501,
 };
 
@@ -103,7 +104,7 @@ export async function handleChatApi(
         if (!preflightSucceeded) {
           throw errWithCode("MODEL_NOT_READY", "主会话模型不可用（未配置模型或 API Key）");
         }
-        span.end({ output: { received: true } });
+        span.end({ received: true });
         ok(res, { received: true });
         return true;
       } catch (err) {
@@ -131,6 +132,33 @@ export async function handleChatApi(
         systemPrompt: host?.session.systemPrompt ?? null,
         modelFallbackMessage: host?.modelFallbackMessage ?? null,
       });
+      return true;
+    }
+
+    // GET /api/chat/sessions（历史会话列表，只读，不触发会话启动）
+    if (segment === "/sessions" && method === "GET") {
+      requireActiveDir(ctx);
+      const sessions = await ctx.chatContext.listSessions();
+      ok(res, {
+        sessions: sessions.map((s) => ({
+          id: s.id,
+          name: s.name ?? null,
+          created: s.created.toISOString(),
+          modified: s.modified.toISOString(),
+          messageCount: s.messageCount,
+          firstMessage: s.firstMessage,
+        })),
+      });
+      return true;
+    }
+
+    // GET /api/chat/sessions/:id/messages（历史消息 {role,text,ts}）
+    if (segment.startsWith("/sessions/") && segment.endsWith("/messages") && method === "GET") {
+      requireActiveDir(ctx);
+      const id = decodeURIComponent(
+        segment.slice("/sessions/".length, segment.length - "/messages".length),
+      );
+      ok(res, { id, messages: await ctx.chatContext.getSessionMessages(id) });
       return true;
     }
 

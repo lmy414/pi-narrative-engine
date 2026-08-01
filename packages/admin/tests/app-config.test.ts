@@ -189,3 +189,29 @@ test("writeAppConfig: lastProjectDir 设置与显式置 null", async () => {
     await rm(d2, { recursive: true, force: true });
   }
 });
+// ============ scheduler.defaultMode ============
+
+test("writeAppConfig: scheduler.defaultMode 设置/保留/非法值忽略", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const def = await readAppConfig(d2);
+    assert.equal(def.scheduler.defaultMode, "plan", "缺省 plan（安全优先）");
+
+    const c1 = await writeAppConfig({ scheduler: { defaultMode: "yolo" } }, d2);
+    assert.equal(c1.scheduler.defaultMode, "yolo");
+
+    const c2 = await writeAppConfig(
+      { scheduler: { defaultMode: "turbo" as never } },
+      d2,
+    );
+    assert.equal(c2.scheduler.defaultMode, "yolo", "非法值忽略，保留原值");
+
+    const c3 = await writeAppConfig({ embedder: { model: "m" } }, d2);
+    assert.equal(c3.scheduler.defaultMode, "yolo", "未提供时保留");
+
+    const back = await readAppConfig(d2);
+    assert.equal(back.scheduler.defaultMode, "yolo");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});

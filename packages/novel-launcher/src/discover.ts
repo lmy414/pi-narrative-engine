@@ -10,6 +10,7 @@ import type { Dirent } from "node:fs";
 import { resolve, relative, join, basename } from "node:path";
 import type { NovelProject, NovelProjectMeta, DiscoverOptions } from "./types.ts";
 import { NovelLauncherError } from "./types.ts";
+import { probeWorldDb } from "./world-db-probe.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".pi"]);
 const NOVEL_JSON = "novel.json";
@@ -76,6 +77,7 @@ export async function _countChapters(projectDir: string, chaptersDir: string): P
 interface DiscoverOpts {
   maxDepth: number;
   includeChapterCount: boolean;
+  includeStats: boolean;
 }
 
 /** 递归扫描目录，收集所有含 novel.json 的项目（命中后不再深入） */
@@ -116,12 +118,17 @@ export async function _discoverProjects(
       } catch {
         mtime = new Date();
       }
+      const probe = options.includeStats
+        ? await probeWorldDb(childDir, meta)
+        : { needsMigration: false, stats: null };
       results.push({
         dir: childDir,
         relativePath: relative(originalRoot, childDir),
         meta,
         chapterCount,
         lastModified: mtime.toISOString(),
+        needsMigration: probe.needsMigration,
+        stats: probe.stats,
       });
     } else {
       const sub = await _discoverProjects(childDir, originalRoot, options, currentDepth + 1);
@@ -140,6 +147,7 @@ export async function discoverProjects(
   const opts: DiscoverOpts = {
     maxDepth: options?.maxDepth ?? 3,
     includeChapterCount: options?.includeChapterCount ?? true,
+    includeStats: options?.includeStats ?? true,
   };
   return _discoverProjects(resolvedRoot, resolvedRoot, opts, 0);
 }

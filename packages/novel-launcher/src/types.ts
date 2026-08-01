@@ -37,6 +37,10 @@ export interface NovelProject {
   chapterCount: number;
   /** 项目目录最近修改时间 ISO 字符串 */
   lastModified: string;
+  /** 激活前是否需要 schema 迁移（WorldGraph.create 抛 MIGRATION_ERROR 口径） */
+  needsMigration: boolean;
+  /** 实体/事件计数（world.db 不可用或需迁移时为 null） */
+  stats: { entityCount: number; eventCount: number } | null;
 }
 
 /** discoverProjects 选项 */
@@ -45,6 +49,8 @@ export interface DiscoverOptions {
   maxDepth?: number;
   /** 是否统计章节数，默认 true */
   includeChapterCount?: boolean;
+  /** 是否探测 world.db（needsMigration + stats），默认 true */
+  includeStats?: boolean;
 }
 
 /** createProject 选项 */

@@ -41,8 +41,6 @@ export type {
   SillyTavernCard,
 } from "./types.ts";
 
-export type { DebugBus } from "./debug.ts";
-
 // ============ 内部导出（_ 前缀，软隔离） ============
 
 // 章节锚点插入（commit.ts 内部使用；阶段 A 数据层 Ports 的 RendererPort 复用）
@@ -59,9 +57,3 @@ export {
 
 // 工具函数
 export { randomId as _randomId, groupBy as _groupBy } from "./utils.ts";
-
-// 调试事件总线（内部 span 控制）
-export { startSpan as _startSpan, newTraceId as _newTraceId } from "./debug.ts";
-
-// 内部类型
-export type { DebugSpan as _DebugSpan, DebugEvent as _DebugEvent } from "./debug.ts";

@@ -388,14 +388,14 @@ test("闭环: 模板目录缺失时 create 返回 TEMPLATE_NOT_FOUND", async () 
 
 // ============ /api/files/*（在活跃项目乙上） ============
 
-test("files/tree: 列出项目乙的 markdown", async () => {
+test("files/tree: 列出项目乙的 .md/.json（B8 放宽）", async () => {
   const r = await api("/files/tree");
   assert.equal(r.ok, true);
   const paths = (nodes: any[]): string[] =>
     nodes.flatMap((n) => [n.path, ...(n.children ? paths(n.children) : [])]);
   const all = paths(r.data.tree);
   assert.ok(all.includes("正文/ch001.md"));
-  assert.ok(all.includes("novel.json") === false, "非 .md 不列入");
+  assert.ok(all.includes("novel.json"), "B8：.json 应列入树");
 });
 
 test("files: create → write → read → 乐观锁冲突 → delete 全链路", async () => {
@@ -721,6 +721,82 @@ test("scheduler/discard: 未知 planId 404；已知 planId 成功", async () => 
   const yes = await sendJson("POST", "/scheduler/discard", { planId: "plan_ok" });
   assert.equal(yes.ok, true);
   assert.equal(yes.data.discarded, true);
+});
+
+test("scheduler/mode: PUT 设置默认模式并持久化；status 附带 defaultMode（B7）", async () => {
+  const bad = await sendJson("PUT", "/scheduler/mode", { mode: "turbo" });
+  assert.equal(bad.status, 400);
+
+  const put = await sendJson("PUT", "/scheduler/mode", { mode: "yolo" });
+  assert.equal(put.ok, true);
+  assert.equal(put.data.defaultMode, "yolo");
+
+  const st = await api("/scheduler/status");
+  assert.equal(st.data.defaultMode, "yolo");
+
+  const raw = JSON.parse(readFileSync(join(appConfigDir, "app-config.json"), "utf8"));
+  assert.equal(raw.scheduler.defaultMode, "yolo", "已持久化到 app-config");
+
+  // 复位，避免影响后续用例
+  await sendJson("PUT", "/scheduler/mode", { mode: "plan" });
+});
+
+// ============ /api/chat/sessions（B3） ============
+
+test("chat/sessions: 列表与历史消息；未知 id 404", async () => {
+  // 在活跃项目（乙）的会话目录造一条历史会话
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const sessionDir = join(projB, ".pi", "sessions");
+  const sm = SessionManager.create(projB, sessionDir);
+  sm.appendMessage({ role: "user", content: "第一句", timestamp: Date.now() } as never);
+  sm.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "回答" }],
+    timestamp: Date.now(),
+  } as never);
+  const sessionId = sm.getSessionId();
+
+  const list = await api("/chat/sessions");
+  assert.equal(list.ok, true);
+  const found = list.data.sessions.find((s: any) => s.id === sessionId);
+  assert.ok(found, "列表应包含新会话");
+  assert.equal(found.messageCount, 2);
+  assert.ok(found.created && found.modified);
+
+  const msgs = await api(`/chat/sessions/${sessionId}/messages`);
+  assert.equal(msgs.ok, true);
+  assert.equal(msgs.data.messages.length, 2);
+  assert.equal(msgs.data.messages[0].role, "user");
+  assert.equal(msgs.data.messages[0].text, "第一句");
+  assert.equal(msgs.data.messages[1].text, "回答", "Content[] 应提取 text 段");
+  assert.ok(msgs.data.messages[0].ts);
+
+  const nf = await api("/chat/sessions/00000000-0000-0000-0000-000000000000/messages");
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "SESSION_NOT_FOUND");
+});
+
+// ============ /api/files/rename（B8） ============
+
+test("files/rename: 重命名并改回；非法后缀 400", async () => {
+  const r = await sendJson("POST", "/files/rename", {
+    path: "正文/ch001.md",
+    newPath: "正文/ch001-改名.md",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.path, "正文/ch001-改名.md");
+
+  const badExt = await sendJson("POST", "/files/rename", {
+    path: "正文/ch001-改名.md",
+    newPath: "novel.json",
+  });
+  assert.equal(badExt.status, 400, ".json 目标拒绝（只许 .md）");
+
+  const back = await sendJson("POST", "/files/rename", {
+    path: "正文/ch001-改名.md",
+    newPath: "正文/ch001.md",
+  });
+  assert.equal(back.ok, true);
 });
 
 // ============ /api/debug/*（debugBus 已注入） ============

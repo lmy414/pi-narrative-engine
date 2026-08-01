@@ -23,6 +23,7 @@ import {
   writeProjectFile,
   createProjectFile,
   deleteProjectFile,
+  renameProjectFile,
   readEnvFile,
   writeEnvFile,
   getPiStatus,
@@ -245,6 +246,12 @@ async function handleFiles(
   if (sub === "delete" && method === "POST") {
     const obj = requireBody(body, ["path"]);
     ok(res, await deleteProjectFile(requireActiveDir(ctx), String(obj.path)));
+    return;
+  }
+  // POST /api/files/rename — body { path, newPath }（B8：重命名/移动，只许 .md）
+  if (sub === "rename" && method === "POST") {
+    const obj = requireBody(body, ["path", "newPath"]);
+    ok(res, await renameProjectFile(requireActiveDir(ctx), String(obj.path), String(obj.newPath)));
     return;
   }
   fail(res, 404, "NOT_FOUND", `未找到路由 ${method} ${url.pathname}`);

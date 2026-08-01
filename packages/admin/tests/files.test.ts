@@ -4,12 +4,13 @@
  *
  * 覆盖：
  * - _resolveSafePath: 绝对路径/".." 逃逸拒绝、posix 归一化
- * - listFileTree: 递归结构、只列 .md、跳过隐藏目录与 node_modules、排序
+ * - listFileTree: 递归结构、.md/.txt/.json + 特判 .env、跳过隐藏目录与 node_modules、排序
  * - readProjectFile: 正常读取、.txt/.json 可读、不存在/目录/非法后缀
  * - writeProjectFile: 覆盖写、原子写、baseMtime 乐观锁（匹配/冲突）、
  *   不存在时创建、父目录缺失报错、非法后缀
  * - createProjectFile: 新建（父目录自动创建）、已存在报错
  * - deleteProjectFile: 正常删除、不存在报错、非法后缀
+ * - renameProjectFile: 同目录改名、跨目录移动、目标已存在/非法后缀/越界
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -24,6 +25,7 @@ import {
   writeProjectFile,
   createProjectFile,
   deleteProjectFile,
+  renameProjectFile,
   _resolveSafePath,
   AdminError,
 } from "../src/index.ts";
@@ -38,6 +40,9 @@ before(async () => {
   await writeFile(join(dir, "正文", "ch002.md"), "# 第二章\n", "utf8");
   await writeFile(join(dir, "设定", "角色", "主角.md"), "# 主角设定\n", "utf8");
   await writeFile(join(dir, "README.txt"), "readme\n", "utf8");
+  await writeFile(join(dir, "notes.json"), "{}\n", "utf8");
+  await writeFile(join(dir, ".env"), "HF_ENDPOINT=x\n", "utf8");
+  await writeFile(join(dir, ".gitignore"), "*.log\n", "utf8");
   await mkdir(join(dir, ".pi"), { recursive: true });
   await writeFile(join(dir, ".pi", "hidden.md"), "hidden\n", "utf8");
   await mkdir(join(dir, "node_modules", "dep"), { recursive: true });
@@ -91,7 +96,7 @@ test("_resolveSafePath: 空路径报 MISSING_FIELD", () => {
 
 // ============ listFileTree ============
 
-test("listFileTree: 递归列出 .md，跳过隐藏目录与 node_modules", async () => {
+test("listFileTree: 递归列出 .md/.txt/.json + 特判 .env，跳过隐藏目录与 node_modules", async () => {
   const tree = await listFileTree(dir);
   const paths = (nodes: typeof tree): string[] =>
     nodes.flatMap((n) => [n.path, ...(n.children ? paths(n.children) : [])]);
@@ -99,9 +104,12 @@ test("listFileTree: 递归列出 .md，跳过隐藏目录与 node_modules", asyn
   assert.ok(all.includes("正文/ch001.md"));
   assert.ok(all.includes("正文/ch002.md"));
   assert.ok(all.includes("设定/角色/主角.md"));
+  assert.ok(all.includes("README.txt"), "B8：.txt 应列入树");
+  assert.ok(all.includes("notes.json"), "B8：.json 应列入树");
+  assert.ok(all.includes(".env"), "B8：.env 特判放行");
+  assert.ok(!all.includes(".gitignore"), "其他点开头文件仍跳过");
   assert.ok(!all.some((p) => p.includes(".pi")), "隐藏目录应跳过");
   assert.ok(!all.some((p) => p.includes("node_modules")), "node_modules 应跳过");
-  assert.ok(!all.includes("README.txt"), "非 .md 文件不列入树");
 });
 
 test("listFileTree: 目录在前、文件在后", async () => {
@@ -224,6 +232,51 @@ test("deleteProjectFile: 正常删除 / 不存在报错", async () => {
 test("deleteProjectFile: 非 .md 拒绝删除", async () => {
   await assert.rejects(deleteProjectFile(dir, "README.txt"), (e) => {
     assertAdminError(e, "INVALID_EXT");
+    return true;
+  });
+});
+
+// ============ renameProjectFile ============
+
+test("renameProjectFile: 同目录改名", async () => {
+  await writeFile(join(dir, "正文", "rn-a.md"), "# 改名测试\n", "utf8");
+  const r = await renameProjectFile(dir, "正文/rn-a.md", "正文/rn-b.md");
+  assert.equal(r.path, "正文/rn-b.md");
+  assert.ok(!existsSync(join(dir, "正文", "rn-a.md")), "源文件已移走");
+  assert.equal(await readFile(join(dir, "正文", "rn-b.md"), "utf8"), "# 改名测试\n");
+  await rm(join(dir, "正文", "rn-b.md"));
+});
+
+test("renameProjectFile: 跨目录移动（目标父目录自动创建）", async () => {
+  await writeFile(join(dir, "正文", "rn-move.md"), "# 移动\n", "utf8");
+  const r = await renameProjectFile(dir, "正文/rn-move.md", "设定/新目录/rn-move.md");
+  assert.equal(r.path, "设定/新目录/rn-move.md");
+  assert.ok(existsSync(join(dir, "设定", "新目录", "rn-move.md")));
+  await rm(join(dir, "设定", "新目录"), { recursive: true, force: true });
+});
+
+test("renameProjectFile: 目标已存在报 FILE_EXISTS", async () => {
+  await writeFile(join(dir, "正文", "rn-src.md"), "a\n", "utf8");
+  await writeFile(join(dir, "正文", "rn-dst.md"), "b\n", "utf8");
+  await assert.rejects(renameProjectFile(dir, "正文/rn-src.md", "正文/rn-dst.md"), (e) => {
+    assertAdminError(e, "FILE_EXISTS");
+    return true;
+  });
+  await rm(join(dir, "正文", "rn-src.md"));
+  await rm(join(dir, "正文", "rn-dst.md"));
+});
+
+test("renameProjectFile: 源不存在报 FILE_NOT_FOUND；非 .md 拒绝；越界拒绝", async () => {
+  await assert.rejects(renameProjectFile(dir, "正文/不存在.md", "正文/x.md"), (e) => {
+    assertAdminError(e, "FILE_NOT_FOUND");
+    return true;
+  });
+  await assert.rejects(renameProjectFile(dir, "README.txt", "README2.md"), (e) => {
+    assertAdminError(e, "INVALID_EXT");
+    return true;
+  });
+  await assert.rejects(renameProjectFile(dir, "正文/ch001.md", "../逃逸.md"), (e) => {
+    assertAdminError(e, "PATH_ESCAPE");
     return true;
   });
 });

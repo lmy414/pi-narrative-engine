@@ -19,6 +19,7 @@
 
 import type { StructuredEvent } from "@pi/scheduler";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { isAbsolute, join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
 import type { OrchestratorPorts } from "./orchestrator/assembly.ts";
@@ -159,8 +160,7 @@ export class Orchestrator {
   }
 
   /** 运行一次事件编排（plan 或 yolo） */
-  async run(event: StructuredEvent): Promise<OrchestratorResult> {
-    // 调试埋点：root span "orchestrator" + 四阶段子 span（无 bus 时零开销 no-op）
+  async run(event: StructuredEvent): Promise<OrchestratorResult> {    // 调试埋点：root span "orchestrator" + 四阶段子 span（无 bus 时零开销 no-op）
     const bus = this.opts.debugBus ?? null;
     const traceId = newTraceId();
     const rootSpan = startSpan(bus, "orchestrator", traceId, {
@@ -191,11 +191,9 @@ export class Orchestrator {
         plannerResult = await plannerCollected.promise;
         plannerCollected.dispose();
         plannerSpan.end({
-          output: {
-            provider: plannerModel.provider,
-            model: plannerModel.id,
-            retrievalItems: plannerResult.plan.items?.length ?? 0,
-          },
+          provider: plannerModel.provider,
+          model: plannerModel.id,
+          retrievalItems: plannerResult.plan.items?.length ?? 0,
         });
       } catch (err) {
         plannerSpan.error(err);
@@ -264,12 +262,10 @@ export class Orchestrator {
         }
         // 单角色失败不阻断流程（记入 errors），role span 仍算结束
         roleSpan.end({
-          output: {
-            provider: roleModel.provider,
-            model: roleModel.id,
-            outputs: outputs.length,
-            errors: errors.length,
-          },
+          provider: roleModel.provider,
+          model: roleModel.id,
+          outputs: outputs.length,
+          errors: errors.length,
         });
       } catch (err) {
         roleSpan.error(err);
@@ -281,7 +277,7 @@ export class Orchestrator {
         mode: event.mode === "yolo" ? "yolo" : "plan",
         planId,
         eventId,
-        chapterPath: event.chapterPath ?? `chapters/${event.storyTime}.md`,
+        chapterPath: this.resolveChapterPath(event),
         event,
         outputs,
         errors,
@@ -299,7 +295,7 @@ export class Orchestrator {
         result.commit = pipeline.commit;
       }
 
-      rootSpan.end({ output: { mode: result.mode, planId, outputs: outputs.length, errors: errors.length } });
+      rootSpan.end({ mode: result.mode, planId, outputs: outputs.length, errors: errors.length });
       return result;
     } catch (err) {
       rootSpan.error(err);
@@ -349,11 +345,17 @@ export class Orchestrator {
           outputs,
         );
         reasoningSpan.end({
-          output: {
-            provider: reasoningModel.provider,
-            model: reasoningModel.id,
-            appliedEventIds: diffusion.appliedEventIds?.length ?? 0,
-          },
+          provider: reasoningModel.provider,
+          model: reasoningModel.id,
+          appliedEventIds: diffusion.appliedEventIds?.length ?? 0,
+          // B6：世界图变更摘要（编排页右栏"世界图变更摘要"卡数据源）
+          changes: diffusion.changes.length,
+          visibilityChanges: diffusion.visibilityChanges?.length ?? 0,
+          changeList: diffusion.changes.slice(0, 20).map((c) => ({
+            entityId: c.entityId,
+            property: c.property,
+            modality: c.modality,
+          })),
         });
       } catch (err) {
         reasoningSpan.error(err);
@@ -374,12 +376,13 @@ export class Orchestrator {
           diffusion,
         );
         rendererSpan.end({
-          output: {
-            provider: rendererModel.provider,
-            model: rendererModel.id,
-            chapterPath: render.chapterPath,
-            ok: render.ok !== false,
-          },
+          provider: rendererModel.provider,
+          model: rendererModel.id,
+          chapterPath: render.chapterPath,
+          ok: render.ok !== false,
+          // B6：章节信息（编排页右栏"生成章节卡"数据源；标题取正文首个一级标题）
+          chars: (render.text ?? "").length,
+          title: (render.text ?? "").match(/^#\s+(.+)$/m)?.[1] ?? null,
         });
       } catch (err) {
         rendererSpan.error(err);
@@ -399,7 +402,7 @@ export class Orchestrator {
         chapterPath: render.chapterPath,
         errors,
       };
-      rootSpan?.end({ output: { ok, appliedEventIds: appliedEventIds.length, chapterPath: render.chapterPath } });
+      rootSpan?.end({ ok, appliedEventIds: appliedEventIds.length, chapterPath: render.chapterPath });
       return { diffusion, render, commit };
     } catch (err) {
       rootSpan?.error(err);
@@ -448,6 +451,7 @@ export class Orchestrator {
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
     const tools = createRendererTools(this.opts.ports);
+    const chapterPath = this.resolveChapterPath(event);
     const renderer = createRendererAgent(
       model,
       apiKey,
@@ -455,7 +459,7 @@ export class Orchestrator {
       [
         {
           role: "user",
-          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n章节路径：${event.chapterPath ?? ""}\n事件意图：${event.intent ?? "add"}${event.targetEventId ? `\n目标锚点：${event.targetEventId}` : ""}\n你的渲染锚点 ID：${eventId}\n角色产出：\n${JSON.stringify(outputs, null, 2)}\n扩散结果：\n${JSON.stringify(diffusion, null, 2)}`,
+          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n章节路径：${chapterPath}\n事件意图：${event.intent ?? "add"}${event.targetEventId ? `\n目标锚点：${event.targetEventId}` : ""}\n你的渲染锚点 ID：${eventId}\n角色产出：\n${JSON.stringify(outputs, null, 2)}\n扩散结果：\n${JSON.stringify(diffusion, null, 2)}`,
           timestamp: Date.now(),
         },
       ],
@@ -469,6 +473,17 @@ export class Orchestrator {
     } finally {
       collected.dispose();
     }
+  }
+
+  /**
+   * 解析章节路径为绝对路径（相对路径基于项目根 opts.cwd）
+   *
+   * 关键修正（pure-SDK 后）：服务进程 cwd ≠ 项目目录，裸相对路径会被
+   * 渲染器章节工具写到进程 cwd（扩展时代 pi 进程 cwd 即项目根，无此问题）。
+   */
+  private resolveChapterPath(event: StructuredEvent): string {
+    const p = event.chapterPath ?? `chapters/${event.storyTime}.md`;
+    return isAbsolute(p) ? p : join(this.opts.cwd, p);
   }
 
   /** 角色系统提示词：规则集 + 角色卡 */

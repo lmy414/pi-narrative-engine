@@ -19,6 +19,10 @@
 // 项目发现
 export { discoverProjects, getProjectMeta } from "./discover.ts";
 
+// world.db 探测（needsMigration + stats）
+export { probeWorldDb } from "./world-db-probe.ts";
+export type { WorldDbProbe } from "./world-db-probe.ts";
+
 // 项目级操作
 export { createProject, openInFileManager } from "./project.ts";
 

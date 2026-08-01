@@ -35,11 +35,31 @@ export function validateStoryTime(storyTime: string): void {
 /** OrchestratorService 动态来源（项目切换后 provider 返回新实例，工具不变） */
 export type OrchestratorProvider = () => OrchestratorService;
 
+// ============================================================================
+// 会话级默认执行模式（B7：plan/yolo 显式设置）
+// ============================================================================
+
+/**
+ * 模块级默认模式：main.ts 启动时从 app-config 水合，PUT /api/scheduler/mode
+ * 即时更新。工具版与 HTTP 版 dispatch 共用 buildDispatchEvent，故默认值
+ * 在此一处生效（显式传 mode 优先）。
+ */
+let schedulerDefaultMode: "plan" | "yolo" = "plan";
+
+export function setSchedulerDefaultMode(mode: "plan" | "yolo"): void {
+  schedulerDefaultMode = mode;
+}
+
+export function getSchedulerDefaultMode(): "plan" | "yolo" {
+  return schedulerDefaultMode;
+}
+
 /**
  * dispatch 参数 → StructuredEvent（工具版与 HTTP 版共用，DRY）
  *
  * 仅做格式校验（storyTime）与字段透传；必填字段的存在性校验由调用方负责
  * （工具靠 TypeBox schema，HTTP 靠 requireBody）。
+ * mode 缺省时用会话级默认模式（B7）。
  */
 export function buildDispatchEvent(params: {
   storyTime: string;
@@ -55,7 +75,7 @@ export function buildDispatchEvent(params: {
     instruction: params.instruction,
     characterIds: params.characterIds,
     executionHints: params.executionHints,
-    mode: params.mode,
+    mode: params.mode ?? schedulerDefaultMode,
     chapterPath: params.chapterPath,
   };
 }

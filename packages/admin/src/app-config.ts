@@ -31,6 +31,10 @@ export interface AppConfig {
     /** slot → {provider, model} 映射（apiKey 不落盘于此，权威存储为 AuthStorage auth.json） */
     slots: Partial<Record<LlmSlotName, LlmSlotConfig>>;
   };
+  scheduler: {
+    /** 编排默认执行模式（dispatch 未显式传 mode 时使用；缺省 plan，安全优先） */
+    defaultMode: "plan" | "yolo";
+  };
 }
 
 /** LLM slot 名（与 src/orchestrator/llm-config.ts 的 LlmSlot 字面量一致，admin 包不依赖 src） */
@@ -56,6 +60,7 @@ export interface AppConfigUpdates {
   llm?: {
     slots?: Partial<Record<LlmSlotName, LlmSlotConfig | null>>;
   };
+  scheduler?: Partial<AppConfig["scheduler"]>;
 }
 
 // ============================================================================
@@ -102,6 +107,9 @@ function _defaultConfig(): AppConfig {
     llm: {
       slots: {},
     },
+    scheduler: {
+      defaultMode: "plan",
+    },
   };
 }
 
@@ -125,6 +133,7 @@ export async function readAppConfig(configDir?: string): Promise<AppConfig> {
     launcher: { ...defaults.launcher, ...(obj.launcher ?? {}) },
     embedder: { ...defaults.embedder, ...(obj.embedder ?? {}) },
     llm: { slots: { ...rawSlots } },
+    scheduler: { ...defaults.scheduler, ...((obj.scheduler ?? {}) as object) },
   };
 }
 
@@ -166,6 +175,14 @@ export async function writeAppConfig(
       model: updates.embedder?.model ?? current.embedder.model,
     },
     llm: { slots },
+    scheduler: {
+      defaultMode:
+        updates.scheduler?.defaultMode === "yolo"
+          ? "yolo"
+          : updates.scheduler?.defaultMode === "plan"
+            ? "plan"
+            : current.scheduler.defaultMode,
+    },
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = filePath + ".tmp";

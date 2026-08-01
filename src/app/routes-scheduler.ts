@@ -20,8 +20,13 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { StructuredEvent } from "@pi/scheduler";
+import { readAppConfig, writeAppConfig } from "@pi/admin";
 import type { OrchestratorService } from "../orchestrator/service.ts";
-import { buildDispatchEvent } from "../chat/scheduler-tools.ts";
+import {
+  buildDispatchEvent,
+  getSchedulerDefaultMode,
+  setSchedulerDefaultMode,
+} from "../chat/scheduler-tools.ts";
 import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
 import type { ProjectRegistry } from "./project-registry.ts";
 
@@ -33,6 +38,8 @@ export interface SchedulerApiContext {
    * NO_ACTIVE_PROJECT / EMBEDDER_UNAVAILABLE）
    */
   getService: (cwd: string) => Promise<OrchestratorService>;
+  /** 应用配置目录（scheduler.defaultMode 持久化用） */
+  appConfigDir?: string;
 }
 
 /** 错误 code → HTTP 状态映射（缺省 400） */
@@ -187,11 +194,28 @@ export async function handleSchedulerApi(
       return true;
     }
 
-    // GET /api/scheduler/status
+    // GET /api/scheduler/status（队列状态 + 待确认 plan 列表 + 会话级默认模式）
     if (segment === "/status" && method === "GET") {
       const cwd = requireActiveDir(ctx);
       const service = await ctx.getService(cwd);
-      ok(res, { queue: service.queueStatus(), plans: service.listPlans() });
+      ok(res, {
+        queue: service.queueStatus(),
+        plans: service.listPlans(),
+        defaultMode: getSchedulerDefaultMode(),
+      });
+      return true;
+    }
+
+    // PUT /api/scheduler/mode — body { mode: "plan" | "yolo" }（B7：会话级默认模式，持久化 + 即时生效）
+    if (segment === "/mode" && method === "PUT") {
+      const obj = requireBody(body, ["mode"]);
+      const mode = obj.mode;
+      if (mode !== "plan" && mode !== "yolo") {
+        throw errWithCode("INVALID_BODY", `mode 只能是 plan|yolo（收到 ${JSON.stringify(mode)}）`);
+      }
+      await writeAppConfig({ scheduler: { defaultMode: mode } }, ctx.appConfigDir);
+      setSchedulerDefaultMode(mode);
+      ok(res, { defaultMode: mode });
       return true;
     }
 

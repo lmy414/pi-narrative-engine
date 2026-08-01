@@ -167,6 +167,7 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
             {
               registry: opts.registry,
               getService: (cwd) => chatContext.ensureOrchestratorService(cwd),
+              appConfigDir: opts.appConfigDir ?? configDir,
             },
             req,
             res,

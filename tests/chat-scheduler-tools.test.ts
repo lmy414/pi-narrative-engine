@@ -199,3 +199,30 @@ test("scheduler_queue_status：转发并返回队列 JSON", async () => {
   assert.equal(parsed.length, 1);
   assert.equal(parsed.items[0].status, "done");
 });
+
+// ============ B7：buildDispatchEvent 的会话级默认模式 ============
+
+test("buildDispatchEvent：mode 缺省用会话级默认值，显式传参优先", async () => {
+  const { buildDispatchEvent, setSchedulerDefaultMode } = await import(
+    "../src/chat/scheduler-tools.ts"
+  );
+  const base = {
+    storyTime: "ch001.ev001",
+    instruction: "x",
+    characterIds: ["a"],
+  };
+  const prev = buildDispatchEvent(base).mode;
+  assert.equal(prev, "plan", "缺省默认 plan");
+
+  setSchedulerDefaultMode("yolo");
+  try {
+    assert.equal(buildDispatchEvent(base).mode, "yolo", "默认值切换后生效");
+    assert.equal(
+      buildDispatchEvent({ ...base, mode: "plan" }).mode,
+      "plan",
+      "显式传参优先于默认值",
+    );
+  } finally {
+    setSchedulerDefaultMode("plan");
+  }
+});

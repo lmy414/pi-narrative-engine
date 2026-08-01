@@ -100,6 +100,7 @@ export {
   writeProjectFile,
   createProjectFile,
   deleteProjectFile,
+  renameProjectFile,
   READABLE_EXTS,
   WRITABLE_EXTS,
 } from "./files.ts";

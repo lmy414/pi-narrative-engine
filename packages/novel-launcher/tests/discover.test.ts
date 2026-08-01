@@ -227,3 +227,45 @@ test("_countChapters 章节目录不存在返回 0", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("discoverProjects includeStats：world.db 探测（stats 计数 + needsMigration=false）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
+  try {
+    // 有 world.db 的项目
+    await makeProject(root, "withDb", "有库");
+    const graphDir = join(root, "withDb", ".pi", "world-graph-v3");
+    await mkdir(graphDir, { recursive: true });
+    const { WorldGraph } = await import("underworld-graph");
+    const wg = await WorldGraph.create({
+      dbPath: join(graphDir, "world.db"),
+      eventLogPath: join(graphDir, "events.jsonl"),
+    });
+    await wg.processEvent({
+      eventId: "evt-1",
+      type: "birth",
+      storyTime: "ch001.ev001",
+      entityId: "e-1",
+      entityType: "character",
+      newFacts: [{ entityId: "e-1", property: "name", value: "阿明", modality: "fact" }],
+    });
+    wg.close();
+
+    // 无 world.db 的项目
+    await makeProject(root, "noDb", "无库");
+
+    const projects = await discoverProjects(root);
+    const withDb = projects.find((p) => p.meta.name === "有库")!;
+    assert.equal(withDb.needsMigration, false);
+    assert.deepEqual(withDb.stats, { entityCount: 1, eventCount: 1 });
+
+    const noDb = projects.find((p) => p.meta.name === "无库")!;
+    assert.equal(noDb.needsMigration, false);
+    assert.equal(noDb.stats, null, "无 world.db 时 stats=null");
+
+    // includeStats=false 时不探测
+    const light = await discoverProjects(root, { includeStats: false });
+    assert.equal(light.find((p) => p.meta.name === "有库")!.stats, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

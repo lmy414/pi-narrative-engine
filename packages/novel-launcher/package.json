@@ -20,5 +20,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "underworld-graph": "^0.1.0"
   }
 }

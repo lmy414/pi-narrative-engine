@@ -22,8 +22,12 @@ import { AdminError } from "./types.ts";
 
 /** 读允许的后缀 */
 export const READABLE_EXTS: readonly string[] = [".md", ".txt", ".json"];
-/** 写/建/删允许的后缀 */
+/** 写/建/删/重命名允许的后缀 */
 export const WRITABLE_EXTS: readonly string[] = [".md"];
+/** 目录树列出的文件后缀（B8 放宽；.env 以点开头，经文件名特判放行） */
+export const TREE_FILE_EXTS: readonly string[] = [".md", ".txt", ".json"];
+/** 目录树额外放行的特殊文件名（以点开头但需列出） */
+export const TREE_ALLOWED_DOTFILES: readonly string[] = [".env"];
 /** 目录树遍历时跳过的目录名（隐藏目录与依赖目录） */
 export const TREE_SKIP_DIRS: readonly string[] = ["node_modules"];
 
@@ -100,8 +104,9 @@ function _assertExt(rel: string, allowed: readonly string[], op: string): void {
 /**
  * 列出工程目录树（递归）
  *
- * - 只列目录与 .md 文件
- * - 跳过 node_modules 与以 "." 开头的隐藏目录（.git / .pi 等）
+ * - 列出目录与 .md / .txt / .json 文件，外加特判放行的 .env（B8）
+ * - 跳过 node_modules 与以 "." 开头的隐藏目录（.git / .pi 等）；
+ *   其他点开头文件（除 .env）同样跳过
  * - 目录在前、文件在后，各自按名称排序
  */
 export async function listFileTree(novelDir: string): Promise<FileTreeNode[]> {
@@ -115,8 +120,8 @@ export async function listFileTree(novelDir: string): Promise<FileTreeNode[]> {
     const dirs: FileTreeNode[] = [];
     const files: FileTreeNode[] = [];
     for (const e of entries) {
-      if (e.name.startsWith(".")) continue;
       if (e.isDirectory()) {
+        if (e.name.startsWith(".")) continue;
         if ((TREE_SKIP_DIRS as readonly string[]).includes(e.name)) continue;
         const rel = relBase ? `${relBase}/${e.name}` : e.name;
         dirs.push({
@@ -126,7 +131,7 @@ export async function listFileTree(novelDir: string): Promise<FileTreeNode[]> {
           mtime: null,
           children: await walk(path.join(dirAbs, e.name), rel),
         });
-      } else if (e.isFile() && e.name.toLowerCase().endsWith(".md")) {
+      } else if (e.isFile() && _isTreeFile(e.name)) {
         const rel = relBase ? `${relBase}/${e.name}` : e.name;
         const st = await fs.stat(path.join(dirAbs, e.name));
         files.push({
@@ -143,6 +148,14 @@ export async function listFileTree(novelDir: string): Promise<FileTreeNode[]> {
   }
 
   return walk(root, "");
+}
+
+/** 目录树是否列出该文件（后缀匹配或点文件特判） */
+function _isTreeFile(name: string): boolean {
+  if ((TREE_ALLOWED_DOTFILES as readonly string[]).includes(name.toLowerCase())) return true;
+  if (name.startsWith(".")) return false;
+  const ext = path.extname(name).toLowerCase();
+  return (TREE_FILE_EXTS as readonly string[]).includes(ext);
 }
 
 /**
@@ -248,4 +261,40 @@ export async function deleteProjectFile(
   }
   await fs.unlink(abs);
   return { path: rel };
+}
+
+/**
+ * 重命名/移动工程内文件（B8；同目录改名或跨目录移动均可）
+ *
+ * - 源与目标都只允许 .md（WRITABLE_EXTS）
+ * - 源必须存在（FILE_NOT_FOUND）；目标已存在报错（FILE_EXISTS）
+ * - 目标父目录自动创建；路径安全同 _resolveSafePath
+ *
+ * @returns 目标路径的最新内容（含 mtime）
+ */
+export async function renameProjectFile(
+  novelDir: string,
+  oldRel: string,
+  newRel: string,
+): Promise<ProjectFileContent> {
+  const from = _resolveSafePath(novelDir, oldRel);
+  const to = _resolveSafePath(novelDir, newRel);
+  _assertExt(from.rel, WRITABLE_EXTS, "重命名");
+  _assertExt(to.rel, WRITABLE_EXTS, "重命名");
+  if (!existsSync(from.abs)) {
+    throw new AdminError(`文件不存在: ${from.rel}`, "FILE_NOT_FOUND");
+  }
+  const st = await fs.stat(from.abs);
+  if (!st.isFile()) {
+    throw new AdminError(`不是文件: ${from.rel}`, "NOT_A_FILE");
+  }
+  if (from.abs === to.abs) {
+    throw new AdminError(`源与目标相同: ${from.rel}`, "INVALID_BODY");
+  }
+  if (existsSync(to.abs)) {
+    throw new AdminError(`目标已存在: ${to.rel}`, "FILE_EXISTS");
+  }
+  await fs.mkdir(path.dirname(to.abs), { recursive: true });
+  await fs.rename(from.abs, to.abs);
+  return readProjectFile(novelDir, to.rel);
 }

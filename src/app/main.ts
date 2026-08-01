@@ -20,6 +20,7 @@ import { createDebugBus } from "../debug/bus.ts";
 import { LlmConfigStore } from "../orchestrator/llm-config.ts";
 import type { LlmSlot } from "../orchestrator/llm-config.ts";
 import { ChatContext } from "./chat-context.ts";
+import { setSchedulerDefaultMode } from "../chat/scheduler-tools.ts";
 import { ProjectRegistry } from "./project-registry.ts";
 import { activateStartupProject } from "./startup-project.ts";
 import { startUnifiedServer } from "./unified-server.ts";
@@ -79,6 +80,8 @@ async function main(): Promise<void> {
       model: { provider: cfg.provider as KnownProvider, name: cfg.model },
     });
   }
+  // B7：会话级默认执行模式水合（dispatch 未显式传 mode 时生效）
+  setSchedulerDefaultMode(appConfig.scheduler.defaultMode);
 
   // 调试总线（/api/debug/* + 编排四阶段/chat span 埋点；默认开启，types 无级别开关）
   const debugBus = createDebugBus();
