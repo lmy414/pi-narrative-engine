@@ -62,16 +62,34 @@ GET /api/scheduler/plans/:id
 - toolResult 消息按 `toolCallId` 配对回填 `status/isError`；耗时（durationMs）不做（SSE 阶段可由前端自行配对，历史消息暂不计算）。
 - **前端影响**：studio 工具调用卡片按此渲染（名称+状态），替代 demo 的 `icon/duration/result` 富字段。
 
-## 待定项
+## 决策 4：流水线阶段（stages）由后端落 plan 阶段记录
 
-- **流水线阶段（stages）展示**：等价数据在 debug span（root `orchestrator` + 子 span，含 status/durationMs/provider/model）。两个候选：
-  a) 后端在 plan 上直接落阶段记录（推荐，语义干净）；
-  b) 前端按 traceId 聚合 debug 事件（无需后端改动，但 traceId↔planId 关联脆弱）。
-  下一阶段动工前定。
-- **debug 事件持久化**：当前为内存环形缓冲（容量 1000，重启即失）。是否需要落盘另行评估。
+- 编排器在执行过程中把各阶段直接记录到 plan 上，不做「前端按 traceId 聚合 debug span」的脆弱方案。
+- plan 新增 `stages` 字段，由 orchestrator 在各 span 生命周期（planner / role / reasoner / renderer / commit）写入：
+
+```json
+"stages": [
+  { "stage": "planner", "agent": "planner", "status": "done|running|error|waiting",
+    "durationMs": 1230, "provider": "...", "model": "...", "error": null }
+]
+```
+
+- 暴露位置：`GET /api/scheduler/plans/:id` 返回中含 `stages`；`GET /api/scheduler/status` 的 plan 摘要维持现状（不带 stages，避免列表膨胀）。
+- **前端影响**：studio 的流水线进度条按 `stages[]` 渲染（阶段名 + agent + 状态 + 耗时），替代 demo 的自造 stages。
+- 实现位置：`src/orchestrator/orchestrator.ts` 的 span 写入处同步落 plan.stages；`src/orchestrator/service.ts` 的 plan 存取随之扩展。
+
+## 决策 5：debug 事件落盘持久化（写日志文件）
+
+- 在现有内存环形总线之上增加文件落盘：每个 debug 事件追加写入项目目录 `.pi/logs/debug.jsonl`（JSONL，一行一个 DebugEvent）。
+- 轮转策略：单文件超过 10 MB 时轮转为 `debug-<yyyyMMdd-HHmmss>.jsonl` 并新开文件；保留最近 5 个文件，更旧的删除。
+- 写盘为异步追加（fire-and-forget），失败仅 console 告警，不影响主链路；内存总线语义不变（容量 1000，SSE snapshot/实时推不变）。
+- 读取侧暂不新增 API（需要查历史时直接看日志文件）；如后续要「历史回放」再评估加端点。
+- 实现位置：`src/debug/bus.ts` 增加可注入的 sink（默认关闭，unified-server 启动时按项目目录装配开启），避免 bus 与文件系统硬耦合。
+- 注意：debug 日志可能包含 prompt/产出文本，随项目目录走，不进 git（`.pi/logs/` 应入 .gitignore）。
 
 ## 验收标准
 
-- `GET /api/scheduler/plans/:id` 返回上述形状，studio plan 预览按 `outputs[]` 渲染并通过验收。
+- `GET /api/scheduler/plans/:id` 返回契约形状（含 `outputs[]` 与 `stages[]`），studio plan 预览按 `outputs[]` 渲染角色卡、流水线进度按 `stages[]` 渲染，并通过验收。
 - `GET /api/chat/sessions/:id/messages` 含 toolCalls 的消息正确展示工具卡片；无角色标签相关渲染残留。
 - demo 的 `sections` 正文预览与 `roleTag/characterId/name` 消息字段从前端代码中移除。
+- 编排执行后项目目录 `.pi/logs/debug.jsonl` 有对应 JSONL 记录，轮转与保留策略生效，且 `.pi/logs/` 已在 .gitignore。
