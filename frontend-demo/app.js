@@ -335,6 +335,256 @@ function toggleTheme() {
   render();
 }
 
+// =================== 项目管理交互（从 views.js 迁移，Task 11） ===================
+// views/projects.js 通过 onclick 引用这些函数；函数体依赖 app.js 的 apiCall/withLoading/toast 等。
+
+async function scanProjects() {
+  const input = $('#scan-root').value;
+  const roots = input.split(/[;，]/).map(s => s.trim()).filter(Boolean);
+  App.viewState.scanRoots = roots;
+  await withLoading(async () => {
+    const all = [];
+    for (const root of roots) {
+      const data = await apiCall('scanProjects', root);
+      all.push(...data);
+    }
+    App.viewState.scannedProjects = all;
+    if (roots.length) await apiCall('setAppConfig', { launcher: { defaultScanRoots: roots } });
+    render();
+  });
+}
+
+async function createProject() {
+  const dir = $('#new-project-dir').value.trim();
+  const name = $('#new-project-name').value.trim();
+  if (!dir) return toast('请输入目录', 'error');
+  await withLoading(async () => {
+    await apiCall('createProject', dir, name || undefined);
+    await apiCall('activateProject', dir);
+    const status = await apiCall('getStatus');
+    App.storyTimes = status.storyTimes || [];
+    App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
+    toast('项目已创建并激活', 'success');
+    navigate('#/graph');
+  });
+}
+
+async function activateProject(dir) {
+  await withLoading(async () => {
+    try {
+      await apiCall('activateProject', dir);
+      const status = await apiCall('getStatus');
+      App.storyTimes = status.storyTimes || [];
+      App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
+      toast('项目已激活', 'success');
+      navigate('#/graph');
+    } catch (e) {
+      if (e.code === 'MIGRATION_REQUIRED') {
+        openModal('项目需要迁移',
+          `<p>该项目需要先迁移数据结构。迁移会自动备份 world.db。</p>`,
+          `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="migrateThenActivate(${q(dir)})">迁移并激活</button>`);
+      } else handleApiError(e);
+    }
+  });
+}
+
+async function migrateThenActivate(dir) {
+  closeModal();
+  await withLoading(async () => {
+    await apiCall('migrateProject', dir);
+    await apiCall('activateProject', dir);
+    const status = await apiCall('getStatus');
+    App.storyTimes = status.storyTimes || [];
+    App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
+    toast('迁移并激活成功', 'success');
+    navigate('#/graph');
+  });
+}
+
+async function migrateProject(dir) {
+  await withLoading(async () => {
+    await apiCall('migrateProject', dir);
+    render();
+    toast('迁移完成', 'success');
+  });
+}
+
+async function openFolder(dir) {
+  await withLoading(async () => { await apiCall('openFolder', dir); toast('已打开文件夹', 'info'); });
+}
+
+async function closeProject(dir) {
+  await withLoading(async () => {
+    await apiCall('closeProject', dir);
+    App.activeProject = null;
+    App.storyTimes = [];
+    App.storyTime = null;
+    render();
+    toast('项目已关闭', 'info');
+  });
+}
+
+function toggleProjectMenu(dir) {
+  const id = 'menu-' + dir.replace(/[\\/:]/g,'-');
+  const el = $('#' + id);
+  if (!el) return;
+  document.querySelectorAll('.dropdown-menu').forEach(m => { if (m !== el) m.classList.add('hidden'); });
+  el.classList.toggle('hidden');
+}
+
+// =================== 世界图交互（从 views.js 迁移，Task 11） ===================
+// views/graph.js 通过 onclick 和 ViewAfterRender.graph 引用这些函数。
+// drawGraph2D 内部引用自由变量 canvas（graph.js 用 var canvas; 提供全局绑定）。
+
+function selectEntity(id) {
+  App.viewState.selectedEntityId = id;
+  App.viewState.inspectorEntityId = id;
+  render();
+}
+
+function stepStoryTime(delta) {
+  if (!App.storyTimes.length) return;
+  const idx = App.storyTimes.indexOf(App.storyTime);
+  const next = idx + delta;
+  if (next >= 0 && next < App.storyTimes.length) {
+    App.storyTime = App.storyTimes[next];
+    render();
+  }
+}
+
+function openQuickEvent() {
+  openModal('快速记事件',
+    `<div class="space-y-3">
+      <div><label class="text-sm text-muted">事件 ID</label><input id="qe-id" class="input" value="evt-${Date.now()}"></div>
+      <div><label class="text-sm text-muted">类型</label><select id="qe-type" class="select"><option value="birth">birth</option><option value="change">change</option><option value="death">death</option></select></div>
+      <div><label class="text-sm text-muted">故事时间</label><input id="qe-st" class="input" value="${App.storyTime || ''}"></div>
+      <div><label class="text-sm text-muted">实体 ID</label><input id="qe-entity" class="input" value="${App.viewState.selectedEntityId || ''}"></div>
+      <div><label class="text-sm text-muted">摘要</label><textarea id="qe-summary" class="textarea" rows="3"></textarea></div>
+    </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickEvent()">保存</button>`);
+}
+
+async function submitQuickEvent() {
+  const body = {
+    eventId: $('#qe-id').value,
+    type: $('#qe-type').value,
+    storyTime: $('#qe-st').value,
+    entityId: $('#qe-entity').value,
+    summary: $('#qe-summary').value
+  };
+  closeModal();
+  await withLoading(async () => {
+    await apiCall('addEvent', body);
+    toast('事件已记录', 'success');
+    render();
+  });
+}
+
+function openQuickRelation() {
+  openModal('快速加关系',
+    `<div class="space-y-3">
+      <div><label class="text-sm text-muted">源实体 ID</label><input id="qr-source" class="input" value="${App.viewState.selectedEntityId || ''}"></div>
+      <div><label class="text-sm text-muted">目标实体 ID</label><input id="qr-target" class="input"></div>
+      <div><label class="text-sm text-muted">关系标签</label><input id="qr-label" class="input" value="关联"></div>
+      <div><label class="text-sm text-muted">故事时间</label><input id="qr-st" class="input" value="${App.storyTime || ''}"></div>
+    </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickRelation()">保存</button>`);
+}
+
+async function submitQuickRelation() {
+  const source = $('#qr-source').value, target = $('#qr-target').value;
+  const label = $('#qr-label').value, st = $('#qr-st').value;
+  closeModal();
+  await withLoading(async () => {
+    await apiCall('addRelation', source, target, label, st);
+    toast('关系已添加', 'success');
+    render();
+  });
+}
+
+function drawGraph2D(ctx, w, h) {
+  const data = App.viewState.graphData || { entities: [], relations: [] };
+  const filter = (App.viewState.graphFilter || '').toLowerCase();
+  const typeFilter = App.viewState.graphType || 'all';
+  let entities = data.entities.filter(e => typeFilter === 'all' || e.entityType === typeFilter);
+  if (filter) entities = entities.filter(e => (e.properties?.name || e.entityId).toLowerCase().includes(filter));
+  const entitySet = new Set(entities.map(e => e.entityId));
+  const relations = data.relations.filter(r => entitySet.has(r.sourceId) && entitySet.has(r.targetId));
+
+  const positions = {};
+  entities.forEach((e, i) => {
+    const angle = (i / Math.max(entities.length, 1)) * Math.PI * 2;
+    const radius = Math.min(w, h) * 0.32;
+    positions[e.entityId] = { x: w/2 + Math.cos(angle) * radius, y: h/2 + Math.sin(angle) * radius };
+  });
+  for (let it = 0; it < 30; it++) {
+    relations.forEach(r => {
+      const a = positions[r.sourceId], b = positions[r.targetId];
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y, dist = Math.sqrt(dx*dx+dy*dy) || 1;
+      const target = 160;
+      const force = (dist - target) * 0.03;
+      const fx = (dx/dist) * force, fy = (dy/dist) * force;
+      a.x += fx; a.y += fy; b.x -= fx; b.y -= fy;
+    });
+    entities.forEach((e, i) => {
+      const p = positions[e.entityId];
+      p.x = Math.max(90, Math.min(w - 90, p.x));
+      p.y = Math.max(50, Math.min(h - 50, p.y));
+    });
+  }
+
+  ctx.clearRect(0,0,w,h);
+  relations.forEach(r => {
+    const a = positions[r.sourceId], b = positions[r.targetId];
+    if (!a || !b) return;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-500');
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted-foreground');
+    ctx.font = '11px Poppins';
+    ctx.fillText(r.label, mx + 4, my - 4);
+  });
+
+  entities.forEach(e => {
+    const p = positions[e.entityId];
+    const type = ENTITY_TYPES[e.entityType] || { color: '#888', bg: '#eee' };
+    const selected = App.viewState.selectedEntityId === e.entityId;
+    ctx.fillStyle = type.bg;
+    ctx.strokeStyle = type.color;
+    ctx.lineWidth = selected ? 3 : 1.5;
+    roundRect(ctx, p.x - 80, p.y - 36, 160, 72, 8);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = type.color;
+    ctx.font = '600 13px Poppins';
+    const name = e.properties?.name || e.entityId;
+    ctx.fillText(truncate(name, 16), p.x - 72, p.y - 8);
+    ctx.font = '11px Poppins';
+    ctx.fillText(ENTITY_TYPES[e.entityType]?.label || e.entityType, p.x - 72, p.y + 12);
+  });
+
+  canvas.onclick = ev => {
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+    for (const e of entities) {
+      const p = positions[e.entityId];
+      if (x >= p.x-80 && x <= p.x+80 && y >= p.y-36 && y <= p.y+36) {
+        selectEntity(e.entityId); return;
+      }
+    }
+  };
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y); ctx.closePath();
+}
+function truncate(s, n) { return s.length > n ? s.slice(0, n-1) + '…' : s; }
+
 // =================== 初始化 ===================
 async function init() {
   bindShellClickGuard();

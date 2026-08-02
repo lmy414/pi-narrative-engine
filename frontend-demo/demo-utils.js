@@ -6,6 +6,21 @@
  * - 浏览器：window.DemoUtils
  * - Node（module 存在时）：module.exports
  */
+
+// ==================== 视图框架全局对象（从 views.js 迁移，Task 11） ====================
+// 各 views/*.js 加载时向这三个对象赋值（覆盖旧实现），app.js 通过它们调度渲染。
+// 必须在 views/*.js 之前加载（demo-utils.js 为 index.html 第二个脚本）。
+const ViewRender = {};
+const ViewAfterRender = {};
+const viewLoaders = {};
+
+// 用于 inline event handler 的单引号字符串转义（解决 Windows 路径反斜杠问题）。
+// 被 views/projects.js / views/debug.js 引用；
+// views/files.js / views/settings.js 各有本地转义函数（flJs / settingsJs），不依赖此函数。
+function q(str) {
+  return "'" + String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r') + "'";
+}
+
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
