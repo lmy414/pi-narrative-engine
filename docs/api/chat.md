@@ -40,10 +40,11 @@ SSE 事件流。客户端先开此连接，再 POST message 即可收到增量�
 
 会话状态（只读，不触发会话启动）。
 
-- 成功：`200 { ok: true, data: { active, cwd, isStreaming, systemPrompt, modelFallbackMessage } }`
+- 成功：`200 { ok: true, data: { active, cwd, isStreaming, systemPrompt, sessionId, modelFallbackMessage } }`
   - `active`：主会话已启动且项目已激活
   - `cwd`：会话绑定项目目录（未启动为 null）
   - `systemPrompt`：当前生效系统提示词（含 `.pi/SYSTEM.md` 注入内容，未启动为 null）
+  - `sessionId`：主会话当前写入的会话 id（未启动为 null；前端以此对齐 `/api/chat/sessions` 的 `live` 标记）
 
 ## 数据流
 

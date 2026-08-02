@@ -50,6 +50,9 @@ function mockReqRes(): {
       headers["_status"] = status;
       if (h) Object.assign(headers, h);
     },
+    flushHeaders() {
+      headers["_flushed"] = 1;
+    },
     write(chunk: string) {
       writes.push(chunk);
       return true;
@@ -83,6 +86,17 @@ test("handleDebugStream: 设置 SSE 响应头", () => {
   assert.equal(headers["Content-Type"], "text/event-stream; charset=utf-8");
   assert.equal(headers["Cache-Control"], "no-cache, no-transform");
   emitClose(); // 清理心跳定时器
+});
+
+test("handleDebugStream: 立即冲刷头部并发送连接确认注释", () => {
+  const bus = createDebugBus();
+  const { req, res, writes, headers, emitClose } = mockReqRes();
+
+  handleDebugStream(bus, req, res);
+
+  assert.equal(headers["_flushed"], 1, "应调用 flushHeaders 立即冲刷响应头");
+  assert.equal(writes[0], ":connected\n\n", "首条写入应为连接确认注释");
+  emitClose();
 });
 
 test("handleDebugStream: 连接时发送历史快照", () => {

@@ -116,7 +116,9 @@ async function main(): Promise<void> {
     llmConfigStore: llmStore,
     debugBus,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
-    uiDir: existsSync(resolve(__dirname, "visualizer-ui"))
+    uiDir: existsSync(resolve(__dirname, "frontend-demo"))
+      ? resolve(__dirname, "frontend-demo")
+      : existsSync(resolve(__dirname, "visualizer-ui"))
       ? resolve(__dirname, "visualizer-ui")
       : undefined,
     templatesDir: existsSync(resolve(__dirname, "templates", "novel"))
@@ -130,10 +132,17 @@ async function main(): Promise<void> {
   }
   console.log("[app-server] 按 Ctrl+C 停止");
 
+  let shuttingDown = false;
   const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("\n[app-server] 正在关闭…");
-    server.close();
-    void Promise.all([registry.closeAll(), chatContext.dispose()]).finally(() => process.exit(0));
+    void Promise.all([registry.closeAll(), server.close()])
+      .then(() => process.exit(0))
+      .catch((error) => {
+        console.error("[app-server] 关闭失败:", error);
+        process.exit(1);
+      });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

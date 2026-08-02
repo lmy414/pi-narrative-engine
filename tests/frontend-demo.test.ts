@@ -238,3 +238,82 @@ test("namespaceState: 非对象值被替换为空对象", () => {
   assert.deepEqual(plain(namespaceState(state, "str")), {});
   assert.deepEqual(plain(namespaceState(state, "fresh")), {});
 });
+
+// ============ frontend-demo mock contract ============
+
+const mockDataCode = readFileSync(new URL("../frontend-demo/mock-data.js", import.meta.url), "utf-8");
+const apiMockCode = readFileSync(new URL("../frontend-demo/api-mock.js", import.meta.url), "utf-8");
+
+function createMockApi() {
+  const storage = new Map<string, string>();
+  const context: any = {
+    console,
+    setTimeout,
+    clearTimeout,
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    },
+  };
+  createContext(context);
+  runInContext(mockDataCode, context);
+  runInContext(apiMockCode, context);
+  return runInContext("ApiMock", context);
+}
+
+test("ApiMock: list and config endpoints preserve real data wrappers", async () => {
+  const api = createMockApi();
+  const projects = await api.scanProjects("D:\\novels");
+  const tree = await api.getFileTree();
+  const sessions = await api.getChatSessions();
+  const messages = await api.getChatMessages("session-03");
+  const llm = await api.getLlmStatus();
+  const rulesets = await api.getRulesets();
+  const novel = await api.getNovelJson();
+  const env = await api.getEnvConfig();
+
+  assert.ok(Array.isArray(projects.data.projects));
+  assert.ok(Array.isArray(tree.data.tree));
+  assert.equal(tree.data.tree[0].kind, "dir");
+  assert.equal("content" in tree.data.tree[0].children[0], false);
+  assert.ok(Array.isArray(sessions.data.sessions));
+  assert.equal(messages.data.id, "session-03");
+  assert.ok(Array.isArray(messages.data.messages));
+  assert.equal(typeof llm.data.slots, "object");
+  assert.ok(Array.isArray(rulesets.data.rulesets));
+  assert.equal(typeof novel.data.data, "object");
+  assert.equal(typeof env.data.values, "object");
+});
+
+test("ApiMock: plan detail exposes outputs and completed planner/role stages", async () => {
+  const api = createMockApi();
+  const status = await api.getSchedulerStatus();
+  const summary = status.data.plans[0];
+  const detail = await api.getSchedulerPlan(summary.planId);
+
+  assert.equal("stages" in summary, false);
+  assert.ok(Array.isArray(detail.data.outputs));
+  assert.deepEqual(
+    plain(detail.data.stages.map((stage: any) => [stage.stage, stage.status])),
+    [["planner", "done"], ["role", "done"]],
+  );
+});
+
+test("ApiMock: chat and debug fixtures use target field sets", async () => {
+  const api = createMockApi();
+  const messages = (await api.getChatMessages("session-03")).data.messages;
+  const assistant = messages.find((item: any) => item.toolCalls);
+  assert.deepEqual(plain(Object.keys(assistant.toolCalls[0]).sort()), ["id", "isError", "name", "status"]);
+  for (const item of messages) {
+    assert.equal("roleTag" in item, false);
+    assert.equal("characterId" in item, false);
+  }
+
+  const events = (await api.getDebugEvents()).data.events;
+  const allowed = new Set(["id", "ts", "traceId", "stage", "status", "input", "output", "durationMs", "error", "parentId"]);
+  assert.ok(events.length > 0);
+  for (const event of events) {
+    assert.ok(Object.keys(event).every((key) => allowed.has(key)));
+    assert.ok(["start", "end", "error"].includes(event.status));
+  }
+});

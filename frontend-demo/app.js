@@ -1,6 +1,6 @@
 /**
  * Narrative Engine Frontend Demo
- * 轻量 SPA：hash 路由 + 模拟 API 驱动
+ * 轻量 SPA：hash 路由 + unified-server 真实 API 驱动
  */
 
 // =================== 全局状态 ===================
@@ -39,6 +39,17 @@ const WORKSPACE_NAV = [
 ];
 
 const VIEWS_NEED_PROJECT = new Set(['graph', 'events', 'studio', 'debug', 'files', 'settings-project']);
+const mockRequested = new URLSearchParams(window.location.search).get('mock') === '1';
+const ApiRuntime = {
+  isMock: mockRequested,
+  client: mockRequested ? ApiMock : ApiClient,
+  subscribeChat(onEvent, onError) {
+    return this.isMock ? () => {} : this.client.subscribeChat(onEvent, onError);
+  },
+  subscribeDebug(onEvent, onError) {
+    return this.isMock ? () => {} : this.client.subscribeDebug(onEvent, onError);
+  }
+};
 
 // =================== 工具函数 ===================
 function $(selector) { return document.querySelector(selector); }
@@ -66,8 +77,8 @@ function refreshIcons() {
 
 // =================== API 包装 ===================
 async function apiCall(name, ...args) {
-  if (!ApiMock[name]) throw new Error('未知 API: ' + name);
-  const res = await ApiMock[name](...args);
+  if (!ApiRuntime.client[name]) throw new Error('未知 API: ' + name);
+  const res = await ApiRuntime.client[name](...args);
   if (!res.ok) {
     const err = new Error(res.error?.message || '请求失败');
     err.code = res.error?.code;
@@ -146,13 +157,20 @@ function renderDrawer() {
 
 // =================== 路由 ===================
 function navigate(hash, statePatch = {}) {
+  cleanupRouteRuntime(routeId());
   if (statePatch) Object.assign(App, statePatch);
   window.location.hash = hash;
 }
+function cleanupRouteRuntime(id) {
+  if (id === 'studio' && typeof cleanupStudioView === 'function') cleanupStudioView();
+  if (id === 'debug' && typeof cleanupDebugView === 'function') cleanupDebugView();
+}
 async function parseRoute() {
+  const previousRoute = routeId();
   const hash = window.location.hash || '#/projects';
   const [base, query] = hash.split('?');
   App.route = ROUTES.some(r => r.hash === base) ? base : '#/projects';
+  if (previousRoute !== routeId()) cleanupRouteRuntime(previousRoute);
   const params = Object.fromEntries(new URLSearchParams(query || '').entries());
   // URL 参数写入当前路由命名空间；同时保留平面兼容（views.js 仍读 App.viewState.params）
   viewState(routeId()).params = params;
@@ -316,7 +334,7 @@ async function scanProjects() {
     const all = [];
     for (const root of roots) {
       const data = await apiCall('scanProjects', root);
-      all.push(...data);
+      all.push(...(data.projects || []));
     }
     App.viewState.scannedProjects = all;
     if (roots.length) await apiCall('setAppConfig', { launcher: { defaultScanRoots: roots } });
@@ -331,6 +349,12 @@ async function createProject() {
   await withLoading(async () => {
     await apiCall('createProject', dir, name || undefined);
     await apiCall('activateProject', dir);
+    const active = await apiCall('getActiveProject');
+    App.activeProject = {
+      dir,
+      relativePath: active.active?.name || name || dir.split(/[\\/]/).pop(),
+      meta: { name: active.active?.name || name || dir.split(/[\\/]/).pop() }
+    };
     const status = await apiCall('getStatus');
     App.storyTimes = status.storyTimes || [];
     App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
@@ -343,6 +367,13 @@ async function activateProject(dir) {
   await withLoading(async () => {
     try {
       await apiCall('activateProject', dir);
+      const active = await apiCall('getActiveProject');
+      const scanned = projectsList().find((project) => project.dir === dir);
+      App.activeProject = scanned || {
+        dir,
+        relativePath: active.active?.name || dir.split(/[\\/]/).pop(),
+        meta: { name: active.active?.name || dir.split(/[\\/]/).pop() }
+      };
       const status = await apiCall('getStatus');
       App.storyTimes = status.storyTimes || [];
       App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
@@ -363,6 +394,13 @@ async function migrateThenActivate(dir) {
   await withLoading(async () => {
     await apiCall('migrateProject', dir);
     await apiCall('activateProject', dir);
+    const active = await apiCall('getActiveProject');
+    const scanned = projectsList().find((project) => project.dir === dir);
+    App.activeProject = scanned || {
+      dir,
+      relativePath: active.active?.name || dir.split(/[\\/]/).pop(),
+      meta: { name: active.active?.name || dir.split(/[\\/]/).pop() }
+    };
     const status = await apiCall('getStatus');
     App.storyTimes = status.storyTimes || [];
     App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
@@ -478,15 +516,34 @@ async function init() {
   try {
     const cfg = await apiCall('getAppConfig');
     if (cfg && cfg.theme) settingsApplyTheme(cfg.theme);
+    const roots = cfg?.launcher?.defaultScanRoots || [];
+    viewState('projects').scanRoots = roots;
+    App.viewState.scanRoots = roots;
   } catch (e) { /* 忽略，使用默认主题 */ }
   document.documentElement.className = App.theme;
   try {
     const data = await apiCall('getActiveProject');
-    App.activeProject = data.active ? MOCK_PROJECTS.find(p => p.dir === data.active.dir) || null : null;
+    App.activeProject = data.active ? {
+      dir: data.active.dir,
+      relativePath: data.active.name || data.active.dir.split(/[\\/]/).pop(),
+      meta: { name: data.active.name || data.active.dir.split(/[\\/]/).pop() },
+      forceFulltext: !!data.active.forceFulltext
+    } : null;
     if (App.activeProject) {
       const status = await apiCall('getStatus');
       App.storyTimes = status.storyTimes || [];
       App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
+    }
+    if (!ApiRuntime.isMock && roots.length) {
+      const projects = [];
+      for (const root of roots) {
+        try {
+          const result = await apiCall('scanProjects', root);
+          projects.push(...(result.projects || []));
+        } catch (_) { /* 单个默认根失效不阻断启动 */ }
+      }
+      viewState('projects').scannedProjects = projects;
+      App.viewState.scannedProjects = projects;
     }
   } catch (e) { handleApiError(e); }
   await parseRoute();

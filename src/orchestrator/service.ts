@@ -19,7 +19,14 @@
 
 import { EventQueue, type QueuedEvent } from "../event-queue.ts";
 import type { StructuredEvent } from "@pi/scheduler";
-import type { Orchestrator, OrchestratorResult, CommitSummary } from "../orchestrator.ts";
+import type {
+  Orchestrator,
+  OrchestratorResult,
+  CommitSummary,
+  PlanStage,
+} from "../orchestrator.ts";
+import type { RetrievalPlan } from "@pi/scheduler";
+import type { RoleAgentOutput } from "@pi/role-pool";
 
 /** dispatch 返回（plan 模式） */
 export interface DispatchResult {
@@ -51,6 +58,19 @@ export interface CommitResult {
   writtenText: string;
   chapterPath: string;
   error?: string;
+}
+
+/** 单个待确认 plan 的公开只读投影 */
+export interface PlanDetail {
+  planId: string;
+  storyTime: string;
+  mode: "plan" | "yolo";
+  characterIds: string[];
+  cast: { characterId: string; name: string; summary: string }[];
+  outputs: RoleAgentOutput[];
+  retrievalPlan: RetrievalPlan;
+  errors: { characterId: string; error: string }[];
+  stages: PlanStage[];
 }
 
 /**
@@ -125,6 +145,24 @@ export class OrchestratorService {
   /** 丢弃 plan：不写世界图、不渲染 */
   discard(planId: string): { ok: boolean } {
     return { ok: this.plans.delete(planId) };
+  }
+
+  /** 获取待确认 plan 详情；只返回公开 DTO，不暴露缓存条目或完整编排结果 */
+  getPlan(planId: string): PlanDetail | undefined {
+    const plan = this.plans.get(planId);
+    if (!plan) return undefined;
+    const { event, result } = plan;
+    return {
+      planId: result.planId,
+      storyTime: event.storyTime,
+      mode: result.mode,
+      characterIds: [...event.characterIds],
+      cast: structuredClone(result.cast),
+      outputs: structuredClone(result.outputs),
+      retrievalPlan: structuredClone(result.retrievalPlan),
+      errors: structuredClone(result.errors),
+      stages: structuredClone(result.stages),
+    };
   }
 
   /** 队列状态查询 */

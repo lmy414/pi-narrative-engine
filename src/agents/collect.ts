@@ -34,6 +34,9 @@ export function collectSubmission<T>(
     resolve = res;
     reject = rej;
   });
+  // 工具事件可能在 agent.prompt() 返回前同步 reject。调用方要等 prompt 结束后
+  // 才 await 产出，因此先附加 observer，避免 Node 将这段窗口判为未处理 rejection。
+  void promise.catch(() => {});
 
   let done = false;
   const off = agent.subscribe((event) => {

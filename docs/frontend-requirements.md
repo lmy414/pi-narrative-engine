@@ -2,14 +2,18 @@
 
 | | |
 |---|---|
-| 版本 | v2.0 · 2026-08-02 |
-| 读者 | 前端 DEMO 开发团队（可不读任何其他文档完成接入） |
-| 目标 | 按本文实现的前端可**直接对接后端 API 进行生产环境测试验证**，零口径偏差 |
-| 后端基线 | narrative-engine @ master `3e67a4a`（API v1，冻结口径） |
+| 版本 | v2.1 · 2026-08-02 |
+| 读者 | 前后端实施与验收团队 |
+| 目标 | 按本文的**目标契约**完成真实 API 接入与生产环境测试验证 |
+| 实施基线 | narrative-engine @ master `76a8802` |
+| 实施状态 | 目标契约已在 `20260802-frontend-backend-contract` 分支落地并通过自动化验证 |
 | 设计原型 | `D:\claude\pi-ex\narrative-engine-design`（视觉/布局/组件规范的唯一依据） |
-| 配套文档 | `docs/api/unified-server.md`、`docs/api/visualizer.md`、`docs/api/chat.md`（API 细节争议时以这三份为准） |
+| 决策依据 | `docs/plans/2026-08-02-studio-data-alignment.md` |
+| 配套文档 | `docs/frontend-backend-api-audit.md`、`docs/plans/2026-08-02-frontend-backend-handoff-plan.md`、`docs/api/unified-server.md`、`docs/api/visualizer.md`、`docs/api/chat.md` |
 
-> v1 版本的"缺口清单"已清零（8 项缺口全部补齐，B5 经事件溯源路径落地）。本文不再是差距分析，而是**交付规格**：每页需要什么内容、提供什么功能、明确不提供什么、页面间如何跳转、每个功能对应哪个 API。
+> 本文是前后端完成对接后的**唯一目标规格**。目标契约已按交接计划落地并通过自动化契约测试；生产环境仍按 §12 完成真实 LLM 与浏览器验收。不得把旧 mock 字段或临时适配写回目标规格。
+>
+> 契约优先级：若与 `docs/plans/2026-08-02-studio-data-alignment.md` 的早期口径冲突，以本文和 `docs/frontend-backend-api-audit.md` 为准。
 
 ---
 
@@ -82,12 +86,15 @@ curl "http://127.0.0.1:7421/api/status"
 | 通道 | 类型 | 用途 |
 |---|---|---|
 | `GET /api/chat/events` | SSE | 主会话回复与工具调用全程（先开连接再发消息；30s 心跳 `:heartbeat`） |
-| `GET /api/debug/stream` | SSE | 调试事件流（先历史快照后实时；编排四阶段进度也走这里） |
-| `GET /api/scheduler/status` | 轮询 | 队列长度、待确认计划列表、defaultMode（建议编排页 2s 轮询） |
+| `GET /api/debug/stream` | SSE | 调试页实时事件流（先内存快照后实时）；**不作为 studio 阶段状态的数据源** |
+| `GET /api/scheduler/status` | 轮询 | 队列长度、待确认计划摘要、defaultMode（建议编排页 2s 轮询） |
+| `GET /api/scheduler/plans/:id` | 轮询/按需 GET | 单个 plan 的角色产出与后端落下的阶段记录；studio 的 plan 详情唯一数据源 |
 
 **Chat SSE 事件渲染规则（关键，易踩坑）：**`message_update` 携带的是**完整 message 快照**（不是 delta），UI 全量替换重绘；工具卡片按 `toolCallId` 随 `tool_execution_start/update/end` 增量更新；以 `agent_end` 作为一轮的收尾信号。
 
-**Debug 事件结构**：span 配对模型——`orchestrator` root span + `planner`/`role`/`reasoner`/`renderer` 子 span（plan 模式只有前两个，yolo/commit 才有后两个），start/end 以 `traceId + spanId` 配对。end 载荷：`provider/model/durationMs` + reasoner 带 `changes/visibilityChanges/changeList`（世界图变更摘要）+ renderer 带 `chapterPath/chars/title` + commit 带 `appliedEventIds`。
+**Debug 事件结构**：`{id, ts, traceId, stage, status, input?, output?, durationMs?, error?, parentId?}`。start/end/error 以 `traceId + stage + parentId` 归组，`parentId` 指向父级 start 事件的 `id`；start 与 end/error 本身使用不同 `id`。调试页可据此构建 DAG。每个项目绑定事件同时异步追加到对应项目 `.pi/logs/debug.jsonl`；SSE 与 `/api/debug/events` 仍只返回当前进程的 1000 条内存缓冲，`POST /api/debug/clear` 只清内存，不清日志文件。
+
+**Studio 阶段规则**：不得从 debug span 聚合计划进度。studio 只消费 `GET /api/scheduler/plans/:id` 的 `stages[]`；debug SSE 仅用于调试页和可选诊断旁路。
 
 ## 3. 信息架构与跳转逻辑
 
@@ -120,7 +127,7 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 | J9 | 详情抽屉"事件"Tab 点某事件 | — | 跳 V3 并高亮定位该事件 |
 | J10 | V3 事件详情"跳转到世界图（此时刻）" | 设外壳 storyTime = 该事件 storyTime | 跳 V2 |
 | J11 | V4 右栏"查看世界图变更" | — | 跳 V2（storyTime = 本次编排的 storyTime） |
-| J12 | V4 右栏"查看章节" | — | 跳 V6 并打开对应章节文件（chapterPath 来自 renderer span 载荷或 commit 响应） |
+| J12 | V4 右栏"查看章节" | — | 跳 V6 并打开对应章节文件（chapterPath 来自 commit 响应） |
 | J13 | V7 设置内各保存动作 | — | 不跳页，toast 确认 |
 | J14 | V1 关闭当前活跃项目 | `POST /api/projects/close` | 停 V1，进入无活跃状态（其他视图再访问即触发 J4） |
 
@@ -227,18 +234,22 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 |---|---|---|
 | 发消息/流式回复 | 输入框 → 发送；AI 逐字输出，工具调用以卡片展示 | 先开 `GET /api/chat/events`（SSE），再 `POST /api/chat/message {text}`（接收即回 `{received:true}`；渲染规则见 §2.4） |
 | 忙碌约束 | 回复中禁用输入 | `409 CHAT_BUSY` 兜底 |
-| 会话列表/切换/历史 | 左栏按时间分组；点击加载历史 | `GET /api/chat/sessions` → `[{id, name, created, modified, messageCount, firstMessage}]`；`GET /api/chat/sessions/:id/messages` → `[{role, text, ts}]`（404 `SESSION_NOT_FOUND`） |
+| 会话列表/切换/历史 | 左栏按时间分组；点击加载历史 | `GET /api/chat/sessions` → `{sessions:[{id,name,created,modified,messageCount,firstMessage}]}`；`GET /api/chat/sessions/:id/messages` → `{id,messages:[{role,text,ts,toolCalls?,provider?,model?,usage?}]}`（404 `SESSION_NOT_FOUND`） |
+| 历史工具卡片 | assistant 消息下按名称与状态展示；不展示无契约的图标/耗时/result | `toolCalls[]` 为 `{id,name,status:"done"|"error",isError}`；由历史 assistant toolCall 与后续 toolResult 按 `toolCallId` 配对。`usage` 使用 §11 的稳定摘要 DTO |
 | 新建议程 | 按钮 | 前端新开空白对话（继续发消息即产生新会话记录；无专用端点） |
 | plan/yolo 模式切换 | 控制栏开关 | `GET /api/scheduler/status` 读 `defaultMode`；`PUT /api/scheduler/mode {mode}`（持久化，工具与 HTTP 的 dispatch 都以此为缺省） |
 | 发起编排 | 表单（instruction + characterIds + storyTime，可选 executionHints/chapterPath） | `POST /api/scheduler/dispatch` → `{queueId, mode}`；planId 经 status 轮询出现 |
-| 队列与计划状态 | 状态徽章"N 个计划待审核" | `GET /api/scheduler/status` → `{queue: {length, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount}], defaultMode}`（2s 轮询） |
-| 计划卡片：提交/丢弃 | 卡片按钮 | `POST /api/scheduler/commit {planId}` → `{appliedEventIds, writtenText, chapterPath}`（404 `PLAN_NOT_FOUND`；失败 409 `COMMIT_FAILED`）；`POST /api/scheduler/discard {planId}` |
-| 右栏：四代理运行状态 | 规划/角色/推理/渲染 各阶段实时状态与耗时 | `GET /api/debug/stream`（SSE）：`orchestrator` root + 四子 span 配对（§2.4） |
-| 右栏：世界图变更摘要 | 新增/修改实体、新增关系/事件计数 | reasoner span end 载荷 `changes/visibilityChanges/changeList` |
-| 右栏：生成章节卡 | 标题/字数/查看 | renderer span end 载荷 `chapterPath/chars/title`；或 commit 响应；点查看 → J12 |
-| @提及辅助 | 输入 @ 弹实体面板 | 数据用 `/api/search` |
+| 队列与计划状态 | 状态徽章"N 个计划待审核" | `GET /api/scheduler/status` → `{queue: {length, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount}], defaultMode}`（2s 轮询，只作摘要） |
+| 计划详情与角色产出 | plan 出现在 status 后按 `planId` 拉取；按角色卡展示 actor/action/thought/emotion/state_changes/knowledge_gained | `GET /api/scheduler/plans/:id` → `{planId,storyTime,mode,characterIds,cast,outputs,retrievalPlan,errors,stages}`；404 `PLAN_NOT_FOUND` |
+| 计划卡片：提交/丢弃 | 卡片按钮 | `POST /api/scheduler/commit {planId}` → `{ok,planId,appliedEventIds,writtenText,chapterPath}`（404 `PLAN_NOT_FOUND`；失败 409 `COMMIT_FAILED`）；`POST /api/scheduler/discard {planId}` |
+| 右栏：plan 阶段状态 | 计划生成后展示规划、角色两个前半链路阶段的完成或错误状态、耗时与模型 | 只读 plan 详情的 `stages[]`；阶段项仅允许 `planner/role`，形状 `{stage,agent,status:"done"|"error",durationMs?,provider?,model?,error?}`。`reasoner/renderer/commit` 不属于 plan detail，提交后结果读 commit 响应，诊断过程看 debug 页 |
+| 右栏：世界图变更摘要 | commit 成功后展示已应用事件数量 | commit 响应 `appliedEventIds`；本期不从 debug payload 推导业务结果 |
+| 右栏：生成章节卡 | commit 成功后展示路径/字数/查看 | commit 响应 `chapterPath/writtenText`；标题可由路径推导，点查看 → J12 |
+| @提及辅助 | 输入 @ 弹实体面板 | 数据用 `/api/search`，不得直读 `MOCK_ENTITIES` |
 
-**不提供的功能**：附件上传；提示词模板库；中断/暂停执行中的编排（无 abort 端点，本期靠等待完成或关闭页面）；多并发编排（队列串行，这是后端保证）。
+**废止口径（不得实现或保留兼容分支）**：聊天角色气泡字段 `name/roleTag/characterId`；plan 的 `sections[]` 章节正文预览；前端自造 stages；按 debug span 聚合 studio stages；工具卡片 `icon/duration/result`。
+
+**不提供的功能**：附件上传；提示词模板库；plan 阶段章节正文预览；聊天角色发言标签；中断/暂停执行中的编排（无 abort 端点，本期靠等待完成或关闭页面）；多并发编排（队列串行，这是后端保证）。
 
 **成本提示（生产验证注意）**：dispatch 与聊天会产生**真实 LLM 调用**（按 slot 配置计费），plan 模式一次编排约 2 轮调用，yolo 约 4 轮。
 
@@ -254,14 +265,15 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 
 | 功能 | 交互 | API 契约 |
 |---|---|---|
-| 实时事件流 | 进入页面自动订阅 | `GET /api/debug/stream`（SSE，先历史快照后实时，30s 心跳） |
+| 实时事件流 | 进入页面自动订阅 | `GET /api/debug/stream`（SSE，先内存快照后实时，30s 心跳） |
 | 缓冲查询 | 过滤/翻查 | `GET /api/debug/events` → `{events: DebugEvent[]}`（环形缓冲默认 1000 条） |
-| 级别/模块/关键词过滤 | 过滤栏 | 前端过滤（事件含级别/stage/模块字段） |
-| span 详情展开 | 点节点看载荷/耗时 | span end 载荷（§2.4） |
-| 清空缓冲 | 按钮 + 二次确认 | `POST /api/debug/clear` |
+| 状态/stage/关键词过滤 | 过滤栏 | 前端按真实字段 `status/stage/error/input/output` 过滤；不存在 `level/module/message/payload/spanId` |
+| span 详情展开 | 点节点看 input/output/error/耗时 | DebugEvent 真实 schema 见 §2.4；`parentId` 用于 DAG 父子关系 |
+| 清空缓冲 | 按钮 + 二次确认 | `POST /api/debug/clear`，只清当前进程内存缓冲 |
+| 日志落盘 | 无新增 UI/API | 事件按创建时绑定的项目写入 `<project>/.pi/logs/debug.jsonl`；10 MB 轮转为 `debug-<yyyyMMdd-HHmmss>.jsonl`，保留最近 5 个轮转文件；异步写失败只告警；不得在 emit 时按当前活跃项目猜目录 |
 | 自动滚动 | 开关 | 前端态 |
 
-**不提供的功能**：日志持久化文件（缓冲纯内存，重启清空）；远程日志上报；模块枚举外的自定义过滤维度。
+**不提供的功能**：日志文件读取/下载 API；清空磁盘日志；远程日志上报；`level/module/message/payload/spanId` 旧 mock 维度。
 
 ---
 
@@ -338,6 +350,25 @@ type SchedulerStatus = { queue: { length: number; items: unknown[] };
   plans: { planId: string; storyTime: string; mode: "plan"|"yolo";
     characterIds: string[]; outputCount: number; errorCount: number }[];
   defaultMode: "plan"|"yolo" };
+type PlanStage = { stage: "planner"|"role"; agent: string;
+  status: "done"|"error"; durationMs?: number;
+  provider?: string; model?: string; error?: string | null };
+type SchedulerPlanDetail = { planId: string; storyTime: string; mode: "plan"|"yolo";
+  characterIds: string[]; cast: {characterId:string;name:string;summary:string}[];
+  outputs: { actor:string; action:string; thought:string; emotion:string;
+    state_changes: unknown[]; knowledge_gained: unknown[] }[];
+  retrievalPlan: unknown; errors: {characterId:string;error:string}[]; stages: PlanStage[] };
+
+// 历史聊天（实时事件继续使用 PI SDK 原始 SSE 事件）
+type HistoricalToolCall = { id: string; name: string; status: "done"|"error"; isError: boolean };
+type UsageSummary = { inputTokens:number; outputTokens:number; cacheReadTokens:number;
+  cacheWriteTokens:number; totalTokens:number; estimatedCostUsd:number };
+type ChatMessage = { role: string; text: string; ts: string; toolCalls?: HistoricalToolCall[];
+  provider?: string; model?: string; usage?: UsageSummary };
+
+type DebugEvent = { id:string; ts:number; traceId:string; stage:string;
+  status:"start"|"end"|"error"; input?:unknown; output?:unknown;
+  durationMs?:number; error?:string; parentId?:string };
 
 // LLM 配置
 type SlotStatus = { configured: { provider: string; model: string } | null;
@@ -350,10 +381,9 @@ type NovelProject = { dir: string; relativePath: string; chapterCount: number;
   lastModified: string; needsMigration: boolean; stats: { entityCount: number; eventCount: number } | null;
   meta: { name: string; worldGraphDir: string; chaptersDir: string; storyTimeFormat: string; [k: string]: unknown } };
 
-// 会话
+// 会话列表
 type ChatSessionMeta = { id: string; name: string | null; created: string; modified: string;
   messageCount: number; firstMessage: string | null };
-type ChatMessage = { role: "user"|"assistant"|string; text: string; ts: string };
 ```
 
 ## 12. 生产环境测试验证清单（交付验收标准）
@@ -366,16 +396,18 @@ type ChatMessage = { role: "user"|"assistant"|string; text: string; ts: string }
 | A2 | 世界图：步进 storyTime / 搜索 / 点实体 | 快照随时间变化；右栏数据与 API 一致 |
 | A3 | 抽屉：改摘要/改属性/闭合声明/加关系 | 操作后重取数据生效；history 里可见对应 user 事件 |
 | A4 | 事件链：筛选 / 因果链 / 跳世界图 | 过滤正确；因果图渲染；J10 状态正确 |
-| A5 | 编排：切 yolo → dispatch 一条简单指令 | status 轮询见队列；debug SSE 见四阶段 span；世界图与章节文件真实更新 |
-| A6 | 编排：切 plan → dispatch → 计划卡片提交/丢弃 | commit 后变更落盘；discard 后无变更 |
-| A7 | 聊天：发消息 | SSE 逐字输出；CHAT_BUSY 期间输入禁用 |
-| A8 | 设置：配 default slot + 写密钥 | `GET /api/admin/llm` 显示 source=slot、hasKey=true；重启服务后仍在（持久化） |
-| A9 | 文件：编辑 .md 保存 / 重命名 | 磁盘文件变化；并发改触发 MTIME_CONFLICT |
-| A10 | 重启服务 | 上次项目自动恢复活跃；落项目页可一键进入 |
+| A5 | 编排：切 yolo → dispatch 一条简单指令 | status 队列项最终完成并含结果；debug SSE 仅用于诊断四阶段；世界图与章节文件真实更新（yolo 不生成待审核 plan detail） |
+| A6 | 编排：切 plan → dispatch → 打开计划详情 → 提交/丢弃 | 详情展示 `outputs[]` 角色产出且无 sections；stages 仅含 planner/role 且来自 plan 详情；commit 后变更落盘并由 commit 响应展示结果；discard 后详情 404 且无变更 |
+| A7 | 聊天：发消息并重新加载历史会话 | SSE 逐字输出；CHAT_BUSY 期间输入禁用；历史 assistant 消息保留 toolCalls/provider/model/标准化 usage 摘要；无角色标签字段 |
+| A8 | 调试：执行一次编排后查 SSE、内存与磁盘 | 三处 DebugEvent 核心字段一致；`.pi/logs/debug.jsonl` 可逐行 JSON.parse；clear 后内存为空但日志仍在 |
+| A9 | 调试日志轮转 | 超过 10 MB 后生成时间戳轮转文件；活跃文件继续可写；最多保留 5 个轮转文件 |
+| A10 | 设置：配 default slot + 写密钥 | `GET /api/admin/llm` 显示 source=slot、hasKey=true；重启服务后仍在（持久化） |
+| A11 | 文件：编辑 .md 保存 / 重命名 | 磁盘文件变化；并发改触发 MTIME_CONFLICT |
+| A12 | 重启服务 | 上次项目自动恢复活跃；落项目页可一键进入；新 debug 事件继续写入该项目日志 |
 
 ## 13. 本期不做（全量汇总，前端不要为此预留 UI）
 
-删除项目；物理删除实体/声明；事件编辑；附件上传；提示词模板库；浏览文件夹原生对话框；多用户/权限/鉴权；日志持久化与上报；跨文件全局搜索（实体搜索已有，文件内容搜索不做）；编排 abort；AI 推理溯源；未来事件占位。
+删除项目；物理删除实体/声明；事件编辑；附件上传；提示词模板库；浏览文件夹原生对话框；多用户/权限/鉴权；debug 日志读取 API 与远程上报；跨文件全局搜索（实体搜索已有，文件内容搜索不做）；编排 abort；AI 推理溯源；未来事件占位；聊天角色发言标签；plan 阶段章节正文预览。
 
 ## 14. 视觉与组件规范
 

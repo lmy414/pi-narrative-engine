@@ -75,7 +75,7 @@ const ApiMock = {
   async scanProjects(root, maxDepth = 3) {
     await delay();
     if (!root) return fail('MISSING_FIELD', '缺少 root 参数');
-    return ok(MOCK_PROJECTS.map(p => ({ ...p })));
+    return ok({ projects: MOCK_PROJECTS.map(p => ({ ...p })) });
   },
 
   async activateProject(dir) {
@@ -269,14 +269,14 @@ const ApiMock = {
     return ok({ visibility: MOCK_VISIBILITY.filter(v => v.declarationId === declId) });
   },
 
-  async setVisibility(characterId, declarationId, confidence, source, storyTime, state = 'known') {
+  async setVisibility(characterId, declarationId, confidence, source, storyTime) {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
     // 事件溯源：先闭合该「角色 × 声明」现存生效的可见性记录，再写入新记录
     const existing = MOCK_VISIBILITY.find(v => v.characterId === characterId && v.declarationId === declarationId && v.validTo === 'Infinity');
     if (existing) existing.validTo = storyTime || currentStoryTime;
-    MOCK_VISIBILITY.push({ characterId, declarationId, state, confidence, source, validFrom: storyTime || currentStoryTime, validTo: 'Infinity' });
+    MOCK_VISIBILITY.push({ characterId, declarationId, state: 'known', confidence, source, validFrom: storyTime || currentStoryTime, validTo: 'Infinity' });
     return ok({ set: true });
   },
 
@@ -320,7 +320,7 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok(chatSessions.map(s => ({ ...s })));
+    return ok({ sessions: chatSessions.map(s => ({ ...s })) });
   },
 
   async getChatMessages(sessionId) {
@@ -328,7 +328,7 @@ const ApiMock = {
     const err = requireActiveProject();
     if (err) return err;
     if (!chatMessages[sessionId]) return fail('SESSION_NOT_FOUND', '会话不存在', 404);
-    return ok(chatMessages[sessionId].map(m => ({ ...m })));
+    return ok({ id: sessionId, messages: chatMessages[sessionId].map(m => ({ ...m })) });
   },
 
   async sendChatMessage(text) {
@@ -344,6 +344,15 @@ const ApiMock = {
     const err = requireActiveProject();
     if (err) return err;
     return ok({ ...schedulerStatus, queue: { ...schedulerStatus.queue } });
+  },
+
+  async getSchedulerPlan(planId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const plan = schedulerPlans[planId];
+    if (!plan) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
+    return ok(JSON.parse(JSON.stringify(plan)));
   },
 
   async setSchedulerMode(mode) {
@@ -370,6 +379,20 @@ const ApiMock = {
         outputCount: 0,
         errorCount: 0
       });
+      schedulerPlans[planId] = {
+        planId,
+        storyTime: body.storyTime || currentStoryTime,
+        mode,
+        characterIds: body.characterIds || [],
+        cast: [],
+        outputs: [],
+        retrievalPlan: null,
+        errors: [],
+        stages: [
+          { stage: 'planner', agent: '策划代理', status: 'done', durationMs: 3200 },
+          { stage: 'role', agent: '角色代理', status: 'done', durationMs: 2800 }
+        ]
+      };
     } else {
       schedulerStatus.queue.items.push({ queueId: planId, mode, status: 'running' });
       schedulerStatus.queue.length = schedulerStatus.queue.items.length;
@@ -384,7 +407,8 @@ const ApiMock = {
     const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
     if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
     schedulerStatus.plans.splice(idx, 1);
-    return ok({ appliedEventIds: [`evt-${nextEventId++}`], writtenText: '第六章 星门遗迹\n\n迷雾星云深处...', chapterPath: '正文/ch006.md' });
+    delete schedulerPlans[planId];
+    return ok({ ok: true, planId, appliedEventIds: [`evt-${nextEventId++}`], writtenText: '第六章 星门遗迹\n\n迷雾星云深处...', chapterPath: '正文/ch006.md' });
   },
 
   async discardPlan(planId) {
@@ -394,17 +418,22 @@ const ApiMock = {
     const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
     if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
     schedulerStatus.plans.splice(idx, 1);
+    delete schedulerPlans[planId];
     return ok({ discarded: true });
   },
 
   // 调试
   async getDebugEvents() {
     await delay();
+    const err = requireActiveProject();
+    if (err) return err;
     return ok({ events: debugEvents.slice() });
   },
 
   async clearDebugEvents() {
     await delay();
+    const err = requireActiveProject();
+    if (err) return err;
     debugEvents = [];
     return ok({ cleared: true });
   },
@@ -414,7 +443,15 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok(JSON.parse(JSON.stringify(MOCK_FILES)));
+    const tree = JSON.parse(JSON.stringify(MOCK_FILES));
+    const normalize = (nodes) => nodes.map((node) => {
+      const copy = { ...node, kind: node.type };
+      delete copy.type;
+      delete copy.content;
+      if (copy.children) copy.children = normalize(copy.children);
+      return copy;
+    });
+    return ok({ tree: normalize(tree) });
   },
 
   async readFile(path) {
@@ -539,7 +576,7 @@ const ApiMock = {
   // 管理
   async getLlmStatus() {
     await delay();
-    return ok(JSON.parse(JSON.stringify(llmStatus)));
+    return ok({ slots: JSON.parse(JSON.stringify(llmStatus)) });
   },
 
   async setLlmSlot(slot, provider, model) {
@@ -581,13 +618,14 @@ const ApiMock = {
 
   async warmupEmbedder() {
     await delay(800);
-    MOCK_EMBEDDER_STATUS.warmedUp = true;
-    return ok({ warmedUp: true });
+    MOCK_EMBEDDER_STATUS.cachePresent = true;
+    return ok({ model: MOCK_EMBEDDER_STATUS.model, dim: MOCK_EMBEDDER_STATUS.dim });
   },
 
   async clearEmbedderCache() {
     await delay();
-    MOCK_EMBEDDER_STATUS.cacheSize = 0;
+    MOCK_EMBEDDER_STATUS.cachePresent = false;
+    MOCK_EMBEDDER_STATUS.cacheSizeBytes = 0;
     return ok({ cleared: true });
   },
 
@@ -618,7 +656,15 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ ...rulesets });
+    return ok({ rulesets: Object.entries(rulesets).map(([name, content]) => ({
+      name,
+      filename: name === 'render' ? '规则集.md' : `${name} 规则集.md`,
+      path: name === 'render' ? '规则集.md' : `${name} 规则集.md`,
+      exists: true,
+      content,
+      mtime: '2026-08-02T03:15:00Z',
+      charCount: String(content).length
+    })) });
   },
 
   async setRuleset(name, content) {
@@ -643,7 +689,7 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ ...novelJson });
+    return ok({ path: 'novel.json', exists: true, data: { ...novelJson } });
   },
 
   async setNovelJson(data) {
@@ -658,7 +704,7 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ ...envConfig });
+    return ok({ path: '.env', exists: true, values: { ...envConfig }, lineCount: Object.keys(envConfig).length });
   },
 
   async setEnvConfig(data) {
@@ -666,7 +712,7 @@ const ApiMock = {
     const err = requireActiveProject();
     if (err) return err;
     for (const key of Object.keys(data)) {
-      if (data[key] === '') delete envConfig[key];
+      if (data[key] === '' || data[key] === null) delete envConfig[key];
       else envConfig[key] = data[key];
     }
     return ok({ saved: true });

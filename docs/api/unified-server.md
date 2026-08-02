@@ -85,8 +85,8 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 |---|---|---|
 | POST | `/api/chat/message` `{text}` | 发消息（单流约束，忙碌 409 `CHAT_BUSY`） |
 | GET | `/api/chat/events` | SSE 事件流（AI 回复、工具调用全程） |
-| GET | `/api/chat/status` | 会话状态（只读，不触发启动） |
-| GET | `/api/chat/sessions` | 历史会话列表 `{id, name, created, modified, messageCount, firstMessage}`（SDK SessionManager，`<项目>/.pi/sessions/`） |
+| GET | `/api/chat/status` | 会话状态（只读，不触发启动）`{active, cwd, isStreaming, systemPrompt, sessionId, modelFallbackMessage}` |
+| GET | `/api/chat/sessions` | 历史会话列表 `{id, name, created, modified, messageCount, firstMessage, live}`（SDK SessionManager，`<项目>/.pi/sessions/`；`live` 标记主会话当前写入的会话） |
 | GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `[{role, text, ts}]`（未知 id 404 `SESSION_NOT_FOUND`） |
 
 ## `/api/scheduler/*`（编排控制，需活跃项目）

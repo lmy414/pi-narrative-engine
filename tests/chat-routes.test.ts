@@ -26,6 +26,7 @@ import type { OrchestratorService } from "../src/orchestrator/service.ts";
 import type { Embedder } from "../src/embedder.ts";
 import type { WorldGraph } from "underworld-graph";
 import type { Search } from "../src/search.ts";
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
 // ----------------------------------------------------------------------------
 // stubs
@@ -92,6 +93,9 @@ function mockReqRes() {
     writeHead(status: number, h?: Record<string, string | number | string[]>) {
       headers["_status"] = status;
       if (h) Object.assign(headers, h);
+    },
+    flushHeaders() {
+      headers["_flushed"] = 1;
     },
     write(chunk: string) {
       writes.push(chunk);
@@ -305,10 +309,13 @@ test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅"
     },
   });
   const ctx = makeCtx({ host: makeHost(session) });
-  const { req, res, writes, emitClose } = mockReqRes();
+  const { req, res, writes, headers, emitClose } = mockReqRes();
   const hit = await handleChatApi(ctx, req, res, new URL("http://localhost/api/chat/events"), null);
 
   assert.equal(hit, true);
+  // 连接建立即冲刷头部 + 发送 :connected 注释（空事件期间客户端也能确认连接）
+  assert.equal(headers["_flushed"], 1, "应调用 flushHeaders 立即冲刷响应头");
+  assert.equal(writes[0], ":connected\n\n", "首条写入应为连接确认注释");
   // 推送事件 → data 行
   assert.ok(listener, "应已订阅 session");
   listener!({ type: "message_update", message: { content: "x" } });
@@ -318,6 +325,199 @@ test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅"
   emitClose();
   assert.equal(unsubscribed, true, "客户端断开应取消订阅");
 });
+
+test("历史消息：聚合 toolCalls/provider/model/usage，并过滤 toolResult", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "narrative-chat-history-"));
+  const projectDir = path.join(tmpDir, "project");
+  const sessionDir = path.join(projectDir, ".pi", "sessions");
+  fs.mkdirSync(projectDir, { recursive: true });
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const manager = SessionManager.create(projectDir, sessionDir);
+  manager.appendMessage({ role: "user", content: "开始", timestamp: 1 });
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "无工具回答" }],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-test",
+    usage: {
+      input: 10,
+      output: 20,
+      cacheRead: 3,
+      cacheWrite: 4,
+      totalTokens: 37,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0.03, cacheWrite: 0.04, total: 0.37 },
+    },
+    stopReason: "stop",
+    timestamp: 2,
+  } satisfies AssistantMessage);
+  manager.appendMessage({
+    role: "assistant",
+    content: [
+      { type: "toolCall", id: "call-ok", name: "read", arguments: {} },
+      { type: "toolCall", id: "call-fail", name: "write", arguments: {} },
+    ],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "claude-test",
+    usage: {
+      input: 1,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 3,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.01 },
+    },
+    stopReason: "toolUse",
+    timestamp: 3,
+  } satisfies AssistantMessage);
+  manager.appendMessage(toolResult("call-ok", "read", false));
+  manager.appendMessage(toolResult("orphan-result", "search", false));
+  manager.appendMessage(toolResult("call-fail", "write", true));
+  manager.appendMessage({
+    role: "assistant",
+    content: [
+      { type: "text", text: "残缺调用" },
+      { type: "toolCall", id: "call-orphan", name: "search", arguments: {} },
+    ],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-invalid-usage",
+    usage: {
+      input: -1,
+      output: Number.NaN,
+      cacheRead: Number.POSITIVE_INFINITY,
+      cacheWrite: 5,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: -0.5 },
+    },
+    stopReason: "toolUse",
+    timestamp: 7,
+  } as unknown as AssistantMessage);
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "非法总量" }],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-invalid-total",
+    usage: {
+      input: 2,
+      output: 3,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: Number.NaN,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: 8,
+  } satisfies AssistantMessage);
+
+  const context = new ChatContext({
+    registry: { getActive: () => ({ ...HANDLE, dir: projectDir }) } as unknown as ProjectRegistry,
+    llmStore: new LlmConfigStore(),
+    configDir: path.join(tmpDir, "config"),
+  });
+
+  try {
+    const { status, json } = await call(
+      { chatContext: context, registry: { getActive: () => ({ ...HANDLE, dir: projectDir }) } },
+      "GET",
+      `/api/chat/sessions/${manager.getSessionId()}/messages`,
+    );
+    assert.equal(status, 200);
+    const data = json?.data as { id: string; messages: Array<Record<string, unknown>> };
+    assert.equal(data.id, manager.getSessionId());
+    assert.deepEqual(data.messages, [
+      { role: "user", text: "开始", ts: data.messages[0].ts },
+      {
+        role: "assistant",
+        text: "无工具回答",
+        ts: data.messages[1].ts,
+        provider: "openai",
+        model: "gpt-test",
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 4,
+          totalTokens: 37,
+          estimatedCostUsd: 0.37,
+        },
+      },
+      {
+        role: "assistant",
+        text: "",
+        ts: data.messages[2].ts,
+        toolCalls: [
+          { id: "call-ok", name: "read", status: "done", isError: false },
+          { id: "call-fail", name: "write", status: "error", isError: true },
+        ],
+        provider: "anthropic",
+        model: "claude-test",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 3,
+          estimatedCostUsd: 0.01,
+        },
+      },
+      {
+        role: "assistant",
+        text: "残缺调用",
+        ts: data.messages[3].ts,
+        toolCalls: [
+          { id: "call-orphan", name: "search", status: "error", isError: true },
+        ],
+        provider: "openai",
+        model: "gpt-invalid-usage",
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 5,
+          totalTokens: 5,
+          estimatedCostUsd: 0,
+        },
+      },
+      {
+        role: "assistant",
+        text: "非法总量",
+        ts: data.messages[4].ts,
+        provider: "openai",
+        model: "gpt-invalid-total",
+        usage: {
+          inputTokens: 2,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+        },
+      },
+    ]);
+    for (const message of data.messages) {
+      assert.equal("name" in message, false);
+      assert.equal("roleTag" in message, false);
+      assert.equal("characterId" in message, false);
+      assert.notEqual(message.role, "toolResult");
+    }
+  } finally {
+    await context.dispose();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+function toolResult(toolCallId: string, toolName: string, isError: boolean): ToolResultMessage {
+  return {
+    role: "toolResult",
+    toolCallId,
+    toolName,
+    content: [{ type: "text", text: isError ? "failed" : "ok" }],
+    isError,
+    timestamp: Date.now(),
+  };
+}
 
 test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项目泄漏", async () => {
   const tmpDir = path.join(os.tmpdir(), `narrative-isolation-${Date.now()}`);

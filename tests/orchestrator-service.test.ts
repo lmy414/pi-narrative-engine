@@ -34,6 +34,22 @@ function makeResult(mode: "plan" | "yolo" = "plan"): OrchestratorResult {
     errors: [],
     cast: [],
     retrievalPlan: { items: [], description: "" },
+    stages: [
+      {
+        stage: "planner",
+        agent: "planner",
+        status: "done",
+        durationMs: 12,
+        provider: "test-provider",
+        model: "test-planner",
+      },
+      {
+        stage: "role",
+        agent: "role",
+        status: "error",
+        error: "char_a: role failed",
+      },
+    ],
     ...(mode === "yolo" ? {
       diffusion: { changes: [] } as DiffusionOutput,
       render: { chapterPath: "chapters/ch001.md", text: "正文" } as RenderOutput,
@@ -192,7 +208,54 @@ test("listPlans：待确认 plan 摘要，commit/discard 后移除", async () =>
   assert.deepEqual(plans[0].characterIds, ["char_a"]);
   assert.equal(plans[0].outputCount, 0);
   assert.equal(plans[0].errorCount, 0);
+  assert.equal("stages" in plans[0], false, "status 摘要不暴露 stages");
 
   assert.equal(service.discard("plan_test_1").ok, true);
   assert.equal(service.listPlans().length, 0, "discard 后 listPlans 为空");
+});
+
+test("getPlan：返回公开详情 DTO，且 commit/discard 后不可查询", async () => {
+  const result = makeResult("plan");
+  result.outputs = [{ actor: "char_a", action: "前进" } as never];
+  result.cast = [{ characterId: "char_a", name: "甲", summary: "角色摘要" }];
+  result.errors = [{ characterId: "char_a", error: "role failed" }];
+  const { fake } = makeFakeOrchestrator({ result });
+  const service = new OrchestratorService(fake);
+  service.dispatch(result.event);
+  await waitWorker();
+
+  const detail = service.getPlan("plan_test_1");
+  assert.deepEqual(Object.keys(detail ?? {}).sort(), [
+    "cast",
+    "characterIds",
+    "errors",
+    "mode",
+    "outputs",
+    "planId",
+    "retrievalPlan",
+    "stages",
+    "storyTime",
+  ]);
+  assert.deepEqual(detail?.stages.map(({ stage, status }) => ({ stage, status })), [
+    { stage: "planner", status: "done" },
+    { stage: "role", status: "error" },
+  ]);
+  assert.equal(detail?.stages[1].durationMs, undefined, "不存在的可选字段保持省略");
+  assert.equal("event" in (detail ?? {}), false);
+  assert.equal("commit" in (detail ?? {}), false);
+
+  detail!.characterIds.push("mutated");
+  detail!.stages[0].status = "error";
+  detail!.outputs[0].state_changes = [{ property: "mutated" }] as never;
+  assert.deepEqual(service.getPlan("plan_test_1")?.characterIds, ["char_a"], "返回只读副本");
+  assert.equal(service.getPlan("plan_test_1")?.stages[0].status, "done");
+  assert.equal(service.getPlan("plan_test_1")?.outputs[0].state_changes, undefined);
+
+  await service.commit("plan_test_1");
+  assert.equal(service.getPlan("plan_test_1"), undefined);
+
+  service.dispatch(result.event);
+  await waitWorker();
+  assert.equal(service.discard("plan_test_1").ok, true);
+  assert.equal(service.getPlan("plan_test_1"), undefined);
 });

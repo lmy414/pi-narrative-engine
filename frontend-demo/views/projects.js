@@ -67,7 +67,7 @@ ViewAfterRender.projects = () => {};
 
 function projectsList() {
   const ns = viewState('projects');
-  return ns.scannedProjects || App.viewState.scannedProjects || MOCK_PROJECTS;
+  return ns.scannedProjects || App.viewState.scannedProjects || (ApiRuntime.isMock ? MOCK_PROJECTS : []);
 }
 
 function projectsScanRoots() {
@@ -76,7 +76,7 @@ function projectsScanRoots() {
     ? ns.scanRoots
     : ((App.viewState.scanRoots && App.viewState.scanRoots.length)
         ? App.viewState.scanRoots
-        : MOCK_APP_CONFIG.launcher.defaultScanRoots);
+        : (ApiRuntime.isMock ? MOCK_APP_CONFIG.launcher.defaultScanRoots : []));
   return roots.join('; ');
 }
 

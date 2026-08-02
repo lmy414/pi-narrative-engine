@@ -12,8 +12,7 @@
  * 数据模型（api-mock.js / mock-data.js）：
  *   - getEntityHistory(id) → { entity, declarations, relations, events }
  *   - getEntity(id, storyTime) → 指定时间点的实体快照（用于时间线预览）
- *   - setVisibility(characterId, declarationId, confidence, source, storyTime, state)
- *     已扩展支持 state（known / suspected），事件溯源：先闭合旧可见性再写新记录
+ *   - setVisibility(characterId, declarationId, confidence, source, storyTime)
  */
 
 // ---------- 常量 ----------
@@ -25,7 +24,7 @@ const PROPERTY_LABELS = {
   region: '区域', type: '类型', hasRuin: '遗迹发现'
 };
 
-const VIS_STATE_LABELS = { known: '已知', suspected: '推测', unknown: '未知' };
+const VIS_STATE_LABELS = { known: '已知', unknown: '未知' };
 
 // 声明来源 → 展示标签/图标（engine=AI 推理，user=手动；与 MOCK_EVENTS.source 语义一致）
 const DETAIL_SOURCES = {
@@ -61,7 +60,9 @@ function detailEntityName(entity) {
 }
 
 function detailOtherEntity(entityId) {
-  return (MOCK_ENTITIES || []).find(e => e.entityId === entityId) || null;
+  return (App.viewState.entityIndex && App.viewState.entityIndex[entityId])
+    || (ApiRuntime.isMock ? (MOCK_ENTITIES || []).find(e => e.entityId === entityId) : null)
+    || null;
 }
 
 function detailEntityTypeColor(entityId) {
@@ -358,12 +359,12 @@ function detailRelationsPanel() {
 
 function detailVisibilityPanel() {
   const decls = (detailState.data && detailState.data.declarations) || [];
-  const chars = (MOCK_ENTITIES || []).filter(e => e.entityType === 'character');
+  const chars = Object.values(App.viewState.entityIndex || {}).filter(e => e.entityType === 'character');
 
   const cell = (decl, ch) => {
     const rec = detailVisFor(decl.declarationId, ch.entityId);
-    const state = rec ? rec.state : 'unknown';
-    const sym = state === 'known' ? '✓' : state === 'suspected' ? '~' : '?';
+    const state = rec && rec.state === 'known' ? 'known' : 'unknown';
+    const sym = state === 'known' ? '✓' : '?';
     const title = rec
       ? `${VIS_STATE_LABELS[state]} · 置信 ${Math.round((rec.confidence || 0) * 100)}% · ${rec.source}`
       : '未知 · 点击设置';
@@ -383,7 +384,6 @@ function detailVisibilityPanel() {
     <div class="section-label">角色 × 声明 可见性矩阵</div>
     <div class="visibility-legend">
       <span class="legend-item"><span class="visibility-cell known">✓</span><span>已知</span></span>
-      <span class="legend-item"><span class="visibility-cell suspected">~</span><span>推测</span></span>
       <span class="legend-item"><span class="visibility-cell unknown">?</span><span>未知</span></span>
     </div>
     ${decls.length ? `<table class="visibility-matrix"><thead>${head}</thead><tbody>${body}</tbody></table>` : '<div class="detail-empty">暂无声明可设置可见性</div>'}
@@ -545,13 +545,12 @@ async function detailSaveNewRelation() {
 
 async function detailVisibilityClick(characterId, declarationId) {
   const rec = detailVisFor(declarationId, characterId);
-  const cur = rec ? rec.state : 'unknown';
-  const next = cur === 'known' ? 'suspected' : cur === 'suspected' ? 'unknown' : 'known';
+  const next = rec && rec.state === 'known' ? 'unknown' : 'known';
   await withLoading(async () => {
     if (next === 'unknown') {
       await apiCall('closeVisibility', characterId, declarationId, App.storyTime);
     } else {
-      await apiCall('setVisibility', characterId, declarationId, 0.9, 'informed', App.storyTime, next);
+      await apiCall('setVisibility', characterId, declarationId, 0.9, 'informed', App.storyTime);
     }
     toast(next === 'unknown' ? '可见性已撤销（未知）' : `可见性已设为「${VIS_STATE_LABELS[next]}」`, 'success');
     await reloadDetail({});

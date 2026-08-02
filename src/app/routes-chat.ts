@@ -130,6 +130,7 @@ export async function handleChatApi(
         cwd: host?.cwd ?? null,
         isStreaming: host?.session.isStreaming ?? false,
         systemPrompt: host?.session.systemPrompt ?? null,
+        sessionId: host?.session.sessionId ?? null,
         modelFallbackMessage: host?.modelFallbackMessage ?? null,
       });
       return true;
@@ -139,6 +140,7 @@ export async function handleChatApi(
     if (segment === "/sessions" && method === "GET") {
       requireActiveDir(ctx);
       const sessions = await ctx.chatContext.listSessions();
+      const liveId = ctx.chatContext.activeHost?.session.sessionId ?? null;
       ok(res, {
         sessions: sessions.map((s) => ({
           id: s.id,
@@ -147,6 +149,7 @@ export async function handleChatApi(
           modified: s.modified.toISOString(),
           messageCount: s.messageCount,
           firstMessage: s.firstMessage,
+          live: liveId !== null && s.id === liveId,
         })),
       });
       return true;
@@ -186,6 +189,9 @@ function handleChatEvents(
     "access-control-allow-origin": "*",
     "X-Accel-Buffering": "no",
   });
+  // 立即冲刷头部 + 首条注释：无事件期间客户端也能立刻确认连接已建立
+  res.flushHeaders();
+  res.write(`:connected\n\n`);
 
   function send(event: unknown): void {
     try {

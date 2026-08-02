@@ -90,13 +90,13 @@ function flTimeHHmm(iso) {
 // ==================== 数据加载（覆盖 viewLoaders.files） ====================
 
 async function flLoadData() {
-  const tree = await apiCall('getFileTree');
-  setFlState('flTree', tree || []);
+  const fileData = await apiCall('getFileTree');
+  setFlState('flTree', fileData.tree || []);
 
   if (flState('flChaptersDir', null) === null) {
     try {
       const novel = await apiCall('getNovelJson');
-      setFlState('flChaptersDir', (novel && novel.chaptersDir) || '正文');
+      setFlState('flChaptersDir', (novel.data && novel.data.chaptersDir) || '正文');
     } catch (e) {
       setFlState('flChaptersDir', '正文');
     }
@@ -173,7 +173,7 @@ function flSidebarHtml() {
         <span class="fl-sidebar-title">${icon('folder-tree', 'w-4 h-4')} 项目文件</span>
         <span class="fl-sidebar-actions">
           <button class="fl-new-btn" title="新建文件" onclick="flOpenCreate('file', null)">${icon('file-plus', 'w-4 h-4')}</button>
-          <button class="fl-new-btn" title="新建文件夹" onclick="flOpenCreate('folder', null)">${icon('folder-plus', 'w-4 h-4')}</button>
+          ${ApiRuntime.isMock ? `<button class="fl-new-btn" title="新建文件夹" onclick="flOpenCreate('folder', null)">${icon('folder-plus', 'w-4 h-4')}</button>` : ''}
         </span>
       </div>
       <div class="fl-sidebar-hint">章节目录：${escapeHtml(flState('flChaptersDir', '正文'))}（来自 novel.json）</div>
@@ -182,7 +182,7 @@ function flSidebarHtml() {
 }
 
 function flTreeHtml(nodes, depth) {
-  return (nodes || []).map((n) => (n.type === 'dir' ? flDirHtml(n, depth) : flFileHtml(n, depth))).join('');
+  return (nodes || []).map((n) => (n.kind === 'dir' ? flDirHtml(n, depth) : flFileHtml(n, depth))).join('');
 }
 
 function flDirHtml(node, depth) {
@@ -223,7 +223,7 @@ function flIsDirExpanded(path) {
 function flCollectDirs(nodes) {
   const out = [];
   (nodes || []).forEach((n) => {
-    if (n.type === 'dir') {
+    if (n.kind === 'dir') {
       out.push(n.path);
       out.push.apply(out, flCollectDirs(n.children));
     }
@@ -236,9 +236,11 @@ function flMenuHtml(path, type) {
   const items = [];
   if (type === 'dir') {
     items.push(flMenuItem('file-plus', '新建文件', `flOpenCreate('file',${flJs(path)})`));
-    items.push(flMenuItem('folder-plus', '新建文件夹', `flOpenCreate('folder',${flJs(path)})`));
-    items.push(flMenuItem('pencil', '重命名', `flOpenRename(${flJs(path)})`));
-    items.push(flMenuItem('trash-2', '删除', `flOpenDelete(${flJs(path)})`, true));
+    if (ApiRuntime.isMock) {
+      items.push(flMenuItem('folder-plus', '新建文件夹', `flOpenCreate('folder',${flJs(path)})`));
+      items.push(flMenuItem('pencil', '重命名', `flOpenRename(${flJs(path)})`));
+      items.push(flMenuItem('trash-2', '删除', `flOpenDelete(${flJs(path)})`, true));
+    }
   } else {
     items.push(flMenuItem('pencil', '重命名', `flOpenRename(${flJs(path)})`));
     items.push(flMenuItem('trash-2', '删除', `flOpenDelete(${flJs(path)})`, true));
@@ -668,7 +670,7 @@ function flFindNode(nodes, path) {
 
 function flIsDirPath(path) {
   const n = flFindNode(flState('flTree', []), path);
-  return !!n && n.type === 'dir';
+  return !!n && n.kind === 'dir';
 }
 
 // ---------- 新建 / 重命名 / 删除（modal 闭环） ----------

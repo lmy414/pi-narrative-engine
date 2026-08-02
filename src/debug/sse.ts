@@ -37,6 +37,9 @@ export function handleDebugStream(
     "access-control-allow-origin": "*",
     "X-Accel-Buffering": "no", // Nginx 等代理不缓冲
   });
+  // 立即冲刷头部 + 首条注释：缓冲为空时客户端也能立刻确认连接已建立
+  res.flushHeaders();
+  res.write(`:connected\n\n`);
 
   // 发送一条 SSE 消息
   function send(event: unknown): void {

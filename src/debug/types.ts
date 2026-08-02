@@ -53,6 +53,17 @@ export interface DebugBus {
   clear(): void;
 }
 
+/** 项目绑定的异步持久化目标；队列与失败隔离由 bus.ts 统一处理。 */
+export interface DebugEventSink {
+  write(event: DebugEvent): Promise<void>;
+}
+
+/** 带异步持久化队列的项目 DebugBus。 */
+export interface DrainableDebugBus extends DebugBus {
+  /** 等待调用前已排队的事件全部完成（包括失败隔离后的队列）。 */
+  drain(): Promise<void>;
+}
+
 /**
  * 阶段追踪器：用于在 try/finally 中配对 start/end 事件
  *

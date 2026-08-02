@@ -4,7 +4,7 @@
  * 本文件只保留 unified-server 导入的静态服务与请求体解析 helper。
  * 独立启动入口（startVisualizer / VisualizerServer）已移除。
  *
- * 静态服务：uiDir 默认为 <仓库根>/visualizer-ui。
+ * 静态服务：uiDir 默认为 <仓库根>/frontend-demo。
  * - 开发态：src/visualizer/server.ts 上两级 = 仓库根
  * - 构建态：dist/visualizer/server.js 上两级 = 仓库根
  * - 同步态：novel/.pi/extensions/narrative-engine/visualizer/server.js
@@ -41,6 +41,8 @@ const CONTENT_TYPES: Record<string, string> = {
 /** 解析默认 uiDir：兼容开发/构建（上两级）与同步到扩展目录（上一级）两种布局 */
 export function resolveDefaultUiDir(): string {
   const candidates = [
+    resolve(__dirname, "../../frontend-demo"),
+    resolve(__dirname, "../frontend-demo"),
     resolve(__dirname, "../../visualizer-ui"),
     resolve(__dirname, "../visualizer-ui"),
   ];

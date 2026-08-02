@@ -44,8 +44,12 @@ function setEventState(key, value) {
 // ==================== 数据加载（覆盖 viewLoaders.events） ====================
 
 async function eventLoadData() {
-  const data = await apiCall('getEvents');
+  const [data, graph] = await Promise.all([
+    apiCall('getEvents'),
+    apiCall('getGraph', App.storyTime)
+  ]);
   const events = data && data.events ? data.events : [];
+  App.viewState.entityIndex = Object.fromEntries((graph.entities || []).map((entity) => [entity.entityId, entity]));
   // 注意：数据键用 eventList 而非 events —— 命名空间键名本身是 'events'，
   // 若双写同名键会把 viewState('events') 命名空间对象覆盖成数组（参考 graph.js 用 graphData 键）
   setEventState('eventList', events);
@@ -98,7 +102,9 @@ function eventEntityIds(ev) {
 }
 
 function eventEntity(entityId) {
-  return (MOCK_ENTITIES || []).find(e => e.entityId === entityId) || null;
+  return (App.viewState.entityIndex && App.viewState.entityIndex[entityId])
+    || (ApiRuntime.isMock ? (MOCK_ENTITIES || []).find(e => e.entityId === entityId) : null)
+    || null;
 }
 
 function eventEntityName(entityId) {
@@ -121,7 +127,7 @@ function eventEntityTypeColor(entityId) {
 
 function eventInvalidText(inv) {
   if (!inv) return '';
-  const decl = (MOCK_DECLARATIONS || []).find(d => d.declarationId === inv.declarationId);
+  const decl = ApiRuntime.isMock ? (MOCK_DECLARATIONS || []).find(d => d.declarationId === inv.declarationId) : null;
   if (decl) {
     const v = decl.value == null ? '∅' : decl.value;
     return `${eventEntityName(decl.entityId)}.${decl.property} = ${v}`;
@@ -386,14 +392,32 @@ ViewAfterRender.events = () => {
 
 // ==================== 交互 ====================
 
-async function eventSelectEvent(eventId) {
+function eventSelectEvent(eventId) {
   setEventState('selectedEventId', eventId);
   const expanded = (eventState('eventExpanded', []) || []).slice();
   if (!expanded.includes(eventId)) {
     expanded.push(eventId);
     setEventState('eventExpanded', expanded);
   }
-  renderView();
+  // 定向更新（不做整视图重建）：保留滚动位置，避免点击后跳回列表顶部
+  document.querySelectorAll('.ev-event-card.selected').forEach((el) => el.classList.remove('selected'));
+  const card = $('.ev-event-card[data-event-id="' + eventId + '"]');
+  if (card) {
+    card.classList.add('selected');
+    if (!card.classList.contains('expanded')) {
+      card.classList.add('expanded');
+      const t = card.querySelector('.ev-event-expand-text');
+      if (t) t.textContent = '收起详情';
+    }
+  }
+  const selected = (eventState('eventList', []) || []).find((e) => e.eventId === eventId);
+  const panel = $('.ev-causal-panel');
+  if (panel) {
+    panel.outerHTML = selected
+      ? eventCausalPanelHtml(selected)
+      : '<aside class="ev-causal-panel"><div class="ev-panel-empty">选择事件查看详情</div></aside>';
+  }
+  refreshIcons();
 }
 
 function eventToggleExpand(eventId) {

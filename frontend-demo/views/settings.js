@@ -107,7 +107,8 @@ async function settingsLoad() {
   const appConfig = await apiCall('getAppConfig');
   setSettingsState('setAppConfig', appConfig);
 
-  const llm = await apiCall('getLlmStatus');
+  const llmData = await apiCall('getLlmStatus');
+  const llm = llmData.slots || {};
   setSettingsState('setLlmStatus', llm);
 
   // 本地密钥列表：首次从 llm 状态派生（哪些 provider 有密钥），后续保留用户增删
@@ -117,13 +118,19 @@ async function settingsLoad() {
 
   // 项目级数据：仅在激活项目时拉取（getRulesets/getNovelJson/getEnvConfig 内部 requireActiveProject）
   if (App.activeProject) {
-    try { setSettingsState('setRulesets', await apiCall('getRulesets')); } catch (e) { /* 无项目则保留空 */ }
-    try { setSettingsState('setNovelJson', await apiCall('getNovelJson')); } catch (e) {}
+    try {
+      const rulesetData = await apiCall('getRulesets');
+      setSettingsState('setRulesets', Object.fromEntries((rulesetData.rulesets || []).map((item) => [item.name, item.content])));
+    } catch (e) { /* 无项目则保留空 */ }
+    try {
+      const novelData = await apiCall('getNovelJson');
+      setSettingsState('setNovelJson', novelData.data || {});
+    } catch (e) {}
     try {
       const env = await apiCall('getEnvConfig');
-      setSettingsState('setEnvConfig', env);
+      setSettingsState('setEnvConfig', env.values || {});
       if (settingsState('setPiDebug', null) === null) {
-        setSettingsState('setPiDebug', env.PI_DEBUG === 'on' || env.PI_DEBUG === 'true');
+        setSettingsState('setPiDebug', env.values.PI_DEBUG === 'on' || env.values.PI_DEBUG === 'true');
       }
     } catch (e) {}
   }
@@ -473,9 +480,9 @@ async function settingsConfirmDeleteKey(i) {
 function settingsPanelEmbedder() {
   const st = settingsState('setEmbedder', {}) || {};
   const model = st.model || '—';
-  const dims = st.dimensions != null ? st.dimensions : '—';
-  const cache = st.cacheSize != null ? st.cacheSize : '—';
-  const warmed = !!st.warmedUp;
+  const dims = st.dim != null ? st.dim : '—';
+  const cache = st.cacheSizeBytes != null ? `${Math.round(st.cacheSizeBytes / 1024)} KB` : '—';
+  const warmed = !!st.cachePresent;
   return `
     <div>
       <h1 class="set-page-title">向量模型</h1>
@@ -492,7 +499,7 @@ function settingsPanelEmbedder() {
         </div>
         <div class="set-embedder-stat">
           <div class="set-embedder-label">缓存状态</div>
-          <div class="set-embedder-value set-embedder-cache">${warmed ? '已预热' : '未预热'} · ${cache} 条</div>
+          <div class="set-embedder-value set-embedder-cache">${warmed ? '已缓存' : '无缓存'} · ${cache}</div>
         </div>
       </div>
 
@@ -525,7 +532,7 @@ function settingsPanelEmbedder() {
 async function settingsWarmupEmbedder() {
   try { await apiCall('warmupEmbedder'); } catch (e) { handleApiError(e); return; }
   const st = settingsState('setEmbedder', {}) || {};
-  setSettingsState('setEmbedder', { ...st, warmedUp: true });
+  setSettingsState('setEmbedder', { ...st, cachePresent: true });
   toast('预热请求已发送', 'success');
   renderView();
 }
@@ -541,7 +548,7 @@ async function settingsConfirmClearCache() {
   closeModal();
   try { await apiCall('clearEmbedderCache'); } catch (e) { handleApiError(e); return; }
   const st = settingsState('setEmbedder', {}) || {};
-  setSettingsState('setEmbedder', { ...st, cacheSize: 0 });
+  setSettingsState('setEmbedder', { ...st, cachePresent: false, cacheSizeBytes: 0 });
   toast('向量缓存已清除', 'info');
   renderView();
 }
@@ -948,15 +955,15 @@ async function settingsSaveEnv() {
   const embEl = $('#set-env-embedder');
   const piDebug = !!settingsState('setPiDebug', false);
   const patch = {
-    HF_ENDPOINT: hfEl ? hfEl.value : '',
+    HF_ENDPOINT: hfEl && hfEl.value ? hfEl.value : null,
     PI_DEBUG: piDebug ? 'on' : 'off',
-    PI_EMBEDDER_MODEL: embEl ? embEl.value : '',
+    PI_EMBEDDER_MODEL: embEl && embEl.value ? embEl.value : null,
   };
   try {
     await apiCall('setEnvConfig', patch);
   } catch (e) { handleApiError(e); return; }
   const env = settingsState('setEnvConfig', {}) || {};
-  setSettingsState('setEnvConfig', { ...env, ...patch });
+  setSettingsState('setEnvConfig', Object.fromEntries(Object.entries({ ...env, ...patch }).filter(([, value]) => value !== null)));
   toast('环境变量已保存', 'success');
   renderView();
 }

@@ -93,13 +93,11 @@ const MOCK_VISIBILITY = [
   { characterId: 'char-01', declarationId: 'decl-04', state: 'known', confidence: 0.9, source: 'informed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
   { characterId: 'char-02', declarationId: 'decl-02', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
   { characterId: 'char-03', declarationId: 'decl-03', state: 'known', confidence: 0.7, source: 'informed', validFrom: 'ch003.ev005', validTo: 'Infinity' },
-  // 补充记录：覆盖 char-01 各声明的可见性矩阵（known / suspected / unknown 混合展示）
+  // 缺少有效 known 记录的角色在矩阵中显示为 unknown。
   { characterId: 'char-01', declarationId: 'decl-02', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
   { characterId: 'char-01', declarationId: 'decl-03', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch003.ev005', validTo: 'Infinity' },
   { characterId: 'char-02', declarationId: 'decl-01', state: 'known', confidence: 0.85, source: 'informed', validFrom: 'ch001.ev002', validTo: 'Infinity' },
-  { characterId: 'char-02', declarationId: 'decl-03', state: 'suspected', confidence: 0.6, source: 'inferred', validFrom: 'ch003.ev005', validTo: 'Infinity' },
   { characterId: 'char-03', declarationId: 'decl-02', state: 'known', confidence: 0.8, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' },
-  { characterId: 'char-03', declarationId: 'decl-04', state: 'suspected', confidence: 0.5, source: 'inferred', validFrom: 'ch001.ev001', validTo: 'Infinity' },
   { characterId: 'char-01', declarationId: 'decl-05', state: 'known', confidence: 1.0, source: 'witnessed', validFrom: 'ch001.ev001', validTo: 'Infinity' }
 ];
 
@@ -126,33 +124,31 @@ const MOCK_CHAT_MESSAGES = {
     { role: 'user', text: '接下来让艾莉亚在第七星港遇到一个神秘商人，触发她的身世线索。', ts: '2026-08-02T03:00:00Z' },
     {
       role: 'assistant',
-      name: '策划 AI',
       text: '好的，我来规划这段剧情。先让我检索一下世界图中第七星港和艾莉亚的当前状态。',
       ts: '2026-08-02T03:00:02Z',
       toolCalls: [
-        { name: '检索世界图', icon: 'search', status: 'done', duration: '1.2s', result: '找到 3 个相关实体：艾莉亚（角色）、第七星港（地点）、破碎星图（物品）' },
-        { name: '调用编排器', icon: 'git-branch', status: 'done', duration: '2.4s', result: '编排规划完成，生成 3 个阶段任务' }
+        { id: 'tool-01', name: '检索世界图', status: 'done', isError: false },
+        { id: 'tool-02', name: '调用编排器', status: 'done', isError: false }
       ]
     },
     { role: 'system', text: 'AI 触发编排 · 多代理协作中', ts: '2026-08-02T03:00:05Z' },
-    { role: 'character', name: '林远航', characterId: 'char-01', roleTag: '主角', text: '这颗共鸣水晶…… 为何我觉得如此熟悉？仿佛在哪里见过。商人，你这水晶从何而来？', ts: '2026-08-02T03:00:06Z' },
-    { role: 'assistant', name: '策划 AI', text: '已生成编排计划（计划 plan-01），等待你的确认。', ts: '2026-08-02T03:00:08Z' }
+    { role: 'assistant', text: '已生成编排计划（计划 plan-01），等待你的确认。', ts: '2026-08-02T03:00:08Z' }
   ],
   'session-04': [
     { role: 'user', text: '林远航与老陈的争执场景', ts: '2026-08-02T00:40:00Z' },
-    { role: 'assistant', name: '策划 AI', text: '建议在迷雾星云外围设置一次补给站冲突：老陈坚持返航，林远航执意深入。', ts: '2026-08-02T00:40:30Z' }
+    { role: 'assistant', text: '建议在迷雾星云外围设置一次补给站冲突：老陈坚持返航，林远航执意深入。', ts: '2026-08-02T00:40:30Z' }
   ],
   'session-05': [
     { role: 'user', text: '引入一个神秘商人角色', ts: '2026-08-02T02:24:00Z' },
-    { role: 'assistant', name: '策划 AI', text: '新角色「墨先生」：第七星港黑市的古董商，掌握远古遗物的线索，与艾莉亚的身世存在隐秘关联。', ts: '2026-08-02T02:24:40Z' }
+    { role: 'assistant', text: '新角色「墨先生」：第七星港黑市的古董商，掌握远古遗物的线索，与艾莉亚的身世存在隐秘关联。', ts: '2026-08-02T02:24:40Z' }
   ],
   'session-06': [
     { role: 'user', text: '规划曙光号进入迷雾星云', ts: '2026-08-01T14:00:00Z' },
-    { role: 'assistant', name: '策划 AI', text: '进入迷雾星云的三个关键节点：电磁干扰爆发、远古星门显形、第一次遭遇未知信号。', ts: '2026-08-01T14:01:00Z' }
+    { role: 'assistant', text: '进入迷雾星云的三个关键节点：电磁干扰爆发、远古星门显形、第一次遭遇未知信号。', ts: '2026-08-01T14:01:00Z' }
   ],
   'session-07': [
     { role: 'user', text: '星门协议是什么', ts: '2026-08-01T08:00:00Z' },
-    { role: 'assistant', name: '策划 AI', text: '星门协议是一种古老的星际航行技术，据说能折叠空间，但完整的协议早已失传。', ts: '2026-08-01T08:01:00Z' }
+    { role: 'assistant', text: '星门协议是一种古老的星际航行技术，据说能折叠空间，但完整的协议早已失传。', ts: '2026-08-01T08:01:00Z' }
   ]
 };
 
@@ -165,55 +161,38 @@ const MOCK_SCHEDULER_STATUS = {
       mode: 'plan',
       characterIds: ['char-01', 'char-02'],
       outputCount: 3,
-      errorCount: 0,
-      stages: [
-        { stage: 'planner', name: '规划', agent: '策划代理', status: 'done', duration: '4.2s' },
-        { stage: 'role', name: '角色', agent: '角色代理', status: 'running', duration: '2.8s' },
-        { stage: 'reasoner', name: '推理', agent: '推理代理', status: 'waiting', duration: null },
-        { stage: 'renderer', name: '渲染', agent: '渲染代理', status: 'waiting', duration: null }
-      ],
-      sections: [
-        {
-          id: 'planning',
-          title: '策划阶段结果',
-          icon: 'list',
-          bullets: [
-            '在第七星港集市引入神秘商人，兜售远古遗物',
-            '新增「共鸣水晶」关联剧情，指向艾莉亚的身世线索',
-            '触发事件「星港集市相遇」，推进主线剧情'
-          ]
-        },
-        {
-          id: 'characters',
-          title: '角色演绎片段预览',
-          icon: 'users',
-          snippets: [
-            { speaker: '林远航', text: '这颗共鸣水晶…… 为何我觉得如此熟悉？仿佛在哪里见过。' },
-            { speaker: '神秘商人', text: '小伙子好眼力。这块水晶乃是上古遗物，与星辰之海的旧族有关。' }
-          ]
-        }
-      ]
+      errorCount: 0
     }
   ],
   defaultMode: 'plan'
 };
 
+const MOCK_PLAN_DETAILS = {
+  'plan-01': {
+    planId: 'plan-01', storyTime: 'ch006.ev008', mode: 'plan', characterIds: ['char-01', 'char-02'],
+    cast: [
+      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长' },
+      { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员' }
+    ],
+    outputs: [
+      { actor: '林远航', action: '质问商人水晶的来历', thought: '这件遗物与父亲有关', emotion: '警觉', state_changes: [], knowledge_gained: ['共鸣水晶来自旧族'] },
+      { actor: '艾莉亚', action: '观察水晶上的旧族纹章', thought: '纹章与自己的身世有关', emotion: '震动', state_changes: [], knowledge_gained: ['商人掌握旧族线索'] }
+    ],
+    retrievalPlan: { query: '第七星港 艾莉亚 共鸣水晶' }, errors: [],
+    stages: [
+      { stage: 'planner', agent: '策划代理', status: 'done', durationMs: 4200, provider: 'pi', model: 'default' },
+      { stage: 'role', agent: '角色代理', status: 'done', durationMs: 2800, provider: 'pi', model: 'default' }
+    ]
+  }
+};
+
 const MOCK_DEBUG_EVENTS = [
-  { id: 'log-01', level: 'info', module: 'orchestrator', stage: 'orchestrator', traceId: 'trace-01', spanId: 'span-root', type: 'start', message: '编排开始', payload: { provider: 'pi', model: 'default' }, ts: '2026-08-02T03:15:00Z' },
-  { id: 'log-02', level: 'info', module: 'planner', stage: 'planner', traceId: 'trace-01', spanId: 'span-planner', type: 'start', message: '规划阶段开始', payload: {}, ts: '2026-08-02T03:15:01Z' },
-  { id: 'log-03', level: 'info', module: 'planner', stage: 'planner', traceId: 'trace-01', spanId: 'span-planner', type: 'end', message: '规划阶段完成', payload: { provider: 'pi', model: 'planner', durationMs: 1200 }, ts: '2026-08-02T03:15:03Z' },
-  { id: 'log-04', level: 'info', module: 'role', stage: 'role', traceId: 'trace-01', spanId: 'span-role', type: 'start', message: '角色阶段开始', payload: {}, ts: '2026-08-02T03:15:04Z' },
-  { id: 'log-05', level: 'info', module: 'role', stage: 'role', traceId: 'trace-01', spanId: 'span-role', type: 'end', message: '角色阶段完成', payload: { provider: 'pi', model: 'role', durationMs: 2500 }, ts: '2026-08-02T03:15:07Z' },
-  { id: 'log-06', level: 'warn', module: 'reasoner', stage: 'reasoner', traceId: 'trace-01', spanId: 'span-reasoner', type: 'start', message: '推演阶段开始', payload: {}, ts: '2026-08-02T03:15:08Z' },
-  { id: 'log-07', level: 'info', module: 'reasoner', stage: 'reasoner', traceId: 'trace-01', spanId: 'span-reasoner', type: 'end', message: '推演阶段完成', payload: { changes: 2, visibilityChanges: 1, changeList: ['char-01.location', 'loc-02.hasRuin'] }, ts: '2026-08-02T03:15:12Z' },
-  { id: 'log-08', level: 'info', module: 'renderer', stage: 'renderer', traceId: 'trace-01', spanId: 'span-renderer', type: 'start', message: '渲染阶段开始', payload: {}, ts: '2026-08-02T03:15:13Z' },
-  { id: 'log-09', level: 'info', module: 'renderer', stage: 'renderer', traceId: 'trace-01', spanId: 'span-renderer', type: 'end', message: '渲染阶段完成', payload: { chapterPath: '正文/ch006.md', chars: 3200, title: '第六章 星门遗迹' }, ts: '2026-08-02T03:15:18Z' },
-  { id: 'log-10', level: 'info', module: 'orchestrator', stage: 'orchestrator', traceId: 'trace-01', spanId: 'span-root', type: 'end', message: '编排完成', payload: { durationMs: 18000 }, ts: '2026-08-02T03:15:19Z' },
-  { id: 'log-11', level: 'debug', module: 'world-graph', stage: 'world-graph', traceId: 'trace-01', spanId: 'span-graph', type: 'log', message: '世界图快照加载完成（132 实体 / 358 关系）', payload: { entities: 132, relations: 358 }, ts: '2026-08-02T03:15:20Z' },
-  { id: 'log-12', level: 'warn', module: 'reasoner', stage: 'reasoner', traceId: 'trace-01', spanId: 'span-reasoner', type: 'log', message: '实体「古玉佩」存在冲突声明，已按时间线裁决', payload: { entityId: 'item-03', conflicts: 2 }, ts: '2026-08-02T03:15:21Z' },
-  { id: 'log-13', level: 'error', module: 'renderer', stage: 'renderer', traceId: 'trace-02', spanId: 'span-renderer', type: 'end', message: '章节渲染失败 - 模型响应超时（30s）', payload: { chapterPath: '正文/ch007.md', durationMs: 30000, error: 'timeout' }, stack: ['RenderSession.renderChapter (renderer-agent.ts:142)', 'LLMProvider.stream (providers/anthropic.ts:89)', 'AbortError: The operation was aborted due to timeout'], ts: '2026-08-02T03:15:22Z' },
-  { id: 'log-14', level: 'debug', module: 'world-graph', stage: 'world-graph', traceId: 'trace-02', spanId: 'span-graph', type: 'log', message: '写入 1 个新实体（墨先生），类型：人物', payload: { entityId: 'char-09', entityType: 'character' }, ts: '2026-08-02T03:15:23Z' },
-  { id: 'log-15', level: 'error', module: 'embedder', stage: 'embedder', traceId: 'trace-02', spanId: 'span-embedder', type: 'log', message: '嵌入服务连接失败，已降级为本地嵌入模型', payload: { service: 'text-embedding-3', fallback: 'local-minilm' }, stack: ['EmbeddingClient.connect (embedding/client.ts:54)', 'ConnectionRefusedError: localhost:8001'], ts: '2026-08-02T03:15:24Z' }
+  { id: 'debug-01', ts: 1785640500000, traceId: 'trace-01', stage: 'orchestrator', status: 'start', input: { instruction: '推进第六章' } },
+  { id: 'debug-02', ts: 1785640501000, traceId: 'trace-01', stage: 'planner', status: 'start', input: { storyTime: 'ch006.ev008' }, parentId: 'debug-01' },
+  { id: 'debug-03', ts: 1785640503000, traceId: 'trace-01', stage: 'planner', status: 'end', output: { eventCount: 3 }, durationMs: 1200, parentId: 'debug-01' },
+  { id: 'debug-04', ts: 1785640504000, traceId: 'trace-01', stage: 'role', status: 'start', input: { characterIds: ['char-01', 'char-02'] }, parentId: 'debug-01' },
+  { id: 'debug-05', ts: 1785640507000, traceId: 'trace-01', stage: 'role', status: 'end', output: { outputCount: 2 }, durationMs: 2500, parentId: 'debug-01' },
+  { id: 'debug-06', ts: 1785640522000, traceId: 'trace-02', stage: 'renderer', status: 'error', input: { chapterPath: '正文/ch007.md' }, durationMs: 30000, error: '模型响应超时' }
 ];
 
 const MOCK_FILES = [
@@ -271,9 +250,11 @@ const MOCK_ENV_CONFIG = {
 
 const MOCK_EMBEDDER_STATUS = {
   model: 'Xenova/all-MiniLM-L6-v2',
-  dimensions: 384,
-  warmedUp: true,
-  cacheSize: 128
+  isDefault: true,
+  dim: 384,
+  cachePresent: true,
+  cachePath: '.pi/cache/embedder',
+  cacheSizeBytes: 131072
 };
 
 const MOCK_VERSION = { local: '2.0.0', remote: '2.0.0', updateAvailable: false };
@@ -299,6 +280,7 @@ let fileContents = {};
 let chatSessions = JSON.parse(JSON.stringify(MOCK_CHAT_SESSIONS));
 let chatMessages = JSON.parse(JSON.stringify(MOCK_CHAT_MESSAGES));
 let schedulerStatus = JSON.parse(JSON.stringify(MOCK_SCHEDULER_STATUS));
+let schedulerPlans = JSON.parse(JSON.stringify(MOCK_PLAN_DETAILS));
 let debugEvents = JSON.parse(JSON.stringify(MOCK_DEBUG_EVENTS));
 // 应用配置运行态：优先从 localStorage 恢复（刷新后保留主题等偏好），损坏/缺失时回退 mock 默认值
 let appConfig = (() => {

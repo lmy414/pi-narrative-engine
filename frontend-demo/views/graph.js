@@ -50,6 +50,7 @@ async function graphLoadData() {
   const includeClosed = graphState('includeClosed', false);
   const data = await apiCall('getGraph', App.storyTime, includeClosed ? '1' : '0');
   setGraphState('graphData', data);
+  App.viewState.entityIndex = Object.fromEntries((data.entities || []).map((entity) => [entity.entityId, entity]));
 
   const status = await apiCall('getStatus');
   setGraphState('graphStatus', status);

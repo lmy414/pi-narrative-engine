@@ -13,10 +13,20 @@
  * 线程安全：
  * - Node 单线程，无需锁；订阅者中若抛错会被 catch 吞掉（不影响其他订阅者）
  */
-import type { DebugBus, DebugEvent, DebugSpan } from "./types.ts";
+import { mkdir, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type {
+  DebugBus,
+  DebugEvent,
+  DebugEventSink,
+  DebugSpan,
+  DrainableDebugBus,
+} from "./types.ts";
 
 /** 默认环形缓冲容量 */
 const DEFAULT_CAPACITY = 1000;
+const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const DEFAULT_MAX_ROTATED_FILES = 5;
 
 /** 自增 ID 生成器（进程内唯一，重启重置） */
 let nextEventId = 1;
@@ -86,6 +96,128 @@ export function createDebugBus(capacity: number = DEFAULT_CAPACITY): DebugBus {
   }
 
   return { emit, subscribe, snapshot, clear };
+}
+
+/**
+ * 将全局内存 bus 与固定项目 sink 组合。emit 的内存/订阅者部分仍同步完成，
+ * 持久化在独立串行队列中执行，任何失败只告警。
+ */
+export function createProjectDebugBus(
+  globalBus: DebugBus,
+  sink: DebugEventSink,
+  warn: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+): DrainableDebugBus {
+  let queue = Promise.resolve();
+
+  return {
+    emit(event): void {
+      globalBus.emit(event);
+      queue = queue
+        .then(() => sink.write(event))
+        .catch((error) => warn("[debug] 写入项目日志失败", error));
+    },
+    subscribe: (listener) => globalBus.subscribe(listener),
+    snapshot: () => globalBus.snapshot(),
+    clear: () => globalBus.clear(),
+    drain: () => queue,
+  };
+}
+
+export interface DebugJsonlSinkOptions {
+  maxFileBytes?: number;
+  maxRotatedFiles?: number;
+  now?: () => Date;
+  warn?: (message: string, error: unknown) => void;
+}
+
+/** 创建写入固定项目 `<cwd>/.pi/logs/debug.jsonl` 的异步 sink。 */
+export function createDebugJsonlSink(
+  cwd: string,
+  options: DebugJsonlSinkOptions = {},
+): DebugEventSink {
+  const logsDir = join(cwd, ".pi", "logs");
+  const activePath = join(logsDir, "debug.jsonl");
+  const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+  const maxRotatedFiles = options.maxRotatedFiles ?? DEFAULT_MAX_ROTATED_FILES;
+  const now = options.now ?? (() => new Date());
+  const warn = options.warn ?? ((message: string, error: unknown) => console.warn(message, error));
+
+  return {
+    async write(event): Promise<void> {
+      await mkdir(logsDir, { recursive: true });
+      if (await fileSizeAtLeast(activePath, maxFileBytes)) {
+        await rotateDebugLog(logsDir, activePath, now());
+        await pruneRotatedLogs(logsDir, maxRotatedFiles, warn);
+      }
+      await writeFile(activePath, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "a" });
+    },
+  };
+}
+
+async function fileSizeAtLeast(path: string, threshold: number): Promise<boolean> {
+  try {
+    return (await stat(path)).size >= threshold;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function rotateDebugLog(logsDir: string, activePath: string, date: Date): Promise<void> {
+  let candidateDate = date;
+  while (true) {
+    const rotatedPath = join(logsDir, `debug-${formatRotationTimestamp(candidateDate)}.jsonl`);
+    if (await pathExists(rotatedPath)) {
+      candidateDate = new Date(candidateDate.getTime() + 1000);
+      continue;
+    }
+    try {
+      await rename(activePath, rotatedPath);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      candidateDate = new Date(candidateDate.getTime() + 1000);
+    }
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function pruneRotatedLogs(
+  logsDir: string,
+  maxFiles: number,
+  warn: (message: string, error: unknown) => void,
+): Promise<void> {
+  let rotated: string[];
+  try {
+    rotated = (await readdir(logsDir))
+      .filter((name) => /^debug-\d{8}-\d{6}\.jsonl$/.test(name))
+      .sort();
+  } catch (error) {
+    warn("[debug] 扫描轮转日志失败", error);
+    return;
+  }
+  for (const name of rotated.slice(0, Math.max(0, rotated.length - maxFiles))) {
+    try {
+      await unlink(join(logsDir, name));
+    } catch (error) {
+      warn(`[debug] 清理轮转日志失败: ${name}`, error);
+    }
+  }
+}
+
+function formatRotationTimestamp(date: Date): string {
+  const part = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${part(date.getMonth() + 1)}${part(date.getDate())}`
+    + `-${part(date.getHours())}${part(date.getMinutes())}${part(date.getSeconds())}`;
 }
 
 /**

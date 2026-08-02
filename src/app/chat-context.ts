@@ -14,7 +14,7 @@
  */
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, Usage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { SillyTavernCard } from "@pi/scheduler";
@@ -27,7 +27,8 @@ import { createRenderTools } from "../chat/render-tools.ts";
 import { createRoleTools } from "../chat/role-tools.ts";
 import { createImportTools } from "../chat/import-tools.ts";
 import { LlmConfigStore, loadLlmConfigFromEnv } from "../orchestrator/llm-config.ts";
-import type { DebugBus } from "../debug/types.ts";
+import { createDebugJsonlSink, createProjectDebugBus } from "../debug/bus.ts";
+import type { DebugBus, DebugEventSink, DrainableDebugBus } from "../debug/types.ts";
 import { Orchestrator } from "../orchestrator.ts";
 import { OrchestratorService } from "../orchestrator/service.ts";
 import { assemblePorts } from "../orchestrator/assembly.ts";
@@ -111,6 +112,53 @@ function extractMessageText(content: unknown): string {
   return "";
 }
 
+export interface HistoricalToolCall {
+  id: string;
+  name: string;
+  status: "done" | "error";
+  isError: boolean;
+}
+
+export interface UsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface HistoricalChatMessage {
+  role: string;
+  text: string;
+  ts: string;
+  toolCalls?: HistoricalToolCall[];
+  provider?: string;
+  model?: string;
+  usage?: UsageSummary;
+}
+
+function nonNegativeFinite(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function summarizeUsage(usage: Partial<Usage>): UsageSummary {
+  const inputTokens = nonNegativeFinite(usage.input);
+  const outputTokens = nonNegativeFinite(usage.output);
+  const cacheReadTokens = nonNegativeFinite(usage.cacheRead);
+  const cacheWriteTokens = nonNegativeFinite(usage.cacheWrite);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens: usage.totalTokens === undefined
+      ? inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+      : nonNegativeFinite(usage.totalTokens),
+    estimatedCostUsd: nonNegativeFinite(usage.cost?.total),
+  };
+}
+
 export interface ChatContextOptions {
   /** 多项目注册表（活跃项目来源） */
   registry: ProjectRegistry;
@@ -122,8 +170,14 @@ export interface ChatContextOptions {
   embedder?: Embedder | null;
   /** 调试总线（编排四阶段 span 埋点；null 时 no-op） */
   debugBus?: DebugBus | null;
+  /** 项目日志 sink 工厂（测试可注入临时 sink）。 */
+  createDebugSink?: (cwd: string) => DebugEventSink;
   createHost?: (options: MainSessionHostOptions) => MainSessionHost;
-  createOrchestratorService?: (active: ProjectHandle, embedder: Embedder) => Promise<OrchestratorService>;
+  createOrchestratorService?: (
+    active: ProjectHandle,
+    embedder: Embedder,
+    debugBus: DebugBus | null,
+  ) => Promise<OrchestratorService>;
 }
 
 export class ChatContext {
@@ -131,6 +185,8 @@ export class ChatContext {
   private readonly storyTimes = createProjectStoryTimeStore();
   /** 按项目目录缓存的编排器服务（项目切换后旧实例随 dispose 释放） */
   private readonly orchestratorServices = new Map<string, OrchestratorService>();
+  /** 固定 cwd 的项目 bus；保留到上下文结束，以便旧任务切换后仍写原项目并可 drain。 */
+  private readonly projectDebugBuses = new Map<string, DrainableDebugBus>();
   private readonly opts: ChatContextOptions;
 
   constructor(opts: ChatContextOptions) {
@@ -195,8 +251,9 @@ export class ChatContext {
       throw new ChatContextError("未加载向量模型（启动加 --embed），编排器不可用", "EMBEDDER_UNAVAILABLE");
     }
 
+    const projectDebugBus = this.ensureProjectDebugBus(cwd);
     if (this.opts.createOrchestratorService) {
-      const service = await this.opts.createOrchestratorService(active, embedder);
+      const service = await this.opts.createOrchestratorService(active, embedder, projectDebugBus);
       this.orchestratorServices.set(cwd, service);
       return service;
     }
@@ -215,7 +272,7 @@ export class ChatContext {
       renderRuleSet,
       staticCardLoader: DEFAULT_STATIC_CARD_LOADER,
       ports,
-      debugBus: this.opts.debugBus ?? null,
+      debugBus: projectDebugBus,
     });
     const service = new OrchestratorService(orchestrator);
     this.orchestratorServices.set(cwd, service);
@@ -262,28 +319,52 @@ export class ChatContext {
     return SessionManager.list(active.dir, sessionDir);
   }
 
-  /**
-   * 读取指定会话的历史消息（简化为 { role, text, ts }）
-   *
-   * @throws ChatContextError SESSION_NOT_FOUND（id 不在列表中）
-   */
-  async getSessionMessages(
-    sessionId: string,
-  ): Promise<Array<{ role: string; text: string; ts: string }>> {
+  /** 读取指定会话的历史消息，并聚合 assistant toolCall/toolResult。 */
+  async getSessionMessages(sessionId: string): Promise<HistoricalChatMessage[]> {
     const sessions = await this.listSessions();
     const info = sessions.find((s) => s.id === sessionId);
     if (!info) {
       throw new ChatContextError(`会话不存在: ${sessionId}`, "SESSION_NOT_FOUND");
     }
     const manager = SessionManager.open(info.path, this.requireSessionDir());
-    const messages: Array<{ role: string; text: string; ts: string }> = [];
-    for (const entry of manager.getEntries()) {
+    const entries = manager.getEntries();
+    const toolResults = new Map<string, boolean>();
+    for (const entry of entries) {
+      if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+      toolResults.set(entry.message.toolCallId, entry.message.isError);
+    }
+
+    const messages: HistoricalChatMessage[] = [];
+    for (const entry of entries) {
       if (entry.type !== "message") continue;
-      messages.push({
-        role: String(entry.message.role),
-        text: extractMessageText(entry.message.content),
+      const message = entry.message;
+      if (message.role === "toolResult") continue;
+      const historical: HistoricalChatMessage = {
+        role: String(message.role),
+        text: extractMessageText(message.content),
         ts: entry.timestamp,
-      });
+      };
+      if (message.role === "assistant") {
+        const toolCalls = message.content
+          .filter((content) => content.type === "toolCall")
+          .map((toolCall): HistoricalToolCall => {
+            const resultIsError = toolResults.get(toolCall.id);
+            const isError = resultIsError ?? true;
+            return {
+              id: toolCall.id,
+              name: toolCall.name,
+              status: isError ? "error" : "done",
+              isError,
+            };
+          });
+        if (toolCalls.length > 0) historical.toolCalls = toolCalls;
+        historical.provider = message.provider;
+        historical.model = message.model;
+        if (message.usage && typeof message.usage === "object") {
+          historical.usage = summarizeUsage(message.usage);
+        }
+      }
+      messages.push(historical);
     }
     return messages;
   }
@@ -294,6 +375,18 @@ export class ChatContext {
       this.host = null;
     }
     this.orchestratorServices.clear();
+    await Promise.all(Array.from(this.projectDebugBuses.values(), (bus) => bus.drain()));
+  }
+
+  private ensureProjectDebugBus(cwd: string): DrainableDebugBus | null {
+    const globalBus = this.opts.debugBus;
+    if (!globalBus) return null;
+    const cached = this.projectDebugBuses.get(cwd);
+    if (cached) return cached;
+    const sink = (this.opts.createDebugSink ?? createDebugJsonlSink)(cwd);
+    const bus = createProjectDebugBus(globalBus, sink);
+    this.projectDebugBuses.set(cwd, bus);
+    return bus;
   }
 
   private requireService(cwd: string): OrchestratorService {

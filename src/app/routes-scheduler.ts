@@ -10,6 +10,7 @@
  * - POST /api/scheduler/commit    body { planId }
  * - POST /api/scheduler/discard   body { planId }
  * - GET  /api/scheduler/status    队列状态 + 待确认 plan 列表
+ * - GET  /api/scheduler/plans/:id 单个待确认 plan 详情
  *
  * 契约要点：
  * - envelope 与既有路由一致 { ok, data, error }
@@ -191,6 +192,20 @@ export async function handleSchedulerApi(
         return true;
       }
       ok(res, { planId, discarded: true });
+      return true;
+    }
+
+    // GET /api/scheduler/plans/:id
+    if (segment.startsWith("/plans/") && method === "GET") {
+      const cwd = requireActiveDir(ctx);
+      const planId = decodeURIComponent(segment.slice("/plans/".length));
+      const service = await ctx.getService(cwd);
+      const plan = service.getPlan(planId);
+      if (!plan) {
+        fail(res, 404, "PLAN_NOT_FOUND", `plan ${planId} 不存在（已过期或已被 commit/discard）`);
+        return true;
+      }
+      ok(res, plan);
       return true;
     }
 

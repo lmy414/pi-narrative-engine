@@ -89,6 +89,17 @@ export interface CommitSummary {
   errors: string[];
 }
 
+/** plan 详情中的前半链路阶段摘要 */
+export interface PlanStage {
+  stage: "planner" | "role";
+  agent: string;
+  status: "done" | "error";
+  durationMs?: number;
+  provider?: string;
+  model?: string;
+  error?: string;
+}
+
 /** 单次事件编排结果 */
 export interface OrchestratorResult {
   /** plan 模式：planner + 角色产出（等 commit）；yolo 模式：全链路含 commit */
@@ -102,6 +113,8 @@ export interface OrchestratorResult {
   errors: { characterId: string; error: string }[];
   cast: { characterId: string; name: string; summary: string }[];
   retrievalPlan: RetrievalPlan;
+  /** 仅记录已结束的 planner/role 前半链路阶段 */
+  stages: PlanStage[];
   /** 可见推理 + 渲染产出（yolo 模式必有；plan 模式 commit 后回填） */
   diffusion?: DiffusionOutput;
   render?: RenderOutput;
@@ -172,9 +185,11 @@ export class Orchestrator {
     try {
       const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const stages: PlanStage[] = [];
 
       // 1. planner 子代理：注入世界图只读工具，查现状后产出检索计划
       const plannerSpan = startSpan(bus, "planner", traceId, { slot: "planner" }, rootSpan.eventId);
+      const plannerStartedAt = Date.now();
       let plannerResult: { plan: RetrievalPlan };
       try {
         const plannerModel = this.opts.llmStore.getModel("planner");
@@ -195,6 +210,14 @@ export class Orchestrator {
           model: plannerModel.id,
           retrievalItems: plannerResult.plan.items?.length ?? 0,
         });
+        stages.push({
+          stage: "planner",
+          agent: "planner",
+          status: "done",
+          durationMs: Date.now() - plannerStartedAt,
+          provider: plannerModel.provider,
+          model: plannerModel.id,
+        });
       } catch (err) {
         plannerSpan.error(err);
         throw err;
@@ -210,6 +233,7 @@ export class Orchestrator {
         slot: "role",
         characterIds: event.characterIds,
       }, rootSpan.eventId);
+      const roleStartedAt = Date.now();
       try {
         const roleModel = this.opts.llmStore.getModel("role");
         const roleKey = this.opts.llmStore.getApiKey("role");
@@ -267,6 +291,17 @@ export class Orchestrator {
           outputs: outputs.length,
           errors: errors.length,
         });
+        stages.push({
+          stage: "role",
+          agent: "role",
+          status: errors.length > 0 ? "error" : "done",
+          durationMs: Date.now() - roleStartedAt,
+          provider: roleModel.provider,
+          model: roleModel.id,
+          ...(errors.length > 0
+            ? { error: errors.map(({ characterId, error }) => `${characterId}: ${error}`).join(" | ") }
+            : {}),
+        });
       } catch (err) {
         roleSpan.error(err);
         throw err;
@@ -283,6 +318,7 @@ export class Orchestrator {
         errors,
         cast,
         retrievalPlan: plannerResult.plan,
+        stages,
       };
 
       if (event.mode === "yolo") {

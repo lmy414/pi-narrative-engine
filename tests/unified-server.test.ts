@@ -39,12 +39,13 @@ let chatContext: ChatContext;
  * scheduler 端点用 stub 编排服务（不触 LLM；语义对齐 OrchestratorService 形状）
  * plan_ok = 存在的 planId；其他 planId 一律 not found
  */
+const stubPlanIds = new Set(["plan_ok"]);
 const stubSchedulerService = {
   dispatch(event: { mode?: string }) {
     return { queueId: "q-stub-1", mode: event.mode === "yolo" ? "yolo" : "plan" };
   },
   async commit(planId: string) {
-    if (planId !== "plan_ok") {
+    if (!stubPlanIds.delete(planId)) {
       return {
         ok: false,
         planId,
@@ -63,13 +64,13 @@ const stubSchedulerService = {
     };
   },
   discard(planId: string) {
-    return { ok: planId === "plan_ok" };
+    return { ok: stubPlanIds.delete(planId) };
   },
   queueStatus() {
     return { length: 0, items: [] as unknown[] };
   },
   listPlans() {
-    return [
+    return stubPlanIds.has("plan_ok") ? [
       {
         planId: "plan_ok",
         storyTime: "ch001.ev001",
@@ -78,7 +79,31 @@ const stubSchedulerService = {
         outputCount: 1,
         errorCount: 0,
       },
-    ];
+    ] : [];
+  },
+  getPlan(planId: string) {
+    if (!stubPlanIds.has(planId)) return undefined;
+    return {
+      planId,
+      storyTime: "ch001.ev001",
+      mode: "plan",
+      characterIds: ["char_a"],
+      cast: [{ characterId: "char_a", name: "甲", summary: "角色摘要" }],
+      outputs: [{ actor: "char_a", action: "前进" }],
+      retrievalPlan: { items: [], description: "" },
+      errors: [],
+      stages: [
+        {
+          stage: "planner",
+          agent: "planner",
+          status: "done",
+          durationMs: 12,
+          provider: "test-provider",
+          model: "test-planner",
+        },
+        { stage: "role", agent: "role", status: "error", error: "char_a: role failed" },
+      ],
+    };
   },
 };
 
@@ -233,9 +258,8 @@ before(async () => {
 });
 
 after(async () => {
-  server.close();
+  await server.close();
   await registry.closeAll();
-  await chatContext.dispose();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -646,6 +670,7 @@ test("projects/close: 关闭句柄后从 open 列表移除", async () => {
 // ============ /api/scheduler/*（stub 编排服务，不触 LLM） ============
 
 test("scheduler/status: 队列状态 + 待确认 plan 列表形状", async () => {
+  stubPlanIds.add("plan_ok");
   const r = await api("/scheduler/status");
   assert.equal(r.ok, true);
   assert.equal(typeof r.data.queue.length, "number");
@@ -654,6 +679,35 @@ test("scheduler/status: 队列状态 + 待确认 plan 列表形状", async () =>
   assert.equal(r.data.plans[0].planId, "plan_ok");
   assert.equal(r.data.plans[0].storyTime, "ch001.ev001");
   assert.equal(r.data.plans[0].outputCount, 1);
+  assert.equal("stages" in r.data.plans[0], false);
+});
+
+test("scheduler/plans/:id: 返回详情，未知 plan 404", async () => {
+  stubPlanIds.add("plan_ok");
+  const r = await api("/scheduler/plans/plan_ok");
+  assert.equal(r.ok, true);
+  assert.deepEqual(Object.keys(r.data).sort(), [
+    "cast",
+    "characterIds",
+    "errors",
+    "mode",
+    "outputs",
+    "planId",
+    "retrievalPlan",
+    "stages",
+    "storyTime",
+  ]);
+  assert.deepEqual(r.data.stages.map(({ stage, status }: any) => ({ stage, status })), [
+    { stage: "planner", status: "done" },
+    { stage: "role", status: "error" },
+  ]);
+  assert.equal("durationMs" in r.data.stages[1], false);
+  assert.equal("provider" in r.data.stages[1], false);
+  assert.equal("model" in r.data.stages[1], false);
+
+  const nf = await api("/scheduler/plans/plan_ghost");
+  assert.equal(nf.status, 404);
+  assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
 });
 
 test("scheduler/dispatch: 成功返回 queueId/mode（与工具版同构）", async () => {
@@ -704,10 +758,13 @@ test("scheduler/commit: 未知 planId 404；已知 planId 成功", async () => {
   assert.equal(nf.status, 404);
   assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
 
+  stubPlanIds.add("plan_ok");
   const yes = await sendJson("POST", "/scheduler/commit", { planId: "plan_ok" });
   assert.equal(yes.ok, true);
   assert.equal(yes.data.planId, "plan_ok");
   assert.deepEqual(yes.data.appliedEventIds, ["evt_a"]);
+  const gone = await api("/scheduler/plans/plan_ok");
+  assert.equal(gone.status, 404, "commit 后详情删除");
 
   const miss = await sendJson("POST", "/scheduler/commit", {});
   assert.equal(miss.status, 400);
@@ -718,9 +775,12 @@ test("scheduler/discard: 未知 planId 404；已知 planId 成功", async () => 
   assert.equal(nf.status, 404);
   assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
 
+  stubPlanIds.add("plan_ok");
   const yes = await sendJson("POST", "/scheduler/discard", { planId: "plan_ok" });
   assert.equal(yes.ok, true);
   assert.equal(yes.data.discarded, true);
+  const gone = await api("/scheduler/plans/plan_ok");
+  assert.equal(gone.status, 404, "discard 后详情删除");
 });
 
 test("scheduler/mode: PUT 设置默认模式并持久化；status 附带 defaultMode（B7）", async () => {

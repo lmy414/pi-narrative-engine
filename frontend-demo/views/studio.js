@@ -14,14 +14,11 @@
  *     避免与命名空间 routeId 'studio' 同名（参考 events.js eventList 的教训，防止双写把命名空间覆盖成数组）
  *
  * 数据获取与写操作走 apiMock 闭环（api-mock.js 实际暴露方法）：
- *   getChatSessions / getChatMessages / getSchedulerStatus / sendChatMessage /
- *   setSchedulerMode / dispatch / commitPlan / discardPlan
+ *   getChatSessions / getChatMessages / getSchedulerStatus / getSchedulerPlan /
+ *   sendChatMessage / setSchedulerMode / dispatch / commitPlan / discardPlan / search
  * 复用 demo-utils.js：DemoUtils.groupSessionsByTime
  *
- * 确定性模拟（无真实随机，无外部流）：
- *   - Agent 四阶段状态机：stSimAdvance(stages) 纯函数步进（waiting→running→done），stSimFail 显式失败，
- *     由编排脚本 stOrchestrationScript() + stOrchStep() 以可控 setTimeout 驱动（测试可手动单步推进）
- *   - 流式文本：stStreamStep() 每次追加固定字符数（ST_STREAM_CHUNK），由 stStartStreaming 驱动
+ * 流式文本使用固定步长模拟；计划产出和阶段始终来自 plan detail。
  *
  * 注入安全：onclick 内联参数一律单引号 + escapeHtml（禁止裸 JSON.stringify 双引号注入）
  */
@@ -30,17 +27,19 @@
 
 const ST_STAGE_DEFS = [
   { stage: 'planner', name: '规划', agent: '策划代理', icon: 'list' },
-  { stage: 'role', name: '角色', agent: '角色代理', icon: 'users' },
-  { stage: 'reasoner', name: '推理', agent: '推理代理', icon: 'brain' },
-  { stage: 'renderer', name: '渲染', agent: '渲染代理', icon: 'pen-line' }
+  { stage: 'role', name: '角色', agent: '角色代理', icon: 'users' }
 ];
 
-const ST_STAGE_STATUS_LABEL = { waiting: '等待', running: '执行中', done: '完成', failed: '失败' };
+const ST_STAGE_STATUS_LABEL = { done: '完成', error: '失败' };
 
 // 可控模拟节奏（ms）：浏览器中驱动编排脚本与流式输出；测试可整体调小/手动单步
 const ST_SIM_TICK_MS = 620;     // 编排脚本相邻事件间隔
 const ST_STREAM_CHUNK = 2;      // 每次流式追加字符数
 const ST_STREAM_TICK_MS = 28;   // 流式相邻 tick 间隔
+
+let stChatClose = null;
+let stSchedulerTimer = null;
+let stRuntimeGeneration = 0;
 
 // ==================== 状态访问器 ====================
 
@@ -58,36 +57,44 @@ function setStState(key, value) {
 
 // ==================== 数据加载（覆盖 viewLoaders.studio） ====================
 
+/** 当前会话解析：优先后端 live 会话（主会话实际写入目标），其次保留现有，最后回退列表首条。 */
+function stResolveSessionId(sessions, currentId) {
+  const list = sessions || [];
+  const live = list.find((s) => s.live);
+  if (live) return live.id;
+  if (currentId && list.some((s) => s.id === currentId)) return currentId;
+  return list[0] ? list[0].id : null;
+}
+
 async function stLoadData() {
-  const sessions = await apiCall('getChatSessions');
+  const sessionData = await apiCall('getChatSessions');
+  const sessions = sessionData.sessions || [];
   setStState('studioSessions', sessions || []);
 
-  let currentId = stState('currentSessionId', null);
-  if (!currentId) {
-    const live = (sessions || []).find((s) => s.live);
-    currentId = (live && live.id) || ((sessions && sessions[0]) ? sessions[0].id : null);
-    setStState('currentSessionId', currentId);
-  }
+  const currentId = stResolveSessionId(sessions, stState('currentSessionId', null));
+  setStState('currentSessionId', currentId);
 
   if (currentId) {
-    const msgs = await apiCall('getChatMessages', currentId);
-    setStState('studioMessages', msgs || []);
+    const messageData = await apiCall('getChatMessages', currentId);
+    setStState('studioMessages', messageData.messages || []);
   } else {
     setStState('studioMessages', []);
   }
 
   const status = await apiCall('getSchedulerStatus');
   setStState('schedulerStatus', status);
+  await stLoadPlanDetails(status);
 
   if (stState('stMode', null) === null) {
     setStState('stMode', (status && status.defaultMode) || 'plan');
   }
 
-  // 阶段状态机初始：优先取当前 plan 的 stages 快照（贴合设计稿默认态）
-  const plans = (status && status.plans) || [];
-  if (!stState('stages', null) && plans.length && plans[0].stages && plans[0].stages.length) {
-    setStState('stages', plans[0].stages.map((s) => ({ ...s })));
-  }
+}
+
+async function stLoadPlanDetails(status) {
+  const summaries = (status && status.plans) || [];
+  const details = await Promise.all(summaries.map((plan) => apiCall('getSchedulerPlan', plan.planId)));
+  setStState('planDetails', Object.fromEntries(details.map((plan) => [plan.planId, plan])));
 }
 
 viewLoaders.studio = stLoadData;
@@ -101,7 +108,8 @@ ViewRender.studio = () => {
   const status = stState('schedulerStatus', { queue: { length: 0, items: [] }, plans: [], defaultMode: 'plan' });
   const mode = stState('stMode', status.defaultMode || 'plan');
   const busy = stState('studioBusy', false);
-  const plans = (status.plans || []);
+  const details = stState('planDetails', {});
+  const plans = (status.plans || []).map((plan) => details[plan.planId] || plan);
 
   return `
   <div class="st-workspace">
@@ -139,7 +147,49 @@ ViewRender.studio = () => {
 ViewAfterRender.studio = () => {
   stScrollChatToBottom();
   refreshIcons();
+  if (!ApiRuntime.isMock) stStartRealRuntime();
 };
+
+function stStartRealRuntime() {
+  stEnsureChatSubscription();
+  if (stSchedulerTimer) return;
+  const generation = stRuntimeGeneration;
+  const poll = async () => {
+    try {
+      const status = await apiCall('getSchedulerStatus');
+      if (generation !== stRuntimeGeneration) return;
+      setStState('schedulerStatus', status);
+      await stLoadPlanDetails(status);
+      if (generation !== stRuntimeGeneration) return;
+      stRenderPlanCards();
+      stRenderStages();
+      stRenderQueueStatus();
+    } catch (error) {
+      if (generation === stRuntimeGeneration) handleApiError(error);
+    }
+  };
+  stSchedulerTimer = setInterval(poll, 2000);
+}
+
+function stEnsureChatSubscription() {
+  if (ApiRuntime.isMock || stChatClose) return;
+  stChatClose = ApiRuntime.subscribeChat(stHandleChatEvent, (error) => handleApiError(error));
+}
+
+function stCloseRealRuntime() {
+  stRuntimeGeneration += 1;
+  if (stChatClose) stChatClose();
+  if (stSchedulerTimer) clearInterval(stSchedulerTimer);
+  stChatClose = null;
+  stSchedulerTimer = null;
+}
+
+function cleanupStudioView() {
+  stCloseRealRuntime();
+  stAbortLiveSimulation();
+  setStState('studioBusy', false);
+  setStState('realLiveMessage', null);
+}
 
 // ==================== 左栏：会话列表 ====================
 
@@ -257,29 +307,14 @@ function stMessageHtml(m) {
       <span class="st-msg-time">${ts}</span>
     </div>`;
   }
-  if (m.role === 'character') {
-    const letter = m.name ? m.name.charAt(0) : '角';
-    return `
-    <div class="st-msg st-msg-character">
-      <div class="st-msg-avatar st-avatar-character">${escapeHtml(letter)}</div>
-      <div class="st-msg-body">
-        <div class="st-msg-meta">
-          <span class="st-msg-name">${escapeHtml(m.name || '角色')}</span>
-          <span class="st-msg-roletag">${escapeHtml(m.roleTag || '')}</span>
-          <span class="st-msg-time">${ts}</span>
-        </div>
-        <div class="st-msg-bubble st-bubble-character">${stTextHtml(m.text)}</div>
-      </div>
-    </div>`;
-  }
   // assistant
   const toolCalls = (m.toolCalls || []).map((tc) => stToolCardHtml(tc)).join('');
   return `
   <div class="st-msg st-msg-ai">
-    <div class="st-msg-avatar st-avatar-ai">${escapeHtml((m.name || '策划 AI').charAt(0))}</div>
+    <div class="st-msg-avatar st-avatar-ai">AI</div>
     <div class="st-msg-body">
       <div class="st-msg-meta">
-        <span class="st-msg-name">${escapeHtml(m.name || '策划 AI')}</span>
+        <span class="st-msg-name">AI 助手</span>
         <span class="st-msg-time">${ts}</span>
       </div>
       <div class="st-msg-bubble st-bubble-ai">${stTextHtml(m.text)}</div>
@@ -290,22 +325,13 @@ function stMessageHtml(m) {
 
 function stToolCardHtml(tc) {
   const status = tc.status || 'done';
-  const statusLabel = { done: '完成', running: '执行中', failed: '失败' }[status] || status;
-  const resultHtml = tc.result
-    ? (status === 'failed'
-        ? `<div class="st-tool-result st-tool-result-error">${escapeHtml(tc.result)}</div>`
-        : `<div class="st-tool-result">${escapeHtml(tc.result)}</div>`)
-    : (status === 'running' ? `<div class="st-tool-progress"><span class="st-tool-progress-fill"></span></div>` : '');
+  const statusLabel = { running: '执行中', done: '完成', error: '失败' }[status] || status;
   return `
-  <div class="st-tool-card st-tool-${status}">
+  <div class="st-tool-card st-tool-${status}" data-tool-call-id="${escapeHtml(tc.id || '')}">
     <div class="st-tool-header">
-      <span class="st-tool-icon">${icon(tc.icon || 'wrench', 'w-3.5 h-3.5')}</span>
       <span class="st-tool-name">${escapeHtml(tc.name || '工具')}</span>
-      ${status === 'running' ? '<span class="st-tool-spinner"></span>' : ''}
       <span class="st-tool-status">${statusLabel}</span>
-      <span class="st-tool-duration">${escapeHtml(tc.duration || '')}</span>
     </div>
-    ${resultHtml}
   </div>`;
 }
 
@@ -315,19 +341,19 @@ function stPlanCardHtml(p) {
   const collapsed = stState('planCollapsed', {}) || {};
   const stageDone = (p.stages || []).filter((s) => s.status === 'done').length;
   const stageTotal = (p.stages || []).length;
-  const sections = (p.sections && p.sections.length) ? p.sections : stPlanDefaultSections();
-  const chips = (p.characterIds || []).map((id) => `<span class="st-plan-chip">${escapeHtml(stEntityName(id))}</span>`).join('');
-  const sectionHtml = sections.map((sec) => {
-    const key = p.planId + ':' + sec.id;
+  const castNames = Object.fromEntries((p.cast || []).map((item) => [item.characterId, item.name]));
+  const chips = (p.characterIds || []).map((id) => `<span class="st-plan-chip">${escapeHtml(castNames[id] || id)}</span>`).join('');
+  const outputHtml = (p.outputs || []).map((output, index) => {
+    const key = p.planId + ':output-' + index;
     const isCollapsed = !!collapsed[key];
     return `
     <div class="st-plan-section${isCollapsed ? ' collapsed' : ''}" data-sec-key="${escapeHtml(key)}">
-      <div class="st-plan-section-head" onclick="stTogglePlanSection('${escapeHtml(p.planId)}','${escapeHtml(sec.id)}')">
-        <span class="st-plan-section-icon">${icon(sec.icon || 'list', 'w-4 h-4')}</span>
-        <span class="st-plan-section-title">${escapeHtml(sec.title)}</span>
+      <div class="st-plan-section-head" onclick="stTogglePlanSection('${escapeHtml(p.planId)}','output-${index}')">
+        <span class="st-plan-section-icon">${icon('user-round', 'w-4 h-4')}</span>
+        <span class="st-plan-section-title">${escapeHtml(output.actor || '角色产出')}</span>
         <span class="st-plan-section-chevron">${icon(isCollapsed ? 'chevron-right' : 'chevron-down', 'w-4 h-4')}</span>
       </div>
-      ${isCollapsed ? '' : stPlanSectionBody(sec)}
+      ${isCollapsed ? '' : stPlanOutputBody(output)}
     </div>`;
   }).join('');
 
@@ -341,7 +367,7 @@ function stPlanCardHtml(p) {
       </div>
       <span class="st-plan-badge">待审核</span>
     </div>
-    <div class="st-plan-body">${sectionHtml}</div>
+    <div class="st-plan-body">${outputHtml || '<div class="st-plan-bullet-empty">暂无角色产出</div>'}</div>
     <div class="st-plan-foot">
       <div class="st-plan-chips">${chips}</div>
       <div class="st-plan-actions">
@@ -352,47 +378,15 @@ function stPlanCardHtml(p) {
   </div>`;
 }
 
-function stPlanSectionBody(sec) {
-  if (sec.snippets && sec.snippets.length) {
-    return `
-    <div class="st-plan-snippets">
-      ${sec.snippets.map((s) => `<div class="st-plan-snippet"><span class="st-plan-speaker">${escapeHtml(s.speaker)}</span>：${escapeHtml(s.text)}</div>`).join('')}
-    </div>`;
-  }
-  const bullets = sec.bullets || [];
+function stPlanOutputBody(output) {
+  const rows = [
+    ['行动', output.action], ['想法', output.thought], ['情绪', output.emotion],
+    ['状态变化', output.state_changes], ['获得信息', output.knowledge_gained]
+  ];
   return `
   <ul class="st-plan-bullets">
-    ${bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('') || '<li class="st-plan-bullet-empty">暂无内容</li>'}
+    ${rows.filter(([, value]) => value !== undefined && value !== null && value !== '').map(([label, value]) => `<li><strong>${escapeHtml(label)}：</strong>${escapeHtml(Array.isArray(value) ? value.join('、') : String(value))}</li>`).join('') || '<li class="st-plan-bullet-empty">暂无内容</li>'}
   </ul>`;
-}
-
-// dispatch 生成的 plan 缺少详情时使用默认模板（确定性内容）
-function stPlanDefaultSections() {
-  return [
-    {
-      id: 'planning',
-      title: '策划阶段结果',
-      icon: 'list',
-      bullets: [
-        '规划新剧情事件，推进当前主线',
-        '检查角色动机与因果一致性',
-        '生成可执行的三阶段任务'
-      ]
-    },
-    {
-      id: 'characters',
-      title: '角色演绎片段预览',
-      icon: 'users',
-      snippets: [
-        { speaker: '角色 A', text: '角色演绎片段预览将在确认后生成。' }
-      ]
-    }
-  ];
-}
-
-function stEntityName(entityId) {
-  const e = (MOCK_ENTITIES || []).find((x) => x.entityId === entityId);
-  return e ? ((e.properties && e.properties.name) || entityId) : entityId;
 }
 
 // ==================== 派发面板 ====================
@@ -471,116 +465,72 @@ function stInputAreaHtml(busy) {
 // ==================== 右栏：执行状态 / 变更 / 章节 ====================
 
 function stStagesHtml() {
-  const stages = stState('stages', stInitialStages());
-  return stages.map((s) => stStageItemHtml(s)).join('');
+  const details = stState('planDetails', {});
+  const firstPlan = Object.values(details)[0];
+  const stages = firstPlan ? (firstPlan.stages || []) : [];
+  return stages.length ? stages.map((s) => stStageItemHtml(s)).join('') : '<div class="st-plan-bullet-empty">暂无计划阶段</div>';
 }
 
 function stStageItemHtml(s) {
-  const status = s.status || 'waiting';
+  const def = ST_STAGE_DEFS.find((item) => item.stage === s.stage) || {};
+  const status = s.status || 'error';
   const label = ST_STAGE_STATUS_LABEL[status] || status;
-  const pct = status === 'done' ? 100 : status === 'running' ? 60 : status === 'failed' ? 100 : 0;
+  const duration = Number.isFinite(s.durationMs) ? `${s.durationMs}ms` : '';
   return `
   <div class="st-stage-item st-stage-${status}" data-stage="${escapeHtml(s.stage)}">
-    <span class="st-stage-icon">${icon(s.icon || 'circle', 'w-4 h-4')}</span>
+    <span class="st-stage-icon">${icon(def.icon || 'circle', 'w-4 h-4')}</span>
     <div class="st-stage-main">
-      <div class="st-stage-name">${escapeHtml(s.name)}<span class="st-stage-agent">${escapeHtml(s.agent || '')}</span></div>
-      <div class="st-stage-bar"><span class="st-stage-fill" style="width:${pct}%"></span></div>
+      <div class="st-stage-name">${escapeHtml(def.name || s.stage)}<span class="st-stage-agent">${escapeHtml(s.agent || '')}</span></div>
+      <div class="st-stage-bar"><span class="st-stage-fill" style="width:100%"></span></div>
+      ${s.error ? `<div class="st-tool-result-error">${escapeHtml(s.error)}</div>` : ''}
     </div>
     <div class="st-stage-right">
       <span class="st-stage-status">${label}</span>
-      <span class="st-stage-duration">${escapeHtml(s.duration || '')}</span>
+      <span class="st-stage-duration">${escapeHtml(duration)}</span>
     </div>
   </div>`;
 }
 
 function stChangesHtml() {
-  const changes = [
-    { icon: 'user-plus', type: 'entity', text: '新增实体：神秘商人' },
-    { icon: 'edit-3', type: 'attr', text: '修改属性：艾莉亚 · 身世线索' },
-    { icon: 'link-2', type: 'rel', text: '新增关系：艾莉亚 ↔ 共鸣水晶' },
-    { icon: 'sparkles', type: 'event', text: '新增事件：星港集市相遇' }
-  ];
-  return changes.map((c) => `
+  const result = stState('commitResult', null);
+  if (!result) return '<div class="st-plan-bullet-empty">提交计划后显示变更摘要</div>';
+  return (result.appliedEventIds || []).map((eventId) => `
     <div class="st-change-item">
-      <span class="st-change-icon st-change-${c.type}">${icon(c.icon, 'w-3.5 h-3.5')}</span>
-      <span class="st-change-text">${escapeHtml(c.text)}</span>
-    </div>`).join('');
+      <span class="st-change-icon st-change-event">${icon('sparkles', 'w-3.5 h-3.5')}</span>
+      <span class="st-change-text">已应用事件：${escapeHtml(eventId)}</span>
+    </div>`).join('') || '<div class="st-plan-bullet-empty">未应用世界图事件</div>';
 }
 
 function stChapterCardHtml() {
+  const result = stState('commitResult', null);
+  if (!result || !result.chapterPath) return '<div class="st-plan-bullet-empty">提交计划后显示生成章节</div>';
+  const title = String(result.chapterPath).split('/').pop() || result.chapterPath;
+  const chars = String(result.writtenText || '').replace(/\s/g, '').length;
   return `
   <div class="st-chapter-card">
     <div class="st-chapter-info">
-      <div class="st-chapter-title">第六章 星门遗迹</div>
-      <div class="st-chapter-meta">约 1800 字 · 最近生成</div>
+      <div class="st-chapter-title">${escapeHtml(title)}</div>
+      <div class="st-chapter-meta">${chars} 字 · ${escapeHtml(result.chapterPath)}</div>
     </div>
     <button type="button" class="st-icon-btn" title="查看章节" onclick="navigate('#/files')">${icon('arrow-right', 'w-4 h-4')}</button>
   </div>`;
 }
 
-// ==================== 四阶段状态机（确定性纯函数） ====================
-
-function stInitialStages() {
-  return ST_STAGE_DEFS.map((s) => ({ ...s, status: 'waiting', duration: null }));
-}
-
-/**
- * 状态机单步推进（确定性，无随机）：
- *  - 无运行中阶段 → 启动第一个 waiting 为 running
- *  - 有运行中阶段 → 将其置为 done（补固定耗时），并把下一个 waiting 置为 running
- * @param {Array} stages
- * @returns {Array} 推进后的阶段数组副本（不修改入参）
- */
-function stSimAdvance(stages) {
-  const next = (stages || []).map((s) => ({ ...s }));
-  if (!next.length) return next;
-  const runningIdx = next.findIndex((s) => s.status === 'running');
-  if (runningIdx === -1) {
-    const firstWaiting = next.findIndex((s) => s.status === 'waiting');
-    if (firstWaiting === -1) return next; // 全部结束
-    next[firstWaiting].status = 'running';
-    return next;
-  }
-  next[runningIdx].status = 'done';
-  if (next[runningIdx].duration == null) next[runningIdx].duration = '2.4s';
-  const nextWaiting = next.findIndex((s) => s.status === 'waiting');
-  if (nextWaiting !== -1) next[nextWaiting].status = 'running';
-  return next;
-}
-
-/** 显式失败：当前 running 阶段置为 failed（其余保持不变） */
-function stSimFail(stages) {
-  const next = (stages || []).map((s) => ({ ...s }));
-  const runningIdx = next.findIndex((s) => s.status === 'running');
-  if (runningIdx !== -1) next[runningIdx].status = 'failed';
-  return next;
-}
-
 // ==================== @ 提及面板 ====================
 
 function stMentionOptions() {
-  return (MOCK_ENTITIES || []).map((e) => ({
-    id: e.entityId,
-    name: (e.properties && e.properties.name) || e.entityId,
-    type: e.entityType,
-    typeLabel: (ENTITY_TYPES && ENTITY_TYPES[e.entityType] && ENTITY_TYPES[e.entityType].label) || e.entityType || '',
-    desc: e.summary || '',
-    letter: ((e.properties && e.properties.name) || e.entityId).charAt(0)
-  }));
+  return stState('mentionOptions', []);
 }
 
 function stMentionFiltered(filter) {
-  const kw = String(filter || '').toLowerCase();
-  const opts = stMentionOptions();
-  if (!kw) return opts;
-  return opts.filter((o) => o.name.toLowerCase().includes(kw) || o.desc.toLowerCase().includes(kw) || o.typeLabel.toLowerCase().includes(kw));
+  return stMentionOptions();
 }
 
 function stMentionPanelHtml(filter, selected) {
   const items = stMentionFiltered(filter);
   if (!items.length) return '<div class="st-mention-empty">没有匹配的实体</div>';
   return items.map((o, i) => `
-    <div class="st-mention-item${i === selected ? ' active' : ''}" onclick="stSelectMention('${escapeHtml(o.id)}','${escapeHtml(o.type)}')" onmouseenter="stMentionHover(${i})">
+    <div class="st-mention-item${i === selected ? ' active' : ''}" onclick="stSelectMention('${escapeHtml(o.id)}','${escapeHtml(stState('mentionSource', 'chat'))}')" onmouseenter="stMentionHover(${i})">
       <span class="st-mention-avatar">${escapeHtml(o.letter)}</span>
       <div class="st-mention-info">
         <div class="st-mention-name">${escapeHtml(o.name)}<span class="st-mention-type st-mt-${escapeHtml(o.type)}">${escapeHtml(o.typeLabel)}</span></div>
@@ -594,12 +544,28 @@ function stMentionPanelOpen(source) {
   return !!(el && el.style.display !== 'none');
 }
 
-function stShowMentionPanel(source, filter) {
+async function stShowMentionPanel(source, filter) {
+  const requestId = (stState('mentionRequestId', 0) || 0) + 1;
+  setStState('mentionRequestId', requestId);
+  setStState('mentionSource', source);
   setStState('mentionSel', 0);
   const el = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
   if (!el) return;
-  el.innerHTML = stMentionPanelHtml(filter, 0);
+  el.innerHTML = '<div class="st-mention-empty">搜索中…</div>';
   el.style.display = 'block';
+  try {
+    const data = await apiCall('search', filter, App.storyTime);
+    if (requestId !== stState('mentionRequestId', 0)) return;
+    const labels = { character: '角色', location: '地点', item: '物品', concept: '概念' };
+    setStState('mentionOptions', (data.results || []).filter((item) => item.type === 'entity').map((item) => ({
+      id: item.id, name: item.name || item.id, type: item.entityType, typeLabel: labels[item.entityType] || item.entityType || '',
+      desc: item.summary || '', letter: String(item.name || item.id).charAt(0)
+    })));
+  } catch (error) {
+    setStState('mentionOptions', []);
+    handleApiError(error);
+  }
+  el.innerHTML = stMentionPanelHtml(filter, 0);
 }
 
 function stCloseMentionPanel(source) {
@@ -730,10 +696,10 @@ function stDispatchMentionInput(value) {
 async function stSwitchSession(id) {
   stAbortLiveSimulation();
   setStState('currentSessionId', id);
-  setStState('studioBusy', false);
+  if (ApiRuntime.isMock) setStState('studioBusy', false);
   try {
-    const msgs = await apiCall('getChatMessages', id);
-    setStState('studioMessages', msgs || []);
+    const data = await apiCall('getChatMessages', id);
+    setStState('studioMessages', data.messages || []);
   } catch (e) {
     setStState('studioMessages', []);
     handleApiError(e);
@@ -764,38 +730,157 @@ async function stSendChat() {
   const msg = { role: 'user', text, ts: new Date().toISOString() };
   setStState('studioMessages', stState('studioMessages', []).concat([msg]));
   stAppendMessageEl(stMessageHtml(msg));
+  if (ApiRuntime.isMock) {
+    try {
+      await apiCall('sendChatMessage', text);
+    } catch (e) {
+      handleApiError(e);
+    }
+    stRunOrchestration(text);
+    return;
+  }
+
+  stEnsureChatSubscription();
+  setStState('studioBusy', true);
+  setStState('realLiveMessage', null);
+  stRenderQueueStatus();
   try {
     await apiCall('sendChatMessage', text);
   } catch (e) {
+    setStState('studioBusy', false);
+    stRenderQueueStatus();
     handleApiError(e);
   }
-  stRunOrchestration(text);
 }
 
-/** 确定性编排脚本：Agent 四阶段 + Tool Call + 系统消息 + 流式回复 + 收尾 */
+function stHandleChatEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  if (event.type === 'message_start' && event.message && event.message.role === 'assistant') {
+    const previous = stState('realLiveMessage', null);
+    if (previous) {
+      setStState('studioMessages', stState('studioMessages', []).concat(previous));
+      const liveEl = $('#st-live-msg');
+      if (liveEl) liveEl.outerHTML = stMessageHtml(previous);
+    }
+    setStState('realLiveMessage', null);
+  } else if (event.type === 'message_update' && event.message) {
+    stApplyMessageSnapshot(event.message);
+  } else if (event.type === 'tool_execution_start') {
+    stApplyToolEvent(event, 'running');
+  } else if (event.type === 'tool_execution_update') {
+    stApplyToolEvent(event, 'running');
+  } else if (event.type === 'tool_execution_end') {
+    stApplyToolEvent(event, event.isError ? 'error' : 'done');
+  } else if (event.type === 'agent_end') {
+    setStState('studioBusy', false);
+    stRenderQueueStatus();
+    void stRefreshChatHistory();
+  }
+}
+
+function stApplyMessageSnapshot(message) {
+  if (message.role !== 'assistant') return;
+  const current = stState('realLiveMessage', null);
+  const existingTools = Object.fromEntries(((current && current.toolCalls) || []).map((tool) => [tool.id, tool]));
+  const content = Array.isArray(message.content) ? message.content : [];
+  const toolCalls = content.filter((block) => block && block.type === 'toolCall').map((block) => ({
+    ...existingTools[block.id],
+    id: block.id,
+    name: block.name,
+    args: block.arguments,
+    status: (existingTools[block.id] && existingTools[block.id].status) || 'running'
+  }));
+  for (const tool of Object.values(existingTools)) {
+    if (!toolCalls.some((item) => item.id === tool.id)) toolCalls.push(tool);
+  }
+  const live = {
+    role: 'assistant',
+    text: content.filter((block) => block && block.type === 'text').map((block) => block.text || '').join(''),
+    ts: message.timestamp || (current && current.ts) || Date.now(),
+    toolCalls
+  };
+  setStState('realLiveMessage', live);
+  stRenderRealLiveMessage(live);
+}
+
+function stApplyToolEvent(event, status) {
+  if (!event.toolCallId) return;
+  const live = stState('realLiveMessage', null) || { role: 'assistant', text: '', ts: Date.now(), toolCalls: [] };
+  const tools = (live.toolCalls || []).slice();
+  const index = tools.findIndex((tool) => tool.id === event.toolCallId);
+  const previous = index >= 0 ? tools[index] : {};
+  const tool = {
+    ...previous,
+    id: event.toolCallId,
+    name: event.toolName || previous.name,
+    args: event.args === undefined ? previous.args : event.args,
+    status
+  };
+  if (event.partialResult !== undefined) tool.partialResult = event.partialResult;
+  if (event.result !== undefined) tool.result = event.result;
+  if (index >= 0) tools[index] = tool;
+  else tools.push(tool);
+  live.toolCalls = tools;
+  setStState('realLiveMessage', live);
+  stRenderRealLiveMessage(live);
+}
+
+function stRenderRealLiveMessage(live) {
+  const existing = $('#st-live-msg');
+  const html = stLiveMessageHtml(live);
+  if (existing) existing.outerHTML = html;
+  else {
+    const plans = $('#st-plan-cards');
+    if (plans) plans.insertAdjacentHTML('beforebegin', html);
+  }
+  refreshIcons();
+  stScrollChatToBottom();
+}
+
+function stLiveMessageHtml(live) {
+  return `
+  <div class="st-msg st-msg-ai" id="st-live-msg">
+    <div class="st-msg-avatar st-avatar-ai">AI</div>
+    <div class="st-msg-body">
+      <div class="st-msg-meta"><span class="st-msg-name">AI 助手</span><span class="st-msg-time">${stMsgTime(live.ts)}</span></div>
+      <div class="st-msg-bubble st-bubble-ai">${stTextHtml(live.text)}</div>
+      ${(live.toolCalls || []).length ? `<div class="st-tool-list">${live.toolCalls.map((tool) => stToolCardHtml(tool)).join('')}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+async function stRefreshChatHistory() {
+  try {
+    const sessionData = await apiCall('getChatSessions');
+    const sessions = sessionData.sessions || [];
+    setStState('studioSessions', sessions);
+    const currentId = stResolveSessionId(sessions, stState('currentSessionId', null));
+    setStState('currentSessionId', currentId);
+    if (currentId) {
+      const messageData = await apiCall('getChatMessages', currentId);
+      setStState('studioMessages', messageData.messages || []);
+    }
+    setStState('realLiveMessage', null);
+    if (routeId() === 'studio') await renderView();
+  } catch (error) {
+    handleApiError(error);
+  }
+}
+
+/** 确定性聊天脚本；plan 阶段不在客户端模拟。 */
 function stOrchestrationScript() {
   return [
-    { action: 'stage', stage: 'planner', status: 'running' },
-    { action: 'stage', stage: 'planner', status: 'done', duration: '3.2s' },
-    { action: 'tool', tool: { name: '检索世界图', icon: 'search', status: 'done', duration: '1.2s', result: '找到 3 个相关实体：艾莉亚（角色）、第七星港（地点）、破碎星图（物品）' } },
-    { action: 'stage', stage: 'role', status: 'running' },
-    { action: 'stage', stage: 'role', status: 'done', duration: '2.8s' },
-    { action: 'tool', tool: { name: '调用编排器', icon: 'git-branch', status: 'done', duration: '2.4s', result: '编排规划完成，生成 3 个阶段任务' } },
+    { action: 'tool', tool: { id: 'live-tool-search', name: '检索世界图', status: 'done', isError: false } },
+    { action: 'tool', tool: { id: 'live-tool-dispatch', name: '调用编排器', status: 'done', isError: false } },
     { action: 'system', text: 'AI 触发编排 · 多代理协作中' },
-    { action: 'stage', stage: 'reasoner', status: 'running' },
-    { action: 'stage', stage: 'reasoner', status: 'done', duration: '1.9s' },
-    { action: 'stream', text: '已生成编排计划，等待你的确认。我可以继续细化角色演绎片段，或直接提交执行。' },
-    { action: 'stage', stage: 'renderer', status: 'running' },
-    { action: 'stage', stage: 'renderer', status: 'done', duration: '2.1s' },
+    { action: 'stream', text: '已生成编排计划，等待你的确认。' },
     { action: 'finish' }
   ];
 }
 
 function stRunOrchestration(instruction) {
   setStState('studioBusy', true);
-  setStState('stages', stInitialStages());
   setStState('orch', { items: stOrchestrationScript(), idx: 0, live: null, instruction: instruction || '' });
-  stRenderStages();
   stRenderQueueStatus();
   stScheduleOrchStep();
 }
@@ -820,17 +905,8 @@ function stOrchStep() {
 }
 
 function stApplyOrchEvent(ev, orch) {
-  if (ev.action === 'stage') {
-    const stages = stState('stages', stInitialStages()).map((s) => ({ ...s }));
-    const idx = stages.findIndex((s) => s.stage === ev.stage);
-    if (idx >= 0) {
-      stages[idx].status = ev.status;
-      if (ev.duration) stages[idx].duration = ev.duration;
-    }
-    setStState('stages', stages);
-    stRenderStages();
-  } else if (ev.action === 'tool') {
-    if (!orch.live) orch.live = { role: 'assistant', name: '策划 AI', text: '', ts: new Date().toISOString(), toolCalls: [] };
+  if (ev.action === 'tool') {
+    if (!orch.live) orch.live = { role: 'assistant', text: '', ts: new Date().toISOString(), toolCalls: [] };
     orch.live.toolCalls.push(ev.tool);
     stEnsureLiveMessage(orch.live);
     const toolsEl = $('#st-live-tools');
@@ -842,7 +918,7 @@ function stApplyOrchEvent(ev, orch) {
     setStState('studioMessages', stState('studioMessages', []).concat([m]));
     stAppendMessageEl(stMessageHtml(m));
   } else if (ev.action === 'stream') {
-    if (!orch.live) orch.live = { role: 'assistant', name: '策划 AI', text: '', ts: new Date().toISOString(), toolCalls: [] };
+    if (!orch.live) orch.live = { role: 'assistant', text: '', ts: new Date().toISOString(), toolCalls: [] };
     orch.live.text = ev.text;
     stEnsureLiveMessage(orch.live);
     stStartStreaming(ev.text);
@@ -856,10 +932,10 @@ function stEnsureLiveMessage(live) {
   const container = $('#st-plan-cards');
   const html = `
   <div class="st-msg st-msg-ai" id="st-live-msg">
-    <div class="st-msg-avatar st-avatar-ai">${escapeHtml((live.name || '策划 AI').charAt(0))}</div>
+    <div class="st-msg-avatar st-avatar-ai">AI</div>
     <div class="st-msg-body">
       <div class="st-msg-meta">
-        <span class="st-msg-name">${escapeHtml(live.name || '策划 AI')}</span>
+        <span class="st-msg-name">AI 助手</span>
         <span class="st-msg-time">${stMsgTime(live.ts)}</span>
       </div>
       <div class="st-msg-bubble st-bubble-ai"><span class="st-stream-text" id="st-stream-text"></span><span class="st-stream-caret" id="st-stream-caret"></span></div>
@@ -912,7 +988,9 @@ async function stDispatchAfterOrchestration(instruction) {
     });
     const status = await apiCall('getSchedulerStatus');
     setStState('schedulerStatus', status);
+    await stLoadPlanDetails(status);
     stRenderPlanCards();
+    stRenderStages();
     stRenderQueueStatus();
   } catch (e) {
     handleApiError(e);
@@ -998,6 +1076,7 @@ async function stSubmitDispatch() {
     await apiCall('dispatch', { instruction, characterIds, storyTime, mode: stState('stMode', 'plan') });
     const status = await apiCall('getSchedulerStatus');
     setStState('schedulerStatus', status);
+    await stLoadPlanDetails(status);
     setStState('dispatchMentions', []);
     stRenderPlanCards();
     stRenderQueueStatus();
@@ -1009,9 +1088,12 @@ async function stSubmitDispatch() {
 async function stCommitPlan(planId) {
   await withLoading(async () => {
     const res = await apiCall('commitPlan', planId);
+    setStState('commitResult', res);
     const status = await apiCall('getSchedulerStatus');
     setStState('schedulerStatus', status);
+    await stLoadPlanDetails(status);
     stRenderPlanCards();
+    stRenderStages();
     stRenderQueueStatus();
     toast(`计划已提交，生成 ${(res && res.chapterPath) || '章节'}`, 'success');
   });
@@ -1022,7 +1104,9 @@ async function stDiscardPlan(planId) {
     await apiCall('discardPlan', planId);
     const status = await apiCall('getSchedulerStatus');
     setStState('schedulerStatus', status);
+    await stLoadPlanDetails(status);
     stRenderPlanCards();
+    stRenderStages();
     stRenderQueueStatus();
     toast('计划已丢弃', 'info');
   });
@@ -1068,7 +1152,8 @@ function stRenderPlanCards() {
   const el = $('#st-plan-cards');
   if (!el) return;
   const status = stState('schedulerStatus', { queue: { length: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  el.innerHTML = (status.plans || []).map((p) => stPlanCardHtml(p)).join('');
+  const details = stState('planDetails', {});
+  el.innerHTML = (status.plans || []).map((p) => stPlanCardHtml(details[p.planId] || p)).join('');
   refreshIcons();
   stScrollChatToBottom();
 }

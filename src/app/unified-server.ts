@@ -7,7 +7,7 @@
  * - /api/files/*     文件编辑器后端（@pi/admin files）
  * - /api/projects/*  项目管理（@pi/novel-launcher + ProjectRegistry）
  * - /api/admin/*     配置管理（@pi/admin）
- * - 静态服务 visualizer-ui
+ * - 静态服务 frontend-demo（visualizer-ui 仅作旧版回退）
  *
  * 设计依据：docs/plans/2026-07-29-app-architecture-design.md §4.1、§11
  *
@@ -43,7 +43,7 @@ export interface UnifiedServerOptions {
   registry: ProjectRegistry;
   /** 监听端口，默认 7421；传 0 由系统分配（测试用） */
   port?: number;
-  /** 静态资源目录，缺省自动探测 visualizer-ui */
+  /** 静态资源目录，缺省自动探测 frontend-demo */
   uiDir?: string;
   /** 扩展仓库根（doctor/version 用），缺省为仓库根 */
   repoRoot?: string;
@@ -66,7 +66,7 @@ export interface UnifiedServerOptions {
 export interface UnifiedServer {
   url: string;
   port: number;
-  close(): void;
+  close(): Promise<void>;
 }
 
 /**
@@ -236,8 +236,11 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
       resolvePromise({
         url: `http://localhost:${port}/`,
         port,
-        close() {
-          server.close();
+        async close() {
+          await new Promise<void>((resolveClose, rejectClose) => {
+            server.close((error) => error ? rejectClose(error) : resolveClose());
+          });
+          await opts.chatContext?.dispose();
         },
       });
     });
