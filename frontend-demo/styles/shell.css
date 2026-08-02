@@ -5,7 +5,13 @@
    ============================================================ */
 
 /* ---------- 壳层布局 ---------- */
-.app-shell { min-height: 100%; display: flex; flex-direction: column; }
+/* 壳层锁定到视口高度：滚动只发生在视图内部（见下方 #view-root 规则），
+   顶部导航不随内容滚动。html/body/#app 原本无高度规则，
+   min-height: 100% 对 auto 高度的父级无效，会导致整页（含顶栏）滚动。 */
+html, body, #app { height: 100%; }
+/* 页面底色跟随主题令牌（默认白底在暗色主题下不会切换，会露出白底+暗卡片） */
+body { background-color: var(--bg-100); color: var(--foreground); }
+.app-shell { height: 100%; display: flex; flex-direction: column; }
 
 /* 视图根节点：flex column 填满剩余高度。
    内部视图分为两类：
@@ -135,73 +141,6 @@
 }
 .storytime-selector .dropdown-menu { top: calc(100% + 4px); right: 0; min-width: 180px; max-height: 320px; overflow: auto; }
 
-/* 全局搜索（覆盖旧 .global-search 语境） */
-.top-nav .global-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-200);
-  border: 1px solid transparent;
-  width: 200px;
-  flex-shrink: 0;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.top-nav .global-search:focus-within {
-  background-color: var(--bg-50);
-  border-color: var(--brand-300);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-500) 12%, transparent);
-}
-.top-nav .global-search > [data-lucide] { color: var(--text-400); flex-shrink: 0; }
-/* 覆盖旧 app.css 对搜索图标的绝对定位，保持 flex 流内布局 */
-.top-nav .global-search > [data-lucide="search"] { position: static; left: auto; }
-.top-nav .global-search input {
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  color: var(--foreground);
-  font-family: var(--font-sans);
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-}
-.top-nav .global-search input::placeholder { color: var(--text-400); }
-.search-kbd {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-300);
-  color: var(--text-500);
-}
-.top-nav .search-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: 0;
-  width: 320px;
-  background: var(--popover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  max-height: 320px;
-  overflow: auto;
-  z-index: 600;
-}
-.top-nav .search-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 0.875rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-.top-nav .search-item:hover { background: var(--muted); }
-
 /* 图标按钮 */
 .icon-btn {
   width: 28px;
@@ -271,3 +210,22 @@
   gap: 8px;
   flex-shrink: 0;
 }
+
+/* 当前项目快捷入口（点击进入工作台） */
+.project-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  max-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-50);
+  color: var(--text-600);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.project-chip:hover { background: var(--bg-200); color: var(--foreground); }
+.project-chip svg { flex-shrink: 0; }
+.project-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

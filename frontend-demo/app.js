@@ -9,8 +9,6 @@ const App = {
   activeProject: null,
   storyTime: null,
   storyTimes: [],
-  searchQuery: '',
-  searchResults: [],
   theme: 'light',
   toasts: [],
   modal: null,
@@ -79,11 +77,11 @@ async function apiCall(name, ...args) {
   return res.data;
 }
 
+// 仅维护 loading 标志，不再重建壳层（原 loading 覆盖层无对应 CSS，为不可见死代码）
 async function withLoading(fn) {
   App.loading = true;
-  renderShell();
   try { return await fn(); }
-  finally { App.loading = false; renderShell(); }
+  finally { App.loading = false; }
 }
 
 function handleApiError(err) {
@@ -138,8 +136,11 @@ function closeDrawer() { App.drawer = null; renderDrawer(); }
 function renderDrawer() {
   let el = $('#drawer-root');
   if (!App.drawer) { if (el) el.remove(); return; }
+  const alreadyOpen = !!el;
   if (!el) { el = document.createElement('div'); el.id = 'drawer-root'; document.body.appendChild(el); }
   el.innerHTML = `<div class="drawer-overlay" onclick="if(event.target===this)closeDrawer()"></div>${App.drawer}`;
+  // 已打开状态下的内容更新不再播放入场动画（避免抽屉「重新弹出一次」）
+  if (alreadyOpen) { const d = el.querySelector('.detail-drawer, .drawer'); if (d) d.style.animation = 'none'; }
   refreshIcons();
 }
 
@@ -178,7 +179,7 @@ function renderShell() {
   const active = routeId();
   const html = active === 'projects' ? launcherShellHtml() : workspaceShellHtml(active);
   const app = $('#app');
-  app.innerHTML = `<div class="app-shell">${html}${App.loading ? `<div class="global-loading"><div class="spinner"></div></div>` : ''}</div>`;
+  app.innerHTML = `<div class="app-shell">${html}</div>`;
   refreshIcons();
   attachNavHandlers();
 }
@@ -206,13 +207,6 @@ function workspaceShellHtml(active) {
       <div class="flex items-center gap-1">${nav}</div>
       <div class="flex items-center gap-2">
         ${storyTimeSelectorHtml()}
-        <div class="global-search">
-          ${icon('search', 'w-3.5 h-3.5')}
-          <input type="text" placeholder="搜索…" value="${escapeHtml(App.searchQuery)}"
-            oninput="onGlobalSearch(this.value)" onfocus="renderSearchDropdown()" onblur="setTimeout(hideSearchDropdown,200)">
-          <span class="search-kbd">⌘K</span>
-          <div id="search-dropdown" class="search-dropdown hidden"></div>
-        </div>
         <button class="icon-btn" title="帮助" onclick="toast('Demo 版帮助中心暂未开放', 'info')">${icon('circle-help', 'w-4 h-4')}</button>
         <button class="icon-btn" title="切换主题" onclick="toggleTheme()">${icon(App.theme === 'light' ? 'moon' : 'sun', 'w-4 h-4')}</button>
         <div class="avatar" title="Demo 用户">Z</div>
@@ -223,7 +217,9 @@ function workspaceShellHtml(active) {
 }
 
 // StoryTime 全局选择器（点击展开下拉，选择后切换当前故事时间）
+// 仅世界图页显示：目前只有 graphLoadData（getGraph）消费 storyTime，其他页面显示无意义
 function storyTimeSelectorHtml() {
+  if (routeId() !== 'graph') return '';
   if (!App.activeProject || !App.storyTimes.length) return '';
   const options = App.storyTimes.map(st =>
     `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime='${st}';render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
@@ -299,39 +295,13 @@ function attachNavHandlers() {
   });
 }
 
-function renderSearchDropdown() {
-  const el = $('#search-dropdown');
-  if (!el) return;
-  if (!App.searchResults.length) { el.classList.add('hidden'); return; }
-  el.innerHTML = App.searchResults.map(r => `
-    <div class="search-item" onclick="onSearchSelect('${r.type}','${r.id}')">
-      <span class="badge type-${r.entityType || r.type}">${r.type === 'entity' ? ENTITY_TYPES[r.entityType]?.label || r.entityType : '事件'}</span>
-      <span class="truncate">${escapeHtml(r.name)}</span>
-    </div>
-  `).join('');
-  el.classList.remove('hidden');
-}
-function hideSearchDropdown() { const el = $('#search-dropdown'); if (el) el.classList.add('hidden'); }
-
-async function onGlobalSearch(value) {
-  App.searchQuery = value;
-  if (!App.activeProject || value.length < 1) { App.searchResults = []; hideSearchDropdown(); return; }
-  try {
-    const data = await apiCall('search', value, App.storyTime);
-    App.searchResults = data.results.slice(0, 8);
-    renderSearchDropdown();
-  } catch (e) { App.searchResults = []; }
-}
-
-function onSearchSelect(type, id) {
-  hideSearchDropdown();
-  if (type === 'entity') navigate('#/graph', { viewState: { ...App.viewState, selectedEntityId: id } });
-  else navigate('#/events', { viewState: { ...App.viewState, selectedEventId: id } });
-}
-
 function toggleTheme() {
   App.theme = App.theme === 'light' ? 'dark' : 'light';
   document.documentElement.className = App.theme;
+  // 同步到应用配置 + 设置页状态，保证「设置 → 应用偏好 → 主题」高亮与顶栏切换一致
+  apiCall('setAppConfig', { theme: App.theme }).catch(() => {});
+  const cfg = typeof settingsState === 'function' ? settingsState('setAppConfig', null) : null;
+  if (cfg) setSettingsState('setAppConfig', { ...cfg, theme: App.theme });
   render();
 }
 
@@ -439,7 +409,7 @@ function toggleProjectMenu(dir) {
 function selectEntity(id) {
   App.viewState.selectedEntityId = id;
   App.viewState.inspectorEntityId = id;
-  render();
+  renderView();
 }
 
 function stepStoryTime(delta) {
@@ -476,7 +446,7 @@ async function submitQuickEvent() {
   await withLoading(async () => {
     await apiCall('addEvent', body);
     toast('事件已记录', 'success');
-    render();
+    renderView({ reload: true });
   });
 }
 
@@ -498,7 +468,7 @@ async function submitQuickRelation() {
   await withLoading(async () => {
     await apiCall('addRelation', source, target, label, st);
     toast('关系已添加', 'success');
-    render();
+    renderView({ reload: true });
   });
 }
 
@@ -588,6 +558,11 @@ function truncate(s, n) { return s.length > n ? s.slice(0, n-1) + '…' : s; }
 // =================== 初始化 ===================
 async function init() {
   bindShellClickGuard();
+  // 恢复上次保存的主题（支持 system 解析；失败则保持默认浅色）
+  try {
+    const cfg = await apiCall('getAppConfig');
+    if (cfg && cfg.theme) settingsApplyTheme(cfg.theme);
+  } catch (e) { /* 忽略，使用默认主题 */ }
   document.documentElement.className = App.theme;
   try {
     const data = await apiCall('getActiveProject');
@@ -612,20 +587,32 @@ async function render() {
   if (App.viewState.params?.event && view === 'events') {
     App.viewState.selectedEventId = App.viewState.params.event;
   }
-  renderShell();
-  let root = $('#view-root');
-  if (!root) return;
+  // 先跑 loader，再一次性重建壳层：壳层能反映 loader 更新过的 App.storyTime 等状态
   if (viewLoaders[view]) {
     App.loading = true;
-    renderShell();
     try { await viewLoaders[view](); }
     catch (e) { handleApiError(e); }
-    finally { App.loading = false; renderShell(); }
-    // renderShell() 重建了壳层，原 root 已脱离 DOM，必须重新获取
-    root = $('#view-root');
+    finally { App.loading = false; }
   }
+  renderShell();
+  const root = $('#view-root');
+  if (!root) return;
   if (ViewRender[view]) root.innerHTML = ViewRender[view]();
   else root.innerHTML = ViewRender.projects();
+  refreshIcons();
+  if (ViewAfterRender[view]) ViewAfterRender[view]();
+}
+
+// 仅重渲当前视图（不动壳层）：用于标签/筛选等纯视图内状态切换，避免整页闪烁与滚动丢失
+async function renderView({ reload = false } = {}) {
+  const view = routeId();
+  const root = $('#view-root');
+  if (!root) return render();
+  if (reload && viewLoaders[view]) {
+    try { await viewLoaders[view](); }
+    catch (e) { handleApiError(e); }
+  }
+  if (ViewRender[view]) root.innerHTML = ViewRender[view]();
   refreshIcons();
   if (ViewAfterRender[view]) ViewAfterRender[view]();
 }

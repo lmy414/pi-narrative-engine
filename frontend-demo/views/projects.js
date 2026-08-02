@@ -92,12 +92,12 @@ function currentProjectBarHtml(active) {
           <span class="text-sm font-medium flex-shrink-0" style="color:var(--text-500)">当前项目</span>
           <h2 class="current-project-name">${escapeHtml(name)}</h2>
           <span class="status-pill status-active flex-shrink-0"><span class="status-dot"></span>已激活</span>
+          <p class="current-project-path" title="${escapeHtml(active.dir)}">${escapeHtml(active.dir)}</p>
         </div>
         <div class="flex-shrink-0">
           <button class="btn btn-primary" onclick="navigate('#/graph')">进入 ${icon('arrow-right', 'w-3.5 h-3.5')}</button>
         </div>
       </div>
-      <p class="current-project-path" title="${escapeHtml(active.dir)}">${escapeHtml(active.dir)}</p>
     </section>
   `;
 }

@@ -738,7 +738,7 @@ async function stSwitchSession(id) {
     setStState('studioMessages', []);
     handleApiError(e);
   }
-  render();
+  renderView();
 }
 
 function stNewSession() {
@@ -749,7 +749,7 @@ function stNewSession() {
   setStState('studioSessions', [session].concat(stState('studioSessions', [])));
   setStState('currentSessionId', id);
   setStState('studioMessages', []);
-  render();
+  renderView();
 }
 
 // ==================== 发送与编排模拟 ====================

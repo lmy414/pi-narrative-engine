@@ -422,7 +422,15 @@ function detailEventsPanel() {
 function detailTabSwitch(tab) {
   if (!DETAIL_PANELS[tab]) return;
   detailState.tab = tab;
-  openDrawer(entityDetailDrawerHtml());
+  const drawer = document.querySelector('.detail-drawer');
+  const nav = drawer && drawer.querySelector('.tab-nav');
+  const content = drawer && drawer.querySelector('.tab-content');
+  // 抽屉不在 DOM 时回退整体渲染
+  if (!nav || !content) { openDrawer(entityDetailDrawerHtml()); refreshIcons(); return; }
+  // 局部更新标签栏与面板：避免整体重渲触发 drawerIn 入场动画、重置滚动位置
+  nav.querySelectorAll('.tab-btn').forEach(b =>
+    b.classList.toggle('active', (b.getAttribute('onclick') || '').includes(`detailTabSwitch('${tab}')`)));
+  content.innerHTML = detailPanelHtml(tab);
   refreshIcons();
 }
 
@@ -563,7 +571,8 @@ async function detailRetireEntity(id) {
   await withLoading(async () => {
     await apiCall('killEntity', id, App.storyTime);
     toast('实体已退场', 'info');
-    render();
+    // 服务端数据已变更，重新拉取图数据
+    renderView({ reload: true });
   });
 }
 

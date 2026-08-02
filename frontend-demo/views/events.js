@@ -270,11 +270,14 @@ function eventTypeTagsHtml() {
   ).join('');
 }
 
-// ==================== 右栏因果追溯（SVG） ====================
+// ==================== 右栏因果追溯（HTML 链条） ====================
+// 注：原 SVG 因果图已移除（缩放适配问题反复出现）。正式图形化将与世界图 3D 化一起重做，
+// 过渡期用纯 HTML 分层链条：当前事件在左，前因逐层向右，箭头指向当前（因果流向）。
 
-function eventCausalSvgHtml(selectedEvent) {
+function eventCausalGraphHtml(selectedEvent) {
   const chain = eventState('chain', { events: [] }) || { events: [] };
   const nodes = chain.events || [];
+  if (!nodes.length) return '<div class="ev-panel-empty">暂无因果链</div>';
   const byId = {};
   nodes.forEach(n => { byId[n.eventId] = n; });
   const selId = selectedEvent.eventId;
@@ -303,66 +306,16 @@ function eventCausalSvgHtml(selectedEvent) {
   });
   layers.forEach(l => l.sort((a, b) => DemoUtils.compareStoryTime(a.storyTime, b.storyTime)));
 
-  const LAYER_W = 96;
-  const PAD_L = 14;
-  const PAD_T = 16;
-  const NODE_H = [44, 36, 32, 30];
-  const Y_GAP = 12;
-  const W = 320;
-
-  const nodeH = d => NODE_H[Math.min(d, NODE_H.length - 1)];
-  const nodeW = (n, d) => {
-    const text = eventCausalNodeText(n, d);
-    return Math.min(150, Math.max(92, text.length * 6.4 + 22));
-  };
-
-  const layerH = layers.map((l, d) => (l.length ? l.length * nodeH(d) + (l.length - 1) * Y_GAP : 0));
-  const H = Math.max(240, ...layerH.map(h => h + PAD_T * 2 + 24));
-
-  const pos = {};
-  layers.forEach((l, d) => {
-    const layerMaxW = Math.max(92, ...l.map(n => nodeW(n, d)));
-    l.forEach((n, i) => {
-      const w = nodeW(n, d);
-      pos[n.eventId] = { x: PAD_L + d * LAYER_W + (layerMaxW - w) / 2, y: PAD_T + i * (nodeH(d) + Y_GAP), w, h: nodeH(d) };
-    });
-  });
-
-  const edgeParts = [];
-  nodes.forEach(e => {
-    for (const c of (e.causes || [])) {
-      const a = pos[c];
-      const b = pos[e.eventId];
-      if (!a || !b) continue;
-      const d = depth[e.eventId] === undefined ? 0 : depth[e.eventId];
-      const x1 = a.x + a.w;
-      const y1 = a.y + a.h / 2;
-      const x2 = b.x;
-      const y2 = b.y + b.h / 2;
-      const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2;
-      edgeParts.push(`<path class="ev-causal-edge edge-depth-${Math.min(d, 2)}" d="M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}" marker-end="url(#evArrow)"/>`);
-    }
-  });
-
-  const nodeParts = nodes.map(n => {
-    const d = depth[n.eventId] === undefined ? 0 : depth[n.eventId];
-    const p = pos[n.eventId];
-    if (!p) return '';
-    const isCurrent = n.eventId === selId;
-    const text = eventCausalNodeText(n, d);
-    return `
-    <g class="ev-causal-node ${isCurrent ? 'ev-node-current' : `ev-node-past ev-node-depth-${Math.min(d, 3)}`}" data-event-id="${escapeHtml(n.eventId)}" onclick="eventSelectEvent('${escapeHtml(n.eventId)}')">
-      <rect class="ev-node-rect" x="0" y="0" width="${p.w}" height="${p.h}" rx="${isCurrent ? 10 : d === 3 ? 7 : d === 2 ? 8 : 9}" stroke-width="${isCurrent ? 1.5 : 1}"/>
-      <text class="ev-node-text" x="${p.w / 2}" y="${p.h / 2 + (isCurrent ? 5 : 4)}" text-anchor="middle" font-size="${isCurrent ? 13 : 11}" font-family="var(--font-mono)">${escapeHtml(text)}</text>
-    </g>`;
+  const layerHtml = layers.filter(l => l.length).map((l, i) => {
+    const chips = l.map(n => {
+      const d = depth[n.eventId] === undefined ? maxDepth : depth[n.eventId];
+      const isCurrent = n.eventId === selId;
+      return `<div class="ev-chain-node ${isCurrent ? 'ev-chain-current' : `ev-chain-depth-${Math.min(d, 3)}`}" title="${escapeHtml(n.summary || '')}" onclick="eventSelectEvent('${escapeHtml(n.eventId)}')">${escapeHtml(eventCausalNodeText(n, d))}</div>`;
+    }).join('');
+    return `${i > 0 ? '<div class="ev-chain-arrow">←</div>' : ''}<div class="ev-chain-layer">${chips}</div>`;
   }).join('');
 
-  return `<svg class="ev-causal-svg" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="因果追溯图">
-    <defs><marker id="evArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon class="ev-causal-edge-arrow" points="0 0, 10 3.5, 0 7"/></marker></defs>
-    ${edgeParts.join('')}
-    ${nodeParts}
-  </svg>`;
+  return `<div class="ev-chain-graph" role="img" aria-label="因果追溯图">${layerHtml}</div>`;
 }
 
 function eventCausalPanelHtml(ev) {
@@ -406,7 +359,7 @@ function eventCausalPanelHtml(ev) {
     </div>
     <div class="ev-causal-graph-section">
       <div class="ev-causal-section-title">因果关系图</div>
-      ${eventCausalSvgHtml(ev)}
+      ${eventCausalGraphHtml(ev)}
     </div>
     <div class="ev-detail-section">
       <div class="ev-detail-label">事件详情</div>
@@ -499,7 +452,7 @@ async function eventSelectEvent(eventId) {
     expanded.push(eventId);
     setEventState('eventExpanded', expanded);
   }
-  render();
+  renderView();
   try {
     const chain = await apiCall('getChain', eventId);
     if (eventState('selectedEventId', null) !== eventId) return; // 已被后续点击覆盖，丢弃过期结果
@@ -564,7 +517,7 @@ function eventResetFilters() {
   setEventState('eventEntityFilter', []);
   setEventState('eventTypeFilter', []);
   setEventState('eventKeyword', '');
-  render();
+  renderView();
 }
 
 function eventToggleFilterPanel() {

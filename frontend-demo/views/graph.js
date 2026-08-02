@@ -519,7 +519,7 @@ function graphSvgNode(e, d, x, y, isSelected) {
 
 function setGraphType(type) {
   setGraphState('graphType', type);
-  render();
+  renderView();
 }
 
 /** 搜索：立即过滤实体列表 DOM 并重绘画布（避免全量 render 丢失输入焦点）；3D 模式仅刷新 SVG 场景 */
@@ -547,18 +547,19 @@ function graphSearchEntities(value) {
 
 function toggleIncludeClosed(cb) {
   setGraphState('includeClosed', !!cb.checked);
-  render();
+  // graphLoadData 读取 includeClosed 调 getGraph，需重新拉取
+  renderView({ reload: true });
 }
 
 function changeCharacterView(value) {
   setGraphState('characterView', value);
-  render();
+  renderView();
 }
 
 function setViewMode(mode) {
   if (mode !== '2d' && mode !== '3d') return;
   setGraphState('graphMode', mode);
-  render();
+  renderView();
 }
 
 /** 视图重置：Canvas 模式下重绘初始布局（drawGraph2D 每次重算布局，即恢复初始位置） */
@@ -579,7 +580,7 @@ function resetSceneView() {
 function resetGraphFilters() {
   setGraphState('graphType', 'all');
   setGraphState('graphFilter', '');
-  render();
+  renderView();
 }
 
 /** 点击 StoryTime 值 → 弹出时间点选择器 */
@@ -630,5 +631,6 @@ async function submitGraphProperty() {
     await apiCall('addProperty', target.entityId, target.key, value, App.storyTime);
     toast('属性已更新', 'success');
   });
-  render();
+  // 服务端数据已变更，重新拉取图数据
+  renderView({ reload: true });
 }

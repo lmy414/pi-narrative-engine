@@ -599,6 +599,8 @@ const ApiMock = {
   async setAppConfig(config) {
     await delay();
     Object.assign(appConfig, config);
+    // 持久化到 localStorage，刷新后仍保留（见 mock-data.js appConfig 初始化）
+    try { localStorage.setItem('ne-demo-app-config', JSON.stringify(appConfig)); } catch (e) { /* 存储不可用时忽略 */ }
     return ok({ saved: true });
   },
 

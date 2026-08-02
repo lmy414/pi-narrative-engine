@@ -123,7 +123,8 @@ function flBindGlobalGuards() {
   document.addEventListener('click', () => {
     if (flState('flOpenMenuPath', null)) {
       setFlState('flOpenMenuPath', null);
-      if (routeId() === 'files') render();
+      // 仅关闭文件树右键菜单（纯视图内状态），无需整壳重建
+      if (routeId() === 'files') renderView();
     }
   });
 
@@ -417,13 +418,13 @@ async function flOpenFile(path) {
   }
   setFlState('flActivePath', path);
   setFlState('flConflictPath', null);
-  render();
+  renderView();
 }
 
 function flSwitchTab(path) {
   setFlState('flActivePath', path);
   setFlState('flConflictPath', null);
-  render();
+  renderView();
 }
 
 function flCloseTab(path) {
@@ -492,7 +493,7 @@ function flDoCloseTab(idx, tabs) {
     const next = tabs[Math.min(idx, tabs.length - 1)] || null;
     setFlState('flActivePath', next ? next.path : null);
   }
-  render();
+  renderView();
 }
 
 // ==================== 交互：编辑 / dirty / 保存 / 冲突 ====================
@@ -567,7 +568,7 @@ async function flSaveActive() {
   } catch (e) {
     if (e.code === 'MTIME_CONFLICT') {
       setFlState('flConflictPath', tab.path);
-      render();
+      renderView();
     } else {
       handleApiError(e);
     }
@@ -586,7 +587,7 @@ async function flReloadActive() {
     tab.dirty = false;
     setFlState('flConflictPath', null);
     setFlState('flTabs', flState('flTabs', []));
-    render();
+    renderView();
     toast('已重新加载 ' + tab.name, 'success');
   } catch (e) {
     handleApiError(e);
@@ -613,14 +614,14 @@ async function flForceSaveActive() {
 
 function flDismissConflict() {
   setFlState('flConflictPath', null);
-  render();
+  renderView();
 }
 
 // ==================== 交互：视图切换 / 字号 ====================
 
 function flSetMode(mode) {
   setFlState('flMode', mode);
-  render();
+  renderView();
 }
 
 function flAdjustFont(delta) {
@@ -646,12 +647,12 @@ function flToggleDir(path) {
   if (i >= 0) ex.splice(i, 1);
   else ex.push(path);
   setFlState('flExpandedDirs', ex);
-  render();
+  renderView();
 }
 
 function flToggleMenu(path) {
   setFlState('flOpenMenuPath', flState('flOpenMenuPath', null) === path ? null : path);
-  render();
+  renderView();
 }
 
 function flFindNode(nodes, path) {
@@ -699,7 +700,7 @@ async function flSubmitCreate(kind, path) {
   closeModal();
   setFlState('flOpenMenuPath', null);
   await flLoadData();
-  render();
+  renderView();
   toast(kind === 'file' ? '已创建 ' + flBasename(p) : '已创建文件夹 ' + flBasename(p), 'success');
   if (kind === 'file') flOpenFile(p);
 }
@@ -726,7 +727,7 @@ async function flSubmitRename(path, newPath) {
   setFlState('flOpenMenuPath', null);
   flSyncTabsAfterRename(path, p);
   await flLoadData();
-  render();
+  renderView();
   toast('已重命名', 'success');
 }
 
@@ -752,7 +753,7 @@ async function flSubmitDelete(path) {
   setFlState('flOpenMenuPath', null);
   flSyncTabsAfterDelete(path);
   await flLoadData();
-  render();
+  renderView();
   toast('已删除 ' + flBasename(path), 'success');
 }
 

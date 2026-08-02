@@ -202,7 +202,7 @@ function settingsNavItemHtml(p, active) {
 
 function settingsSwitchPanel(panelId) {
   setSettingsState('setActivePanel', panelId);
-  render();
+  renderView();
 }
 
 function settingsPanelHtml(panelId) {
@@ -312,7 +312,7 @@ function settingsCustomizeSlot(slot) {
   const list = (settingsState('setCustomizing', []) || []).slice();
   if (list.indexOf(slot) < 0) list.push(slot);
   setSettingsState('setCustomizing', list);
-  render();
+  renderView();
 }
 
 async function settingsSaveSlot(slot) {
@@ -327,7 +327,7 @@ async function settingsSaveSlot(slot) {
   setSettingsState('setCustomizing', list);
   await settingsLoad();
   toast('模型配置已保存', 'success');
-  render();
+  renderView();
 }
 
 async function settingsClearSlot(slot) {
@@ -348,7 +348,7 @@ async function settingsConfirmClearSlot(slot) {
   setSettingsState('setCustomizing', list);
   await settingsLoad();
   toast('已恢复跟随默认', 'info');
-  render();
+  renderView();
 }
 
 // ==================== 面板：密钥管理 ====================
@@ -420,7 +420,7 @@ function settingsToggleKeyVisible(i) {
   if (!keys[i]) return;
   keys[i] = { provider: keys[i].provider, value: keys[i].value, visible: !keys[i].visible };
   setSettingsState('setKeys', keys);
-  render();
+  renderView();
 }
 
 async function settingsSaveKey() {
@@ -440,7 +440,7 @@ async function settingsSaveKey() {
   setSettingsState('setKeys', keys);
   await settingsLoad(); // 同步 llmStatus 的 hasKey 显示
   toast('密钥已保存', 'success');
-  render();
+  renderView();
 }
 
 function settingsDeleteKey(i) {
@@ -465,7 +465,7 @@ async function settingsConfirmDeleteKey(i) {
   setSettingsState('setKeys', keys);
   await settingsLoad();
   toast('密钥已删除', 'info');
-  render();
+  renderView();
 }
 
 // ==================== 面板：向量模型 ====================
@@ -527,7 +527,7 @@ async function settingsWarmupEmbedder() {
   const st = settingsState('setEmbedder', {}) || {};
   setSettingsState('setEmbedder', { ...st, warmedUp: true });
   toast('预热请求已发送', 'success');
-  render();
+  renderView();
 }
 
 function settingsClearEmbedderCache() {
@@ -543,7 +543,7 @@ async function settingsConfirmClearCache() {
   const st = settingsState('setEmbedder', {}) || {};
   setSettingsState('setEmbedder', { ...st, cacheSize: 0 });
   toast('向量缓存已清除', 'info');
-  render();
+  renderView();
 }
 
 async function settingsSaveEmbedderModel() {
@@ -557,7 +557,7 @@ async function settingsSaveEmbedderModel() {
   const st = settingsState('setEmbedder', {}) || {};
   setSettingsState('setEmbedder', { ...st, model: value });
   toast('嵌入模型已保存', 'success');
-  render();
+  renderView();
 }
 
 // ==================== 面板：应用偏好 ====================
@@ -673,7 +673,7 @@ async function settingsSaveAppPrefs() {
   const cfg = settingsState('setAppConfig', {}) || {};
   setSettingsState('setAppConfig', { ...cfg, ...patch });
   toast('应用偏好已保存', 'success');
-  render();
+  renderView();
 }
 
 // ---------- 主题：显式赋值（修复旧 views.js toggleTheme 取反 bug） ----------
@@ -754,7 +754,7 @@ async function settingsCheckUpdate() {
     setSettingsState('setVersion', v);
     if (v.updateAvailable) toast('发现新版本 v' + v.remote, 'success');
     else toast('已是最新版本', 'info');
-    render();
+    renderView();
   } catch (e) { handleApiError(e); }
 }
 
@@ -763,7 +763,7 @@ async function settingsRunDoctor() {
     const d = await apiCall('getDoctor');
     setSettingsState('setDoctor', d);
     toast('环境自检完成：' + d.passed + ' 项通过 / ' + d.warnings + ' 警告 / ' + d.failures + ' 失败', d.ok ? 'success' : 'error');
-    render();
+    renderView();
   } catch (e) { handleApiError(e); }
 }
 
@@ -804,7 +804,7 @@ function settingsPanelRulesets() {
 
 function settingsSwitchRuleset(tab) {
   setSettingsState('setRulesetTab', tab);
-  render();
+  renderView();
 }
 
 function settingsOnRulesetInput(value) {
@@ -821,7 +821,7 @@ async function settingsSaveRuleset(tab) {
   const rulesets = settingsState('setRulesets', {}) || {};
   setSettingsState('setRulesets', { ...rulesets, [tab]: content });
   toast('规则集已保存', 'success');
-  render();
+  renderView();
 }
 
 function settingsResetRuleset(tab) {
@@ -839,7 +839,7 @@ async function settingsConfirmResetRuleset(tab) {
   } catch (e) { handleApiError(e); return; }
   await settingsLoad();
   toast('已恢复默认模板', 'info');
-  render();
+  renderView();
 }
 
 // ==================== 面板：项目信息 ====================
@@ -901,7 +901,7 @@ async function settingsSaveNovelJson() {
   const novel = settingsState('setNovelJson', {}) || {};
   setSettingsState('setNovelJson', { ...novel, ...patch });
   toast('novel.json 已保存', 'success');
-  render();
+  renderView();
 }
 
 // ==================== 面板：环境变量 ====================
@@ -958,7 +958,7 @@ async function settingsSaveEnv() {
   const env = settingsState('setEnvConfig', {}) || {};
   setSettingsState('setEnvConfig', { ...env, ...patch });
   toast('环境变量已保存', 'success');
-  render();
+  renderView();
 }
 
 // ==================== 共用：无项目空状态 ====================

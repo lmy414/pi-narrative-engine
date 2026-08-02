@@ -200,12 +200,12 @@ function dbgFormatTime(iso) {
 
 function dbgSelectLevel(level) {
   setDbgState('dbgLevel', level);
-  render();
+  renderView();
 }
 
 function dbgSelectModule(value) {
   setDbgState('dbgModule', value);
-  render();
+  renderView();
 }
 
 function dbgKeywordInput(value) {
@@ -215,17 +215,17 @@ function dbgKeywordInput(value) {
 
 function dbgClearKeyword() {
   setDbgState('dbgKeyword', '');
-  render();
+  renderView();
 }
 
 function dbgSetDensity(density) {
   setDbgState('dbgDensity', density);
-  render();
+  renderView();
 }
 
 function dbgToggleAutoScroll() {
   setDbgState('dbgAutoScroll', !dbgState('dbgAutoScroll', true));
-  render();
+  renderView();
 }
 
 function dbgToggleExpand(id) {
@@ -297,7 +297,7 @@ async function dbgConfirmClearLogs() {
   await withLoading(async () => {
     await apiCall('clearDebugEvents');
     setDbgState('dbgLogs', []);
-    render();
+    renderView();
     toast('已清空', 'info');
   });
 }

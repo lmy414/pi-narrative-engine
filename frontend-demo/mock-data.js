@@ -300,7 +300,15 @@ let chatSessions = JSON.parse(JSON.stringify(MOCK_CHAT_SESSIONS));
 let chatMessages = JSON.parse(JSON.stringify(MOCK_CHAT_MESSAGES));
 let schedulerStatus = JSON.parse(JSON.stringify(MOCK_SCHEDULER_STATUS));
 let debugEvents = JSON.parse(JSON.stringify(MOCK_DEBUG_EVENTS));
-let appConfig = JSON.parse(JSON.stringify(MOCK_APP_CONFIG));
+// 应用配置运行态：优先从 localStorage 恢复（刷新后保留主题等偏好），损坏/缺失时回退 mock 默认值
+let appConfig = (() => {
+  const defaults = JSON.parse(JSON.stringify(MOCK_APP_CONFIG));
+  try {
+    const saved = JSON.parse(localStorage.getItem('ne-demo-app-config') || 'null');
+    if (saved && typeof saved === 'object') return { ...defaults, ...saved };
+  } catch (e) { /* 忽略损坏数据 */ }
+  return defaults;
+})();
 let llmStatus = JSON.parse(JSON.stringify(MOCK_LLM_STATUS));
 let rulesets = JSON.parse(JSON.stringify(MOCK_RULESETS));
 let novelJson = JSON.parse(JSON.stringify(MOCK_NOVEL_JSON));
