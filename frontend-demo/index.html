@@ -9,6 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,18..72,300;0,18..72,400;0,18..72,500;1,18..72,400&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph"></script>
+<!-- three UMD 必须在 3d-force-graph 之后加载：先加载会导致 3d-force-graph UMD 初始化失败（全局不挂载）。
+     仅用于自定义节点几何体；文字标签走 DOM 投影（graph3dLabelLayer），不用 three-spritetext（与内置 three 版本不兼容） -->
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/shell.css">
 <link rel="stylesheet" href="styles/components.css">

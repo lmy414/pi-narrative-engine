@@ -5,22 +5,20 @@
  *   - ViewRender.graph / ViewAfterRender.graph
  *   - viewLoaders.graph → graphLoadData（原 loadGraph 固定 includeClosed='0'，无法支撑「显示已闭合」开关）
  *
+ * 场景渲染：仅 3D（3d-force-graph / three.js WebGL），2D canvas 模块已移除。
+ *
  * 复用 views.js 全局函数（不在本文件重复定义，避免同名覆盖）：
  *   loadGraph / selectEntity / stepStoryTime / filterGraphEntities / openQuickEvent /
  *   submitQuickEvent / openQuickRelation / submitQuickRelation / openEntityDetail /
- *   killEntity / drawGraph2D / roundRect / truncate
+ *   killEntity
  *
  * 状态读写约定（T1 命名空间访问器，兼容旧平面字段）：
  *   graphState(key, fallback)  读取：一般键优先 viewState('graph')[key] 回退 App.viewState[key]；
  *                              selectedEntityId/inspectorEntityId 例外：flat 优先（复用函数只写平面字段）
- *   setGraphState(key, value)  写入：命名空间与平面字段同时写，兼容 loadGraph/drawGraph2D 等旧函数
+ *   setGraphState(key, value)  写入：命名空间与平面字段同时写，兼容 loadGraph 等旧函数
  */
 
 // ==================== 状态读写 ====================
-
-// 旧 drawGraph2D（views.js）内部引用自由变量 `canvas`（闭包依赖），
-// 本文件提供全局绑定以复用该函数，不修改 views.js。
-var canvas;
 
 function graphState(key, fallback) {
   const ns = viewState('graph');
@@ -81,7 +79,6 @@ viewLoaders.graph = graphLoadData;
 ViewRender.graph = () => {
   const typeFilter = graphState('graphType', 'all');
   const searchFilter = (graphState('graphFilter', '') || '').toLowerCase();
-  const mode3D = graphState('graphMode', '2d') === '3d';
   const selectedId = graphState('selectedEntityId', null);
   const inspectorId = graphState('inspectorEntityId', selectedId);
   const includeClosed = graphState('includeClosed', false);
@@ -160,15 +157,11 @@ ViewRender.graph = () => {
               ${characterOptions}
             </select>
           </div>
-          <div class="view-toggle" role="group" title="视图模式">
-            <button type="button" class="view-toggle-btn${!mode3D ? ' active' : ''}" onclick="setViewMode('2d')">2D</button>
-            <button type="button" class="view-toggle-btn${mode3D ? ' active' : ''}" onclick="setViewMode('3d')">3D</button>
-          </div>
         </div>
       </div>
 
       <div class="scene-canvas" id="graph-canvas-container">
-        ${mode3D ? graphSceneSVG() : '<canvas id="graph-canvas" class="graph-canvas-2d"></canvas>'}
+        <div id="graph-3d" class="graph-3d-container"></div>
         <div class="scene-toolbar">
           <button type="button" class="toolbar-btn toolbar-primary" title="快速记事件" onclick="openQuickEvent()">${icon('pencil', 'w-4 h-4')}</button>
           <button type="button" class="toolbar-btn" title="快速加关系" onclick="openQuickRelation()">${icon('share-2', 'w-4 h-4')}</button>
@@ -184,14 +177,7 @@ ViewRender.graph = () => {
 };
 
 ViewAfterRender.graph = () => {
-  if (graphState('graphMode', '2d') === '3d') return; // 3D：SVG 已在 HTML 中
-  canvas = $('#graph-canvas'); // 赋值全局 canvas，供旧 drawGraph2D 闭包引用
-  if (!canvas) return;
-  const container = $('#graph-canvas-container');
-  canvas.width = container ? container.clientWidth : canvas.parentElement.clientWidth;
-  canvas.height = container ? container.clientHeight : canvas.parentElement.clientHeight;
-  const ctx = canvas.getContext('2d');
-  drawGraph2D(ctx, canvas.width, canvas.height);
+  graphInit3D();
 };
 
 // ==================== 左侧实体列表 ====================
@@ -200,7 +186,7 @@ function graphEntityItemHtml(e, selectedId) {
   const type = ENTITY_TYPES[e.entityType] || { label: e.entityType, color: '#8a8a8a' };
   const name = (e.properties && e.properties.name) || e.entityId;
   return `
-  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="selectEntity('${e.entityId}')" data-entity-id="${e.entityId}">
+  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity('${e.entityId}')" data-entity-id="${e.entityId}">
     <span class="entity-dot" style="background:${type.color}"></span>
     <div class="entity-info">
       <div class="entity-name">${escapeHtml(name)}</div>
@@ -255,7 +241,7 @@ function graphInspectorHtml(inspectorId) {
       const otherType = ENTITY_TYPES[other.entityType] || { color: '#8a8a8a' };
       const otherName = (other.properties && other.properties.name) || other.entityId;
       return `
-      <div class="rel-row" onclick="selectEntity('${otherId}')" title="选中 ${escapeHtml(otherName)}">
+      <div class="rel-row" onclick="graphSelectEntity('${otherId}')" title="选中 ${escapeHtml(otherName)}">
         <span class="entity-dot" style="background:${otherType.color}"></span>
         <span class="rel-name">${escapeHtml(otherName)}</span>
         <span class="rel-meta"><span class="rel-label">${escapeHtml(r.label)}</span>${icon(out ? 'arrow-right' : 'arrow-left', 'w-3 h-3 rel-arrow')}</span>
@@ -305,216 +291,152 @@ function graphInspectorHtml(inspectorId) {
   </div>`;
 }
 
-// ==================== 3D 占位场景（高保真 SVG） ====================
+// ==================== 3D 场景（3d-force-graph / three.js WebGL） ====================
+// 经 index.html 以 CDN UMD 引入，全局 ForceGraph3D。
+// 数据沿用 graphLoadData 的 graphData（entities/relations），筛选语义与 2D canvas 一致。
 
-const graphSvgCap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+let _graph3d = null; // 当前实例；重建前暂停动画，避免累积 WebGL 上下文
 
-/** 按选中实体为中心的 BFS 深度，为实体分配前景/中景/远景层级 */
-function graphSceneSVG() {
+/** 初始化/重建 3D 场景：ViewAfterRender.graph 在 3D 模式下调用，筛选变更时整棵重建 */
+function graphInit3D() {
+  const container = $('#graph-3d');
+  if (!container) return;
+  if (typeof ForceGraph3D !== 'function') {
+    container.innerHTML = '<div class="graph-3d-fallback">3D 组件加载失败（CDN 不可达），请检查网络后刷新</div>';
+    return;
+  }
   const data = graphState('graphData', { entities: [], relations: [] });
   const typeFilter = graphState('graphType', 'all');
   const searchFilter = (graphState('graphFilter', '') || '').toLowerCase();
-  const selectedId = graphState('selectedEntityId', null);
-  const entities = (data.entities || []).filter((e) => {
-    if (typeFilter !== 'all' && e.entityType !== typeFilter) return false;
-    if (searchFilter) {
-      const hay = `${e.properties && e.properties.name ? e.properties.name : e.entityId} ${e.summary || ''} ${e.entityId}`.toLowerCase();
-      if (!hay.includes(searchFilter)) return false;
-    }
-    return true;
-  });
+  let entities = (data.entities || []).filter((e) => typeFilter === 'all' || e.entityType === typeFilter);
+  if (searchFilter) entities = entities.filter((e) => ((e.properties && e.properties.name) || e.entityId).toLowerCase().includes(searchFilter));
   const ids = new Set(entities.map((e) => e.entityId));
-  const relations = (data.relations || []).filter((r) => ids.has(r.sourceId) && ids.has(r.targetId));
+  const links = (data.relations || [])
+    .filter((r) => ids.has(r.sourceId) && ids.has(r.targetId))
+    .map((r) => ({ source: r.sourceId, target: r.targetId, label: r.label }));
+  const nodes = entities.map((e) => ({
+    id: e.entityId,
+    name: (e.properties && e.properties.name) || e.entityId,
+    type: e.entityType
+  }));
 
-  // 无向邻接 + BFS 深度
-  const adj = {};
-  relations.forEach((r) => {
-    (adj[r.sourceId] = adj[r.sourceId] || []).push(r.targetId);
-    (adj[r.targetId] = adj[r.targetId] || []).push(r.sourceId);
-  });
-  const depth = {};
-  if (selectedId && ids.has(selectedId)) {
-    depth[selectedId] = 0;
-    const queue = [selectedId];
-    while (queue.length) {
-      const cur = queue.shift();
-      (adj[cur] || []).forEach((nb) => {
-        if (depth[nb] === undefined) {
-          depth[nb] = depth[cur] + 1;
-          queue.push(nb);
-        }
-      });
-    }
+  if (_graph3d) { try { _graph3d.pauseAnimation(); } catch (e) { /* noop */ } _graph3d = null; }
+  container.innerHTML = ''; // 清掉旧 canvas / 标签层，避免重复初始化累积
+
+  const css = getComputedStyle(document.documentElement);
+  const bg = css.getPropertyValue('--bg-50').trim() || '#ffffff';
+  const textColor = css.getPropertyValue('--text-600').trim() || '#555555';
+  const linkColor = css.getPropertyValue('--border-500').trim() || '#999999';
+  const arrowColor = css.getPropertyValue('--text-500').trim() || '#666666'; // 亮色主题下 border-400 浅灰箭头白底不可见
+  _graph3d = ForceGraph3D()(container)
+    .width(container.clientWidth)
+    .height(container.clientHeight)
+    .backgroundColor(bg)
+    .graphData({ nodes, links })
+    .nodeThreeObject((n) => graph3dNodeObject(n, textColor))
+    .nodeLabel((n) => `${n.name} · ${(ENTITY_TYPES[n.type] || {}).label || n.type}`)
+    .linkLabel((l) => l.label)
+    .linkColor(() => linkColor)
+    .linkWidth(0.6)
+    .linkOpacity(0.4)
+    .linkDirectionalArrowLength(2.5)
+    .linkDirectionalArrowRelPos(0.85)
+    .linkDirectionalArrowColor(() => arrowColor)
+    .onNodeClick((n) => graph3dSelectNode(n))
+    .onBackgroundClick(() => { if (_graph3d) _graph3d.zoomToFit(600, 40); });
+  // 布局更舒展：增强排斥力、拉长连边
+  _graph3d.d3Force('charge').strength(-160);
+  if (_graph3d.d3Force('link')) _graph3d.d3Force('link').distance(70);
+  graph3dLabelLayer(container, nodes);
+  // 力布局收敛后自动取景
+  setTimeout(() => { if (_graph3d) _graph3d.zoomToFit(600, 40); }, 800);
+}
+
+/** 实体选中：3D 场景未就绪时回退 selectEntity 全量重渲 */
+function graphSelectEntity(id) {
+  if (_graph3d) {
+    const n = _graph3d.graphData().nodes.find((x) => x.id === id);
+    if (n) { graph3dSelectNode(n); return; }
   }
+  selectEntity(id);
+}
 
-  // 布局：前景居中、中景内环、远景外环
-  const W = 900, H = 600, CX = 450, CY = 310;
-  const layers = { 0: [], 1: [], 2: [] };
-  entities.forEach((e) => {
-    const d = depth[e.entityId] === undefined ? 2 : depth[e.entityId];
-    layers[d === 0 ? 0 : d === 1 ? 1 : 2].push(e);
+/** 3D 节点选中：局部更新左侧列表选中态 + 右侧 Inspector，并聚焦相机。
+    不能走 selectEntity/renderView——整体重渲会销毁 3D 容器、相机被重置回默认取景 */
+function graph3dSelectNode(n) {
+  setGraphState('selectedEntityId', n.id);
+  setGraphState('inspectorEntityId', n.id);
+  $$('#entity-list .entity-item').forEach((row) =>
+    row.classList.toggle('selected', row.dataset.entityId === n.id));
+  const side = document.querySelector('.sidebar-right');
+  if (side) { side.innerHTML = graphInspectorHtml(n.id); refreshIcons(); }
+  graph3dFocusNode(n);
+}
+
+/** 相机聚焦：点击节点后飞向该节点（保持当前视角方向，拉到固定距离） */
+function graph3dFocusNode(n) {
+  if (!_graph3d || n.x === undefined) return;
+  const dist = 60;
+  const hyp = Math.hypot(n.x, n.y, n.z || 0) || 1;
+  const ratio = 1 + dist / hyp;
+  _graph3d.cameraPosition(
+    { x: n.x * ratio, y: n.y * ratio, z: (n.z || 0) * ratio },
+    { x: n.x, y: n.y, z: n.z || 0 },
+    1200
+  );
+}
+
+/** 3D 节点：按类型的几何体（标签由 DOM 投影层负责，见 graph3dLabelLayer） */
+function graph3dNodeObject(n, textColor) {
+  const color = (ENTITY_TYPES[n.type] || {}).color || '#8a8a8a';
+  const group = new THREE.Group();
+  let geo;
+  if (n.type === 'character') geo = new THREE.SphereGeometry(4.5, 24, 24);
+  else if (n.type === 'location') geo = new THREE.BoxGeometry(7, 7, 7);
+  else if (n.type === 'item') geo = new THREE.OctahedronGeometry(5);
+  else geo = new THREE.TetrahedronGeometry(5.5); // concept
+  group.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.15 })));
+  return group;
+}
+
+/** DOM 名称标签层：每帧把节点三维坐标投影到屏幕，定位 HTML 标签（规避 three 版本混用问题） */
+// 各类型几何体的世界半径（与 graph3dNodeObject 保持一致），用于计算标签的屏幕偏移
+const NODE_R = { character: 4.5, location: 5, item: 5, concept: 5.5 };
+
+function graph3dLabelLayer(container, nodes) {
+  const layer = document.createElement('div');
+  layer.className = 'graph-3d-labels';
+  container.appendChild(layer);
+  const els = {};
+  nodes.forEach((n) => {
+    const el = document.createElement('div');
+    el.className = 'graph-3d-label';
+    el.textContent = n.name;
+    layer.appendChild(el);
+    els[n.id] = el;
   });
-  const pos = {};
-  const ring = (arr, r, startAngle) => {
-    const n = arr.length;
-    arr.forEach((e, i) => {
-      const a = startAngle + (i * 2 * Math.PI) / Math.max(n, 1);
-      pos[e.entityId] = { x: CX + r * Math.cos(a), y: CY + r * Math.sin(a) };
+  _graph3d.onEngineTick(() => {
+    if (!_graph3d) return;
+    const cam = _graph3d.camera();
+    const w = container.clientWidth, h = container.clientHeight;
+    const fovTan = Math.tan((cam.fov * Math.PI / 180) / 2);
+    nodes.forEach((n) => {
+      const obj = n.__threeObj;
+      const el = els[n.id];
+      if (!obj || !el) return;
+      const v = obj.position.clone().project(cam);
+      if (v.z > 1) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      const dist = cam.position.distanceTo(obj.position);
+      // 标签锚在节点屏幕半径下沿（随缩放变化），避免推近后标签被几何体盖住
+      const worldR = NODE_R[n.type] || 5;
+      const screenR = Math.min(90, worldR * (h / 2) / (dist * fovTan));
+      el.style.transform = `translate(-50%, 0) translate(${((v.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * h + screenR + 6).toFixed(1)}px)`;
+      // 字号随相机距离缩放（120 为基准距离），避免拉远后标签喧宾夺主、推近后显得过小
+      el.style.fontSize = (Math.min(16, Math.max(9, 11 * 120 / dist))).toFixed(1) + 'px';
     });
-  };
-  if (layers[0].length) pos[layers[0][0].entityId] = { x: CX, y: CY - 24 };
-  ring(layers[1], 165, -Math.PI / 2);
-  ring(layers[2], 268, -Math.PI / 2 + Math.PI / 8);
-
-  const entityById = {};
-  entities.forEach((e) => (entityById[e.entityId] = e));
-
-  const defs = Object.entries(ENTITY_TYPES)
-    .map(([t, v]) => {
-      const id = graphSvgCap(t);
-      return `
-    <radialGradient id="nodeGlow${id}" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="${v.color}" stop-opacity="0.30"/>
-      <stop offset="100%" stop-color="${v.color}" stop-opacity="0"/>
-    </radialGradient>
-    <marker id="arrow${id}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="${v.color}"/>
-    </marker>`;
-    })
-    .join('');
-
-  // 背景透视网格（远景→近景，静态绘制）
-  const grid = `
-  <ellipse cx="${CX}" cy="${CY}" rx="360" ry="165" fill="none" stroke="var(--border-200)" stroke-width="1" opacity="0.35"/>
-  <ellipse cx="${CX}" cy="${CY}" rx="265" ry="120" fill="none" stroke="var(--border-200)" stroke-width="1" opacity="0.30"/>
-  <ellipse cx="${CX}" cy="${CY}" rx="170" ry="76" fill="none" stroke="var(--border-200)" stroke-width="1" opacity="0.25"/>
-  <ellipse cx="${CX}" cy="${CY}" rx="75" ry="34" fill="none" stroke="var(--border-200)" stroke-width="1" opacity="0.20"/>
-  <circle cx="${CX}" cy="${CY}" r="3" fill="var(--border-400)" opacity="0.45"/>
-  ${Array.from({ length: 12 }, (_, i) => {
-    const a = (i * Math.PI) / 6;
-    const x = CX + 620 * Math.cos(a);
-    const y = CY + 280 * Math.sin(a);
-    return `<line x1="${CX}" y1="${CY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--border-200)" stroke-width="1" opacity="0.20"/>`;
-  }).join('')}`;
-
-  const nodeParts = entities
-    .map((e) => {
-      const p = pos[e.entityId];
-      if (!p) return '';
-      return graphSvgNode(e, depth[e.entityId] === 0 ? 0 : depth[e.entityId] === 1 ? 1 : 2, p.x, p.y, selectedId === e.entityId);
-    })
-    .join('');
-
-  const relParts = relations
-    .map((r) => {
-      const a = pos[r.sourceId];
-      const b = pos[r.targetId];
-      if (!a || !b) return '';
-      const target = entityById[r.targetId];
-      const tType = ENTITY_TYPES[target.entityType] || { color: '#8a8a8a' };
-      const dA = depth[r.sourceId] === undefined ? 2 : depth[r.sourceId];
-      const dB = depth[r.targetId] === undefined ? 2 : depth[r.targetId];
-      const isDeep = Math.min(dA, dB) >= 2;
-      const opacity = isDeep ? 0.25 : dA === 0 || dB === 0 ? 0.6 : 0.4;
-      const dash = isDeep ? ' stroke-dasharray="5 5"' : '';
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      const label = isDeep
-        ? ''
-        : `<g transform="translate(${mx.toFixed(1)} ${my.toFixed(1)})" opacity="0.95">
-      <rect x="${-(r.label.length * 5.6 + 9)}" y="-10.5" width="${r.label.length * 11.2 + 18}" height="18" rx="9" fill="var(--bg-50)" stroke="var(--border-300)" stroke-width="0.8"/>
-      <text y="3.5" text-anchor="middle" font-size="9.5" fill="var(--text-500)" font-family="var(--font-sans)">${escapeHtml(r.label)}</text>
-    </g>`;
-      return `
-    <line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${tType.color}" stroke-width="1.6" opacity="${opacity}" marker-end="url(#arrow${graphSvgCap(target.entityType)})"${dash}/>
-    ${label}`;
-    })
-    .join('');
-
-  const emptyHint = entities.length
-    ? ''
-    : `<text x="${CX}" y="${CY}" text-anchor="middle" font-size="14" fill="var(--text-400)" font-family="var(--font-sans)">当前筛选下没有实体</text>`;
-
-  return `
-  <svg class="graph-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="世界图 3D 占位场景">
-    <defs>
-      <filter id="softShadow" x="-60%" y="-60%" width="220%" height="220%">
-        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.22"/>
-      </filter>
-      ${defs}
-    </defs>
-    <g id="graph-svg-grid">${grid}</g>
-    <g id="graph-svg-relations">${relParts}</g>
-    <g id="graph-svg-nodes">${nodeParts}</g>
-    ${emptyHint}
-  </svg>`;
+  });
 }
-
-/** 单个 SVG 节点：d=0 前景（大节点+副标题+选中光环） / d=1 中景（发光+名称） / d=2 远景（小圆点无文字，浮标弱化） */
-function graphSvgNode(e, d, x, y, isSelected) {
-  const type = ENTITY_TYPES[e.entityType] || { label: e.entityType, color: '#8a8a8a' };
-  const color = type.color;
-  const name = (e.properties && e.properties.name) || e.entityId;
-  const typeName = type.label;
-  const glowId = `url(#nodeGlow${graphSvgCap(e.entityType)})`;
-  const xf = x.toFixed(1);
-  const yf = y.toFixed(1);
-
-  if (d === 2) {
-    // 远景：小圆点 + 首字 + 弱化浮标
-    const short = name.length > 3 ? name.slice(0, 3) : name;
-    return `
-    <g class="svg-node svg-node-distant" opacity="0.85">
-      <circle cx="${xf}" cy="${yf}" r="15" fill="var(--bg-50)" stroke="${color}" stroke-width="1.4"/>
-      <text x="${xf}" y="${(y + 4.5).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text-500)" font-family="var(--font-sans)" opacity="0.75">${escapeHtml(short)}</text>
-      <text x="${xf}" y="${(y + 34).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--text-400)" font-family="var(--font-sans)" opacity="0.6">${escapeHtml(name)}</text>
-    </g>`;
-  }
-
-  const glow = `<circle cx="${xf}" cy="${yf}" r="${d === 0 ? 46 : 30}" fill="${glowId}" filter="url(#softShadow)"/>`;
-  const rings = isSelected
-    ? `
-    <circle cx="${xf}" cy="${yf}" r="56" fill="none" stroke="${color}" stroke-width="1" opacity="0.25"/>
-    <circle cx="${xf}" cy="${yf}" r="51" fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.5"/>`
-    : '';
-
-  let shape;
-  const stroke = `stroke="${color}" stroke-width="2"`;
-  if (e.entityType === 'character') {
-    const r = d === 0 ? 36 : 22;
-    shape = `<circle cx="${xf}" cy="${yf}" r="${r}" fill="var(--bg-50)" ${stroke}/>`;
-  } else if (e.entityType === 'location') {
-    const w = d === 0 ? 82 : 52;
-    const h = d === 0 ? 48 : 32;
-    shape = `<rect x="${(x - w / 2).toFixed(1)}" y="${(y - h / 2).toFixed(1)}" width="${w}" height="${h}" rx="10" fill="var(--bg-50)" ${stroke}/>`;
-  } else if (e.entityType === 'item') {
-    const w = d === 0 ? 76 : 46;
-    const h = d === 0 ? 44 : 28;
-    shape = `<rect x="${(x - w / 2).toFixed(1)}" y="${(y - h / 2).toFixed(1)}" width="${w}" height="${h}" rx="7" fill="var(--bg-50)" ${stroke}/>`;
-  } else {
-    // concept：菱形
-    const s = d === 0 ? 40 : 26;
-    shape = `<polygon points="${xf},${(y - s).toFixed(1)} ${(x + s).toFixed(1)},${yf} ${xf},${(y + s).toFixed(1)} ${(x - s).toFixed(1)},${yf}" fill="var(--bg-50)" ${stroke}/>`;
-  }
-
-  const isCircle = e.entityType === 'character';
-  const nameY = isCircle ? y + (d === 0 ? 56 : 38) : y + (d === 0 ? 44 : 30);
-  const sub = (e.properties && e.properties.role) || typeName;
-  const star = isSelected ? `<text x="${(x + 42).toFixed(1)}" y="${(y - 34).toFixed(1)}" font-size="16" fill="${color}">✦</text>` : '';
-  const nameSize = d === 0 ? 14 : 10.5;
-  const nameYpos = d === 0 ? nameY : y + (isCircle ? 14 : 6);
-
-  return `
-  <g class="svg-node svg-node-${d === 0 ? 'foreground' : 'mid'}">
-    ${glow}
-    ${rings}
-    ${shape}
-    ${star}
-    <text x="${xf}" y="${nameYpos}" text-anchor="middle" font-size="${nameSize}" font-weight="500" fill="var(--foreground)" font-family="var(--font-display)">${escapeHtml(name)}</text>
-    ${d === 0 ? `<text x="${xf}" y="${nameY + 14}" text-anchor="middle" font-size="9.5" fill="var(--text-400)" font-family="var(--font-mono)">${escapeHtml(sub)}</text>` : ''}
-  </g>`;
-}
-
 // ==================== 交互（新函数，不与 views.js 重名） ====================
 
 function setGraphType(type) {
@@ -522,7 +444,7 @@ function setGraphType(type) {
   renderView();
 }
 
-/** 搜索：立即过滤实体列表 DOM 并重绘画布（避免全量 render 丢失输入焦点）；3D 模式仅刷新 SVG 场景 */
+/** 搜索：立即过滤实体列表 DOM 并重建 3D 场景（避免全量 render 丢失输入焦点） */
 function graphSearchEntities(value) {
   setGraphState('graphFilter', value.toLowerCase());
   const kw = value.toLowerCase();
@@ -530,19 +452,7 @@ function graphSearchEntities(value) {
     const hay = `${row.querySelector('.entity-name') ? row.querySelector('.entity-name').textContent : ''} ${row.querySelector('.entity-summary') ? row.querySelector('.entity-summary').textContent : ''}`.toLowerCase();
     row.style.display = hay.includes(kw) ? '' : 'none';
   });
-  if (graphState('graphMode', '2d') === '3d') {
-    const scene = $('#graph-canvas-container');
-    if (scene) {
-      const svg = scene.querySelector('svg.graph-svg');
-      if (svg) svg.outerHTML = graphSceneSVG();
-    }
-    return;
-  }
-  const canvas = $('#graph-canvas');
-  if (canvas) {
-    const ctx = canvas.getContext('2d');
-    drawGraph2D(ctx, canvas.width, canvas.height);
-  }
+  graphInit3D();
 }
 
 function toggleIncludeClosed(cb) {
@@ -556,25 +466,9 @@ function changeCharacterView(value) {
   renderView();
 }
 
-function setViewMode(mode) {
-  if (mode !== '2d' && mode !== '3d') return;
-  setGraphState('graphMode', mode);
-  renderView();
-}
-
-/** 视图重置：Canvas 模式下重绘初始布局（drawGraph2D 每次重算布局，即恢复初始位置） */
+/** 视图重置：3D 相机取景重置 */
 function resetSceneView() {
-  if (graphState('graphMode', '2d') === '3d') {
-    toast('3D 场景为静态占位，无需重置', 'info');
-    return;
-  }
-  const canvas = $('#graph-canvas');
-  if (!canvas) return;
-  const container = $('#graph-canvas-container');
-  canvas.width = container ? container.clientWidth : canvas.parentElement.clientWidth;
-  canvas.height = container ? container.clientHeight : canvas.parentElement.clientHeight;
-  const ctx = canvas.getContext('2d');
-  drawGraph2D(ctx, canvas.width, canvas.height);
+  if (_graph3d) _graph3d.zoomToFit(600, 40);
 }
 
 function resetGraphFilters() {

@@ -14,7 +14,8 @@
  *   - setEventState(key, value)  写入：命名空间与平面字段同时写
  *
  * 复用（demo-utils.js，不重写）：DemoUtils.compareStoryTime / groupEventsByChapter / filterEvents
- * 数据获取走 apiMock 闭环（api-mock.js 实际暴露）：getEvents / getStatus / getChain
+ * 数据获取走 apiMock 闭环（api-mock.js 实际暴露）：getEvents / getStatus
+ * （因果关系图模块已删除，不再调 getChain；图形化因果追溯待世界图 3D 化一并重做）
  *
  * 跨页 StoryTime 修复：跳转世界图「此时刻」不再写 App.viewState.storyTime 这类
  * 世界图不读的平面垃圾字段（旧代码缺陷）；改为先更新全局 App.storyTime（与顶部
@@ -72,8 +73,6 @@ async function eventLoadData() {
       expanded.push(selectedId);
       setEventState('eventExpanded', expanded);
     }
-    const chain = await apiCall('getChain', selectedId);
-    setEventState('chain', chain);
   }
 }
 
@@ -128,13 +127,6 @@ function eventInvalidText(inv) {
     return `${eventEntityName(decl.entityId)}.${decl.property} = ${v}`;
   }
   return inv.property || inv.declarationId || '';
-}
-
-function eventCausalNodeText(ev, depth) {
-  const id = ev.eventId || '';
-  if (depth === 0) return `${id} 当前`;
-  const s = String(ev.summary || '').replace(/[「」『』，。！？、,.:;…]/g, '');
-  return `${id} ${s.slice(0, 4)}`;
 }
 
 // ==================== 筛选与时间线（复用 DemoUtils） ====================
@@ -270,53 +262,7 @@ function eventTypeTagsHtml() {
   ).join('');
 }
 
-// ==================== 右栏因果追溯（HTML 链条） ====================
-// 注：原 SVG 因果图已移除（缩放适配问题反复出现）。正式图形化将与世界图 3D 化一起重做，
-// 过渡期用纯 HTML 分层链条：当前事件在左，前因逐层向右，箭头指向当前（因果流向）。
-
-function eventCausalGraphHtml(selectedEvent) {
-  const chain = eventState('chain', { events: [] }) || { events: [] };
-  const nodes = chain.events || [];
-  if (!nodes.length) return '<div class="ev-panel-empty">暂无因果链</div>';
-  const byId = {};
-  nodes.forEach(n => { byId[n.eventId] = n; });
-  const selId = selectedEvent.eventId;
-
-  // BFS：从当前事件沿 causes 反向求深度（causes 指向更早的前因）
-  const depth = {};
-  if (byId[selId]) {
-    depth[selId] = 0;
-    const queue = [selId];
-    while (queue.length) {
-      const cur = queue.shift();
-      for (const c of (byId[cur] && byId[cur].causes) || []) {
-        if (byId[c] && depth[c] === undefined) {
-          depth[c] = depth[cur] + 1;
-          queue.push(c);
-        }
-      }
-    }
-  }
-
-  const maxDepth = nodes.reduce((m, n) => Math.max(m, depth[n.eventId] === undefined ? 0 : depth[n.eventId]), 0);
-  const layers = Array.from({ length: maxDepth + 1 }, () => []);
-  nodes.forEach(n => {
-    const d = depth[n.eventId] === undefined ? maxDepth : depth[n.eventId];
-    layers[d].push(n);
-  });
-  layers.forEach(l => l.sort((a, b) => DemoUtils.compareStoryTime(a.storyTime, b.storyTime)));
-
-  const layerHtml = layers.filter(l => l.length).map((l, i) => {
-    const chips = l.map(n => {
-      const d = depth[n.eventId] === undefined ? maxDepth : depth[n.eventId];
-      const isCurrent = n.eventId === selId;
-      return `<div class="ev-chain-node ${isCurrent ? 'ev-chain-current' : `ev-chain-depth-${Math.min(d, 3)}`}" title="${escapeHtml(n.summary || '')}" onclick="eventSelectEvent('${escapeHtml(n.eventId)}')">${escapeHtml(eventCausalNodeText(n, d))}</div>`;
-    }).join('');
-    return `${i > 0 ? '<div class="ev-chain-arrow">←</div>' : ''}<div class="ev-chain-layer">${chips}</div>`;
-  }).join('');
-
-  return `<div class="ev-chain-graph" role="img" aria-label="因果追溯图">${layerHtml}</div>`;
-}
+// ==================== 右栏事件详情面板 ====================
 
 function eventCausalPanelHtml(ev) {
   const isEngine = ev.source === 'engine';
@@ -354,12 +300,7 @@ function eventCausalPanelHtml(ev) {
   return `
   <aside class="ev-causal-panel">
     <div class="ev-panel-header">
-      <h2 class="ev-panel-title">因果追溯 · ${escapeHtml(ev.eventId)}</h2>
-      <p class="ev-panel-subtitle">向前回溯到根</p>
-    </div>
-    <div class="ev-causal-graph-section">
-      <div class="ev-causal-section-title">因果关系图</div>
-      ${eventCausalGraphHtml(ev)}
+      <h2 class="ev-panel-title">事件详情 · ${escapeHtml(ev.eventId)}</h2>
     </div>
     <div class="ev-detail-section">
       <div class="ev-detail-label">事件详情</div>
@@ -435,7 +376,7 @@ ViewRender.events = () => {
       </div>
     </main>
 
-    ${selectedEvent ? eventCausalPanelHtml(selectedEvent) : '<aside class="ev-causal-panel"><div class="ev-panel-empty">选择事件查看因果追溯</div></aside>'}
+    ${selectedEvent ? eventCausalPanelHtml(selectedEvent) : '<aside class="ev-causal-panel"><div class="ev-panel-empty">选择事件查看详情</div></aside>'}
   </div>`;
 };
 
@@ -453,17 +394,6 @@ async function eventSelectEvent(eventId) {
     setEventState('eventExpanded', expanded);
   }
   renderView();
-  try {
-    const chain = await apiCall('getChain', eventId);
-    if (eventState('selectedEventId', null) !== eventId) return; // 已被后续点击覆盖，丢弃过期结果
-    setEventState('chain', chain);
-    const selected = (eventState('eventList', []) || []).find(e => e.eventId === eventId);
-    const panel = $('.ev-causal-panel');
-    if (panel && selected) panel.innerHTML = eventCausalPanelHtml(selected);
-  } catch (err) {
-    console.error('[events] 加载因果链失败:', err);
-    toast('加载因果链失败');
-  }
 }
 
 function eventToggleExpand(eventId) {

@@ -404,7 +404,6 @@ function toggleProjectMenu(dir) {
 
 // =================== 世界图交互（从 views.js 迁移，Task 11） ===================
 // views/graph.js 通过 onclick 和 ViewAfterRender.graph 引用这些函数。
-// drawGraph2D 内部引用自由变量 canvas（graph.js 用 var canvas; 提供全局绑定）。
 
 function selectEntity(id) {
   App.viewState.selectedEntityId = id;
@@ -471,89 +470,6 @@ async function submitQuickRelation() {
     renderView({ reload: true });
   });
 }
-
-function drawGraph2D(ctx, w, h) {
-  const data = App.viewState.graphData || { entities: [], relations: [] };
-  const filter = (App.viewState.graphFilter || '').toLowerCase();
-  const typeFilter = App.viewState.graphType || 'all';
-  let entities = data.entities.filter(e => typeFilter === 'all' || e.entityType === typeFilter);
-  if (filter) entities = entities.filter(e => (e.properties?.name || e.entityId).toLowerCase().includes(filter));
-  const entitySet = new Set(entities.map(e => e.entityId));
-  const relations = data.relations.filter(r => entitySet.has(r.sourceId) && entitySet.has(r.targetId));
-
-  const positions = {};
-  entities.forEach((e, i) => {
-    const angle = (i / Math.max(entities.length, 1)) * Math.PI * 2;
-    const radius = Math.min(w, h) * 0.32;
-    positions[e.entityId] = { x: w/2 + Math.cos(angle) * radius, y: h/2 + Math.sin(angle) * radius };
-  });
-  for (let it = 0; it < 30; it++) {
-    relations.forEach(r => {
-      const a = positions[r.sourceId], b = positions[r.targetId];
-      if (!a || !b) return;
-      const dx = b.x - a.x, dy = b.y - a.y, dist = Math.sqrt(dx*dx+dy*dy) || 1;
-      const target = 160;
-      const force = (dist - target) * 0.03;
-      const fx = (dx/dist) * force, fy = (dy/dist) * force;
-      a.x += fx; a.y += fy; b.x -= fx; b.y -= fy;
-    });
-    entities.forEach((e, i) => {
-      const p = positions[e.entityId];
-      p.x = Math.max(90, Math.min(w - 90, p.x));
-      p.y = Math.max(50, Math.min(h - 50, p.y));
-    });
-  }
-
-  ctx.clearRect(0,0,w,h);
-  relations.forEach(r => {
-    const a = positions[r.sourceId], b = positions[r.targetId];
-    if (!a || !b) return;
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-500');
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted-foreground');
-    ctx.font = '11px Poppins';
-    ctx.fillText(r.label, mx + 4, my - 4);
-  });
-
-  entities.forEach(e => {
-    const p = positions[e.entityId];
-    const type = ENTITY_TYPES[e.entityType] || { color: '#888', bg: '#eee' };
-    const selected = App.viewState.selectedEntityId === e.entityId;
-    ctx.fillStyle = type.bg;
-    ctx.strokeStyle = type.color;
-    ctx.lineWidth = selected ? 3 : 1.5;
-    roundRect(ctx, p.x - 80, p.y - 36, 160, 72, 8);
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = type.color;
-    ctx.font = '600 13px Poppins';
-    const name = e.properties?.name || e.entityId;
-    ctx.fillText(truncate(name, 16), p.x - 72, p.y - 8);
-    ctx.font = '11px Poppins';
-    ctx.fillText(ENTITY_TYPES[e.entityType]?.label || e.entityType, p.x - 72, p.y + 12);
-  });
-
-  canvas.onclick = ev => {
-    const rect = canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-    for (const e of entities) {
-      const p = positions[e.entityId];
-      if (x >= p.x-80 && x <= p.x+80 && y >= p.y-36 && y <= p.y+36) {
-        selectEntity(e.entityId); return;
-      }
-    }
-  };
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
-  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y); ctx.closePath();
-}
-function truncate(s, n) { return s.length > n ? s.slice(0, n-1) + '…' : s; }
 
 // =================== 初始化 ===================
 async function init() {
