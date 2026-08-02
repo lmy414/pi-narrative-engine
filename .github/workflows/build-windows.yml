@@ -39,7 +39,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 打包 runtime 直接拷贝当前 node.exe：必须与支持的运行时对齐（>=22）
+          node-version: 24
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable

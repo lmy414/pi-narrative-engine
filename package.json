@@ -7,6 +7,9 @@
   "type": "module",
   "description": "Narrative engine extension for pi (novel writing with world-graph state).",
   "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "import": "node dist/tools/import-novel.js",

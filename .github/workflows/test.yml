@@ -13,7 +13,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: [20, 22]
+        # Node 20 已 EOL（2026-04），且 @earendil-works/pi-coding-agent 的 undici
+        # 依赖 Node>=22 内部 API（webidl.util.markAsUncloneable），20 下必崩
+        node: [22, 24]
     defaults:
       run:
         # 统一用 bash：Windows 的 pwsh/cmd 不展开 tests/*.test.ts 通配符
@@ -60,6 +62,6 @@ jobs:
         working-directory: packages/novel-launcher
         run: npx tsx --test tests/*.test.ts
 
-      # H5 修复：根 tests/ 全量纳入 CI（含 e2e + 集成测试）
+      # H5 修复：根 tests/ 全量纳入 CI（含 e2e + 集成测试 + tests/debug/）
       - name: root tests
-        run: npx tsx --test tests/*.test.ts
+        run: npx tsx --test tests/*.test.ts tests/debug/*.test.ts
