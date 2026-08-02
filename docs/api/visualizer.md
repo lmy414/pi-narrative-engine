@@ -107,6 +107,9 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 | Path | 必填 body 字段 | 行为 |
 |---|---|---|
 | `/api/events` | `eventId`, `type`, `storyTime`, `entityId` | 应用事件（`EventRecordInput`）；birth 可含 `entityType`/`summary`，change = invalidated+newFacts（即"编辑字段"） |
+| `/api/entities/:id/props` | `property`, `value`, `storyTime`（可选 `modality`） | 编辑实体属性（事件溯源：构造 change 事件，闭合该 property 当前声明 + 写新值；事件 ID 后端生成；返回 `{entityId, property, closedDeclarationId, newDeclarationId}`） |
+| `/api/declarations/close` | `declarationId`, `entityId`, `storyTime` | 闭合声明（change 事件单条 invalidated；不存在 404 `DECLARATION_NOT_FOUND`，已闭合 409 `DECLARATION_CLOSED`） |
+| `/api/entities/:id/kill` | `storyTime` | 实体退场（`death` 事件，双时态闭合——语义"删除"，无物理删除；实体不存在 404 `ENTITY_NOT_FOUND`） |
 | `/api/entities/:id/summary` | `summary` | 更新实体摘要（`updateEntitySummary`） |
 | `/api/relations` | `sourceId`, `targetId`, `label`, `storyTime` | 新建关系（`addRelation`） |
 | `/api/relations/close` | `sourceId`, `targetId`, `label`, `storyTime` | 闭合关系（`closeRelation`） |
@@ -128,7 +131,9 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 | 400 | `STORY_TIME_REQUIRED` | 缺少必填参数 `storyTime` |
 | 400 | `VALIDATION_ERROR` | 写入路径 zod 校验失败（`ZodError`） |
 | 400 | `BUSINESS_ERROR` | 写入路径业务错误（实体不存在/已闭合等 WorldGraph 方法抛出） |
-| 404 | `ENTITY_NOT_FOUND` | `GET /api/entities/:id` 该时刻无快照 |
+| 404 | `ENTITY_NOT_FOUND` | `GET /api/entities/:id` 该时刻无快照；`POST entities/:id/props|kill` 实体不存在 |
+| 404 | `DECLARATION_NOT_FOUND` | `POST /api/declarations/close` 声明不存在 |
+| 409 | `DECLARATION_CLOSED` | `POST /api/declarations/close` 声明已闭合 |
 | 404 | `NOT_FOUND` | 未知路由 / 不支持的 method |
 | 405 | —（纯文本 `Method Not Allowed`） | 非 GET/POST/OPTIONS 且非 `/api` 路径 |
 | 500 | `INTERNAL_ERROR` | GET 路径未捕获异常 |

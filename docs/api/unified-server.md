@@ -11,6 +11,7 @@
 - **活跃项目依赖**：world-graph 路由 + 大部分 `/api/files` / `/api/admin` / `/api/chat` / `/api/scheduler` 端点从 `registry.getActive()` 取上下文，未激活时返回 409 `NO_ACTIVE_PROJECT`；`/api/projects/*` 与 `/api/admin/{app-config,doctor,version,pi-status,llm,embedder/status}` 不受此限
 - **响应 envelope**：`{ ok, data, error: { code, message } }`；JSON 解析失败 400 `INVALID_JSON`；未捕获异常兜底 500 `INTERNAL_ERROR`
 - **静态服务**：`serveStatic` + `resolveDefaultUiDir`，`uiDir` 缺省自动探测 visualizer-ui
+- **world-graph 写端点**（[visualizer.md](visualizer.md) 详表）：除 `POST /api/events` 原语外，另有三个事件溯源便捷端点——`POST /api/entities/:id/props`（属性编辑：change 事件闭合旧声明+写新值，事件 ID 后端生成）、`POST /api/declarations/close`（闭合声明，404/409 预检）、`POST /api/entities/:id/kill`（实体退场：death 事件双时态闭合，语义"删除"，无物理删除）
 
 ## 启动入口（`src/app/main.ts`）
 
@@ -118,8 +119,8 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 |------|------|----------|
 | 400 | `MISSING_FIELD` / `INVALID_BODY` / `INVALID_EXT` / `INVALID_SLOT` / `INVALID_MODEL` / `INVALID_STORY_TIME` / `INVALID_JSON` | 参数校验 |
 | 403 | `PATH_ESCAPE` | 文件路径穿越项目根 |
-| 404 | `FILE_NOT_FOUND` / `NOT_A_FILE` / `DIR_NOT_FOUND` / `NOVEL_JSON_NOT_FOUND` / `WORLD_DB_NOT_FOUND` / `TEMPLATE_NOT_FOUND` / `PLAN_NOT_FOUND` / `SESSION_NOT_FOUND` / `NOT_FOUND` | 资源不存在 |
-| 409 | `FILE_EXISTS` / `MTIME_CONFLICT` / `NO_ACTIVE_PROJECT` / `MIGRATION_REQUIRED` / `PROJECT_OPEN` / `CHAT_BUSY` / `COMMIT_FAILED` | 冲突与状态守卫 |
+| 404 | `FILE_NOT_FOUND` / `NOT_A_FILE` / `DIR_NOT_FOUND` / `NOVEL_JSON_NOT_FOUND` / `WORLD_DB_NOT_FOUND` / `TEMPLATE_NOT_FOUND` / `PLAN_NOT_FOUND` / `SESSION_NOT_FOUND` / `ENTITY_NOT_FOUND` / `DECLARATION_NOT_FOUND` / `NOT_FOUND` | 资源不存在 |
+| 409 | `FILE_EXISTS` / `MTIME_CONFLICT` / `NO_ACTIVE_PROJECT` / `MIGRATION_REQUIRED` / `PROJECT_OPEN` / `CHAT_BUSY` / `COMMIT_FAILED` / `DECLARATION_CLOSED` | 冲突与状态守卫 |
 | 501 | `EMBEDDER_UNAVAILABLE` | embedder 未加载 |
 | 503 | `CHAT_UNAVAILABLE` / `LLM_UNAVAILABLE` / `DEBUG_UNAVAILABLE` | 依赖未装配 |
 

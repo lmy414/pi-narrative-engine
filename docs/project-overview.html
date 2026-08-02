@@ -98,63 +98,65 @@
 <body>
 
 <h1>🖋️ narrative-engine 项目全景图</h1>
-<div class="subtitle">叙事引擎 —— 面向小说创作的「世界图 + AI 编排」引擎 ｜ 数据截至 2026-08-01</div>
+<div class="subtitle">叙事引擎，面向小说创作的「世界图 + AI 编排」引擎 ｜ 数据截至 2026-08-01（纯 SDK 架构收敛后）</div>
 
 <!-- ============ 一句话介绍 ============ -->
 <div class="note">
   <b>这是什么？</b>
-  一个帮助 AI 写小说的引擎：用「世界图」记录故事里谁是谁、发生过什么、谁知道了什么；用「编排器」让多个 AI 子代理（策划/角色/推理/渲染）像剧组一样协作推进剧情，最后把剧情写成章节正文。当前正在从「依赖 PI 扩展」转型为「基于 PI SDK 的独立应用」。
+  一个帮助 AI 写小说的引擎：用「世界图」记录故事里谁是谁、发生过什么、谁知道了什么；用「编排器」让多个 AI 子代理（策划/角色/推理/渲染）像剧组一样协作推进剧情，最后把剧情写成章节正文。已完成从「PI 扩展」到「基于 PI SDK 的独立应用」的转型，PI 扩展入口与旧流水线已整体删除。
 </div>
 
 <!-- ============ 数据概览 ============ -->
 <h2>📊 项目数据概览</h2>
 <div class="stat-row">
   <div class="stat"><div class="num" style="color:var(--accent)">7</div><div class="lbl">npm 子包（packages/）</div></div>
-  <div class="stat"><div class="num" style="color:var(--green)">663</div><div class="lbl">测试用例（全绿）</div></div>
-  <div class="stat"><div class="num" style="color:var(--purple)">31</div><div class="lbl">PI 扩展工具（扩展模式）</div></div>
-  <div class="stat"><div class="num" style="color:var(--cyan)">17</div><div class="lbl">子代理内部工具（编排器）</div></div>
+  <div class="stat"><div class="num" style="color:var(--green)">553</div><div class="lbl">测试用例（全绿）</div></div>
+  <div class="stat"><div class="num" style="color:var(--purple)">31</div><div class="lbl">SDK 工具（5 域 customTools）</div></div>
+  <div class="stat"><div class="num" style="color:var(--cyan)">23</div><div class="lbl">子代理内部工具（AgentTool）</div></div>
   <div class="stat"><div class="num" style="color:var(--yellow)">4</div><div class="lbl">子代理类型</div></div>
-  <div class="stat"><div class="num" style="color:var(--orange)">3</div><div class="lbl">对外接入形态</div></div>
+  <div class="stat"><div class="num" style="color:var(--orange)">2</div><div class="lbl">对外接入形态</div></div>
 </div>
 
 <!-- ============ 分层架构 ============ -->
-<h2>🏗️ 分层架构（当前形态）</h2>
+<h2>🏗️ 分层架构（当前形态，纯 SDK）</h2>
 <div class="arch-flow"><pre>
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  对外接入层（3 种形态并存）                                                │
+│  对外接入层（2 种形态）                                                   │
 │                                                                          │
-│  ① PI 扩展模式（旧）      ② MCP stdio 服务（编排器）   ③ unified-server   │
-│  · src/index.ts           · scripts/orchestrator-mcp    HTTP API 7421     │
-│  · 31 个 pi.registerTool  · 4 个调度工具               · /api/* 全套      │
-│  · 需 PI 运行时启动        · 独立进程，无需 PI           · 世界图/文件/项目 │
-│                                                     · 聊天（新增）        │
+│  ① MCP stdio 服务（编排器）      ② unified-server HTTP API 7421         │
+│  · scripts/orchestrator-mcp      · /api/* 全套                           │
+│  · 4 个调度工具                   · 世界图/文件/项目/调试/聊天           │
+│  · 独立进程，无需 PI              · 独立进程，无需 PI                    │
+│  （PI 扩展模式已删除：src/index.ts + tools/ + session-state 已移除）       │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  主会话层（新增，PI SDK 模式）                                             │
-│  · src/chat/main-session.ts  —— MainSessionHost                          │
-│  · 基于 createAgentSessionRuntime（PI 本体同构三层结构）                   │
-│  · 最简提示词：.pi/SYSTEM.md 自动发现（无记忆注入）                        │
-│  · 经 customTools 调编排器（scheduler_dispatch/commit/discard/queue）    │
+│  主会话层（PI SDK 模式）                                                 │
+│  · src/chat/main-session.ts —— MainSessionHost                          │
+│  · 基于 createAgentSessionRuntime（PI 本体同构三层结构）                  │
+│  · 最简提示词：.pi/SYSTEM.md 自动发现（无记忆注入）                       │
+│  · 经 customTools 5 域 31 个工具调编排器/世界图/渲染/角色/导入            │
+│  · src/chat/{scheduler,world,render,role,import}-tools.ts                │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  编排器层（纯代码，零 PI 依赖）                                            │
-│  · src/orchestrator.ts —— Orchestrator（planner→角色→推理→渲染 调度）      │
-│  · src/event-queue.ts —— 内存队列 + 后台 worker                          │
-│  · src/orchestrator/service.ts —— OrchestratorService（调度入口）         │
-│  · src/orchestrator/llm-config.ts —— LlmConfigStore（每角色独立模型）      │
-│  · src/agents/* —— 4 类子代理 + 17 个内部 AgentTool                      │
+│  编排器层（纯代码，零 PI 依赖）                                           │
+│  · src/orchestrator.ts —— Orchestrator（planner→角色→推理→渲染 调度）    │
+│  · src/event-queue.ts —— 内存队列 + 后台 worker（单消费者串行）           │
+│  · src/orchestrator/service.ts —— OrchestratorService（plan/yolo 双模式）│
+│  · src/orchestrator/llm-config.ts —— LlmConfigStore（5 slot 独立模型）   │
+│  · src/agents/* —— 4 类子代理 + 23 个内部 AgentTool                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  数据层接口（Ports，标准 API 契约）                                        │
-│  · src/ports/types.ts —— 7 个端口（WorldGraph/Search/Embedder/...）       │
-│  · src/ports/adapters.ts —— 默认适配器（薄包装，可替换）                   │
-│  · src/orchestrator/assembly.ts —— 装配                                  │
+│  数据层接口（Ports，标准 API 契约，6 端口）                               │
+│  · src/ports/types.ts —— WorldGraph/Search/Embedder/Ruleset/Renderer/    │
+│                          RolePool（MemoryPort 已删，2026-08-01 Task7）   │
+│  · src/ports/adapters.ts —— 默认适配器（薄包装，可替换）                  │
+│  · src/orchestrator/assembly.ts —— 装配 + resolveWorldGraphDir           │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  数据层（真实实现，零 PI 依赖）                                            │
-│  · underworld-graph（已独立 npm 包） / Search / Embedder / memory        │
-│  · @pi/renderer（渲染） / @pi/role-pool（角色） / @pi/scheduler（旧流水线）│
+│  数据层（真实实现，零 PI 依赖）                                           │
+│  · underworld-graph（独立 npm 包）/ Search / Embedder                   │
+│  · @pi/renderer / @pi/role-pool / @pi/scheduler（保留面）/ @pi/importer  │
 └─────────────────────────────────────────────────────────────────────────┘
 </pre></div>
 
 <!-- ============ 数据流 ============ -->
-<h2>🔀 数据流（目标形态：从用户话到章节正文）</h2>
+<h2>🔀 数据流（从用户话到章节正文）</h2>
 <div class="arch-flow"><pre>
 用户说话 ──▶ 主会话（PI SDK 聊天）
               │  AI 判断意图（闲聊/写设定/推进剧情）
@@ -178,34 +180,34 @@
 <h3>🧩 npm 子包（packages/，7 个）</h3>
 <div class="grid">
   <div class="card">
-    <h4>🔗 scheduler <span class="badge badge-partial">旧流水线</span></h4>
-    <p>调度器核心：plan（10 步线性流水线）/ commit / retrieve / cache。设计上是编排器的「前任」，当前仍被 PI 扩展工具使用。</p>
-    <div class="files">packages/scheduler/src/{plan,commit,retrieve,cache,...}.ts</div>
+    <h4>🔗 scheduler <span class="badge badge-done">保留面</span></h4>
+    <p>旧 10 步线性流水线（plan/commit/retrieve/cache）已删除；保留 types / prompts / chapter-edit / chapter-resolver / static-card-loader / debug / utils，供编排器与 Ports 复用。</p>
+    <div class="files">packages/scheduler/src/{types,prompts,chapter-edit,chapter-resolver,static-card-loader,debug,utils}.ts</div>
   </div>
   <div class="card">
     <h4>🎭 role-pool <span class="badge badge-partial">被新编排器替代</span></h4>
-    <p>角色池批处理演绎：把角色卡+动态事实 → LLM → 结构化行动。新编排器改为每角色一个 Agent 子代理。</p>
-    <div class="files">packages/role-pool/src/{role-pool,transforms,prompts}.ts</div>
+    <p>角色池批处理演绎：interact + 角色卡重组。新编排器改为每角色一个 Agent 子代理；SDK role 工具（role_interact/role_rule_set）仍复用 interact。</p>
+    <div class="files">packages/role-pool/src/{role-pool,transforms,prompts,rule-loader}.ts</div>
   </div>
   <div class="card">
     <h4>✍️ renderer <span class="badge badge-done">在用</span></h4>
-    <p>渲染器：LLM 生成正文 + 章节文件 IO（锚点追加/修改/插入），供渲染器子代理使用。</p>
-    <div class="files">packages/renderer/src/{renderer,chapter-io,prompts}.ts</div>
+    <p>渲染器：LLM 生成正文 + 章节文件 IO（锚点追加/修改/插入），供渲染器子代理与 SDK render 工具使用。</p>
+    <div class="files">packages/renderer/src/{renderer,chapter-io,prompts,rule-loader}.ts</div>
   </div>
   <div class="card">
     <h4>📥 novel-importer <span class="badge badge-done">在用</span></h4>
-    <p>小说导入器：EPUB/文本 → 世界图实体/事件/关系 + 章节文件。多阶段流水线。</p>
+    <p>小说导入器：EPUB/文本 → 世界图实体/事件/关系 + 章节文件。多阶段流水线，SDK import 工具（import_novel）调用。</p>
     <div class="files">packages/novel-importer/src/{pipeline,stages,write}.ts</div>
   </div>
   <div class="card">
     <h4>🛠️ admin <span class="badge badge-done">在用</span></h4>
-    <p>管理模块：文件编辑器、规则集、novel.json、应用配置、更新检查、embedder 状态。</p>
+    <p>管理模块：文件编辑器、规则集、novel.json、应用配置、更新检查、embedder 状态。经 /api/files|projects|admin 暴露。</p>
     <div class="files">packages/admin/src/{files,rulesets,updater,...}.ts</div>
   </div>
   <div class="card">
     <h4>🚀 novel-launcher <span class="badge badge-done">在用</span></h4>
-    <p>项目发现/创建/启动 PI：扫描含 novel.json 的目录，管理多项目。</p>
-    <div class="files">packages/novel-launcher/src/{discover,launch,project}.ts</div>
+    <p>项目发现/创建：扫描含 novel.json 的目录，多项目管理（/api/projects/*）。</p>
+    <div class="files">packages/novel-launcher/src/{discover,project}.ts</div>
   </div>
   <div class="card">
     <h4>🌐 underworld-graph <span class="badge badge-done">已独立</span></h4>
@@ -217,44 +219,39 @@
 <h3>⚙️ 运行时源码（src/，按目录）</h3>
 <div class="grid">
   <div class="card">
-    <h4>🤖 agents/ <span class="badge badge-done">新编排器</span></h4>
-    <p>4 类子代理工厂（planner/role/reasoning/renderer）+ 产出收集 + 17 个内部工具（world-tools/chapter-tools）。</p>
-    <div class="files">src/agents/{planner,role,reasoning,renderer}-agent.ts</div>
+    <h4>🤖 agents/ <span class="badge badge-done">子代理</span></h4>
+    <p>4 类子代理工厂（planner/role/reasoning/renderer）+ 产出收集 collect + 23 个 AgentTool：7 只读（planner 注入）+ 4 受限（角色注入）+ 6 写（推理注入）+ 2 章节（渲染注入）+ 4 产出提交。</p>
+    <div class="files">src/agents/{planner,role,reasoning,renderer}-agent.ts + {world,chapter}-tools.ts + tools.ts</div>
   </div>
   <div class="card">
-    <h4>🎛️ orchestrator/ <span class="badge badge-done">新编排器</span></h4>
-    <p>编排器基础设施：LlmConfigStore（每角色独立模型）、OrchestratorService、MCP 包装、pi-adapter（唯一 PI 耦合）。</p>
+    <h4>🎛️ orchestrator/ <span class="badge badge-done">编排器</span></h4>
+    <p>LlmConfigStore（5 slot：planner/role/reasoning/renderer/default 独立模型）、OrchestratorService（plan/yolo 双模式）、MCP 包装、assembly（Ports 装配）。</p>
     <div class="files">src/orchestrator/{llm-config,service,mcp-server,assembly}.ts</div>
   </div>
   <div class="card">
     <h4>🔌 ports/ <span class="badge badge-done">标准接口</span></h4>
-    <p>数据层 7 个端口接口 + 默认适配器。编排器只依赖接口，换数据库=换适配器。</p>
+    <p>数据层 6 个端口接口 + 默认适配器。编排器只依赖接口，换数据库=换适配器。</p>
     <div class="files">src/ports/{types,adapters}.ts</div>
   </div>
   <div class="card">
-    <h4>💬 chat/ <span class="badge badge-done">新增</span></h4>
-    <p>主会话宿主（PI SDK 模式）+ 编排器工具注册（customTools）。</p>
-    <div class="files">src/chat/{main-session,scheduler-tools}.ts</div>
+    <h4>💬 chat/ <span class="badge badge-done">SDK 工具</span></h4>
+    <p>主会话宿主（MainSessionHost）+ 5 域 SDK 工具 31 个：scheduler 4 / world 18 / render 5 / role 2 / import 2。ChatContext 经 provider 动态取依赖，项目切换无需重注册。</p>
+    <div class="files">src/chat/{main-session,scheduler,world,render,role,import}-tools.ts + import-card.ts</div>
   </div>
   <div class="card">
     <h4>🌐 app/ <span class="badge badge-done">在用</span></h4>
-    <p>应用层：unified-server（HTTP 7421）、多项目注册表、扩展路由、聊天路由、ChatContext。</p>
-    <div class="files">src/app/{unified-server,routes-ext,routes-chat,chat-context}.ts</div>
-  </div>
-  <div class="card">
-    <h4>🔧 tools/ <span class="badge badge-partial">PI 扩展旧路</span></h4>
-    <p>PI 扩展工具 6 域 31 个（world/render/role/scheduler/import/visualizer）。仍走旧流水线。</p>
-    <div class="files">src/tools/{world,render,role,scheduler}-tools.ts</div>
-  </div>
-  <div class="card">
-    <h4>🗄️ 数据/LLM 单文件</h4>
-    <p>embedder（向量化）/ search（检索）/ memory（记忆）/ 4 路 LLM caller / session-state / index（扩展入口）。</p>
-    <div class="files">src/{embedder,search,memory,*llm*.ts,index.ts}</div>
+    <p>应用层：unified-server（HTTP 7421）、多项目注册表、扩展路由（files/projects/admin）、聊天路由、ChatContext、启动入口 main.ts（--port/--embed/--project）。</p>
+    <div class="files">src/app/{unified-server,routes-ext,routes-chat,chat-context,project-registry,main}.ts</div>
   </div>
   <div class="card">
     <h4>🖥️ visualizer/ <span class="badge badge-done">在用</span></h4>
-    <p>世界图 HTTP 路由（/api/status、graph、entities...）+ 静态服务。</p>
-    <div class="files">src/visualizer/{routes,server,standalone}.ts</div>
+    <p>世界图 HTTP 路由（/api/status、graph、entities、events、search、debug SSE）+ 静态服务（visualizer-ui/）。</p>
+    <div class="files">src/visualizer/{routes,server}.ts</div>
+  </div>
+  <div class="card">
+    <h4>🗄️ 数据/LLM 单文件</h4>
+    <p>embedder（向量化）/ search（检索）/ checker（规则检验）/ planner-rule-loader / event-queue / orchestrator 主类。旧 5 个 LLM caller 与 session-state 已删除。</p>
+    <div class="files">src/{embedder,search,checker,planner-rule-loader,event-queue,orchestrator}.ts</div>
   </div>
 </div>
 
@@ -273,7 +270,7 @@
 </div>
 
 <!-- ============ 架构转型进度 ============ -->
-<h2>🔄 架构转型进度（3 大核心）</h2>
+<h2>🔄 架构转型进度（4 大核心，全部完成）</h2>
 <div class="legend">
   <span><span class="dot dot-green"></span>已完成</span>
   <span><span class="dot dot-yellow"></span>部分完成</span>
@@ -291,15 +288,21 @@
   </tr>
   <tr>
     <td><b>② 编排器独立化</b></td>
-    <td><span class="dot dot-green"></span>✅ 阶段 0/1 + A1-A4</td>
+    <td><span class="dot dot-green"></span>✅ 完成</td>
     <td>4 类子代理 + EventQueue + MCP 包装 + 数据层 Ports 接线（写世界图/章节）</td>
     <td class="mono">c4db7e3 → 2e4ce1a</td>
   </tr>
   <tr>
     <td><b>③ 主会话 SDK 化</b></td>
-    <td><span class="dot dot-yellow"></span>🔶 C1-C3 完成</td>
-    <td>MainSessionHost（PI SDK 模式）+ 编排器工具 + HTTP 聊天 API。记忆注入/提示词优化后续。</td>
-    <td class="mono">⚠️ 未提交（工作区）</td>
+    <td><span class="dot dot-green"></span>✅ 完成</td>
+    <td>MainSessionHost（PI SDK 模式）+ 编排器工具 + HTTP 聊天 API</td>
+    <td class="mono">6ec9cf2（已提交）</td>
+  </tr>
+  <tr>
+    <td><b>④ 旧代码清理</b></td>
+    <td><span class="dot dot-green"></span>✅ 完成</td>
+    <td>删 PI 扩展入口（index.ts + tools/ + session-state + 5 个旧 LLM caller）、31 工具迁 SDK 5 域、@pi/scheduler 只留保留面、package.json 移除 pi.extensions</td>
+    <td class="mono">4fdd4b6（已提交）</td>
   </tr>
 </table>
 
@@ -308,29 +311,29 @@
 <table>
   <tr><th>优先级</th><th>事项</th><th>说明</th></tr>
   <tr>
-    <td><b style="color:var(--red)">P0</b></td>
-    <td>提交主会话工作</td>
-    <td>15 个文件未提交（src/chat、routes-chat、chat-context、3 smoke、2 测试、docs/api/chat.md），按 AGENTS.md 需走分支流程</td>
-  </tr>
-  <tr>
-    <td><b style="color:var(--yellow)">P1</b></td>
-    <td>老调度链路切换</td>
-    <td>PI 扩展 scheduler_dispatch 仍走旧 @pi/scheduler 流水线，与新编排器双链路并行，职责未收敛</td>
-  </tr>
-  <tr>
     <td><b style="color:var(--yellow)">P1</b></td>
     <td>编排器 HTTP 化</td>
     <td>/api/schedule/* 端点（与主会话 API 对齐，前端接入支撑完整）</td>
   </tr>
   <tr>
-    <td><b style="color:var(--muted)">P2</b></td>
-    <td>A5 配置持久化</td>
-    <td>LlmConfigStore 写配置文件 + 注入入口（每 slot 独立模型的读取入口）</td>
+    <td><b style="color:var(--yellow)">P1</b></td>
+    <td>LlmConfigStore 配置持久化 + 配置 UI</td>
+    <td>A5：写配置文件 + 注入入口（每 slot 独立模型的读取入口，config-ui 设计文档已备）</td>
   </tr>
   <tr>
     <td><b style="color:var(--muted)">P2</b></td>
     <td>记忆注入 + 提示词优化</td>
     <td>用户决策后续排期；.pi/SYSTEM.md 机制已预留改入口</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--muted)">P2</b></td>
+    <td>pi-adapter.ts 孤儿文件处置</td>
+    <td>PI 扩展删除后 createLlmConfigFromCtx 已无任何调用者，可删除或保留作未来 PI 回退（当前零引用）</td>
+  </tr>
+  <tr>
+    <td><b style="color:var(--muted)">P2</b></td>
+    <td>打包链路联动确认</td>
+    <td>sync.mjs 目标、tauri 应用内置模式（launch-pi + extension-snapshot + reinstall）需与纯 SDK 形态对齐</td>
   </tr>
 </table>
 
@@ -339,9 +342,9 @@
 <table>
   <tr><th>形态</th><th>入口</th><th>内容</th></tr>
   <tr>
-    <td>🧩 PI 扩展（旧）</td>
-    <td class="mono">src/index.ts</td>
-    <td>31 工具（world 18 / render 5 / role 2 / scheduler 3 / import 2 / visualizer 1）</td>
+    <td>💬 SDK customTools</td>
+    <td class="mono">src/chat/*-tools.ts</td>
+    <td>5 域 31 个：scheduler 4 / world 18 / render 5 / role 2 / import 2（主会话注入）</td>
   </tr>
   <tr>
     <td>🔌 MCP stdio</td>
@@ -351,7 +354,7 @@
   <tr>
     <td>🌐 HTTP /api/*</td>
     <td class="mono">127.0.0.1:7421</td>
-    <td>世界图全量 / files / projects / admin / debug / <b>chat（新增）</b></td>
+    <td>世界图全量 / files / projects / admin / debug（SSE）/ chat</td>
   </tr>
   <tr>
     <td>💬 HTTP /api/chat/*</td>
@@ -367,14 +370,14 @@
   <div class="tl-item"><div class="tl-date">07-25</div><div class="tl-body"><span class="t">scheduler 调度器设计</span><div class="d">10 步线性流水线 plan/commit 落地</div></div></div>
   <div class="tl-item"><div class="tl-date">07-29</div><div class="tl-body"><span class="t">应用架构 + 配置 UI 设计</span><div class="d">unified-server 双模式、LLM 调用链改造</div></div></div>
   <div class="tl-item"><div class="tl-date">07-31</div><div class="tl-body"><span class="t">架构转型启动</span><div class="d">world-graph 独立化（underworld-graph）+ 子代理编排器设计 + SDK 集成架构决策</div></div></div>
-  <div class="tl-item"><div class="tl-date">08-01</div><div class="tl-body"><span class="t">编排器闭环 + 主会话</span><div class="d">数据层 Ports 接线（A1-A4）→ 主会话 SDK（C1-C3）→ HTTP 聊天 API。测试 646→663 全绿</div></div></div>
+  <div class="tl-item"><div class="tl-date">08-01</div><div class="tl-body"><span class="t">SDK 收敛完成</span><div class="d">数据层 Ports（A1-A4）→ 主会话 SDK（C1-C3）→ HTTP 聊天 API → 旧代码清理（pure SDK convergence，4fdd4b6）。测试 663→553 全绿（删 scheduler 旧流水线测试）</div></div></div>
 </div>
 
 <!-- ============ 技术栈 ============ -->
 <h2>🧰 技术栈</h2>
 <table>
   <tr><th>类别</th><th>技术</th><th>用途</th></tr>
-  <tr><td>运行时</td><td>Node.js ≥ 22.19 / TypeScript 5.4 / esbuild</td><td>主体开发 / 构建</td></tr>
+  <tr><td>运行时</td><td>Node.js ≥ 22.19 / TypeScript 5.4 / esbuild</td><td>主体开发 / 构建（build.mjs 逐文件转译）</td></tr>
   <tr><td>AI 依赖</td><td>@earendil-works/pi-ai / pi-agent-core / pi-coding-agent</td><td>LLM 统一调用 / 子代理 Agent / 主会话 SDK</td></tr>
   <tr><td>存储</td><td>underworld-graph（SQLite + sqlite-vec + typegraph）</td><td>世界图（实体/关系/事件/可见性）</td></tr>
   <tr><td>嵌入</td><td>@xenova/transformers（bge-small-zh-v1.5，本地 512 维）</td><td>向量化检索</td></tr>
@@ -384,11 +387,11 @@
 </table>
 
 <div class="warn">
-  <b>⚠️ 当前唯一未完成事项（P0）</b>：主会话相关 15 个文件已实现、663 测试全绿，但<b>尚未 git 提交</b>（工作区脏）。建议尽快按 AGENTS.md 分支流程提交，防止丢失。
+  <b>⚠️ 说明</b>：旧 PI 扩展模式（pi.registerTool 31 工具、src/index.ts 扩展入口、session-state、5 个旧 LLM caller、@pi/scheduler 旧流水线）已全部删除并提交（4fdd4b6），工作区干净、553 测试全绿。遗留点见上方待办（pi-adapter 孤儿文件、打包链路联动确认）。
 </div>
 
 <footer style="margin-top:40px; padding-top:16px; border-top:1px solid var(--border); color:var(--muted); font-size:12px;">
-  narrative-engine v0.1.0-alpha.1 ｜ 生成于 2026-08-01 ｜ 本文档基于全量源码调研（非脑补），数据来源：git log / package.json / src 目录 / docs/plans 落地报告
+  narrative-engine v0.1.0-alpha.1 ｜ 生成于 2026-08-01 ｜ 本文档基于全量源码调研（非脑补），数据来源：git log / package.json / src 目录全量核对 / npm test（553 全绿）/ docs/plans 落地报告
 </footer>
 
 </body>
