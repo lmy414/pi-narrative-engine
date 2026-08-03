@@ -164,7 +164,8 @@ function navigate(hash, statePatch = {}) {
 function cleanupRouteRuntime(id) {
   if (id === 'studio' && typeof cleanupStudioView === 'function') cleanupStudioView();
   if (id === 'debug' && typeof cleanupDebugView === 'function') cleanupDebugView();
-  if (id === 'graph' || id === 'events') stopStoryTimeWatcher();
+  if (id === 'graph' && typeof cleanupGraphView === 'function') cleanupGraphView();
+  else if (id === 'events') stopStoryTimeWatcher();
 }
 
 // =================== 全局 StoryTime 同步（graph/events/驻留失效共用） ===================
@@ -220,7 +221,7 @@ function refreshShellStoryTime() {
   const dropdown = container.querySelector('#storytime-dropdown');
   if (dropdown) {
     dropdown.innerHTML = App.storyTimes.map(st =>
-      `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime='${st}';render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
+      `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime=${q(st)};render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
     ).join('');
   }
 }
@@ -316,7 +317,7 @@ function storyTimeSelectorHtml() {
   if (routeId() !== 'graph') return '';
   if (!App.activeProject || !App.storyTimes.length) return '';
   const options = App.storyTimes.map(st =>
-    `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime='${st}';render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
+    `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime=${q(st)};render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
   ).join('');
   return `
     <div class="storytime-selector dropdown" onclick="toggleNavStoryTime(event)">

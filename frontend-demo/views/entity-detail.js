@@ -174,7 +174,7 @@ function entityDetailDrawerHtml() {
         </div>
         <div class="footer-right">
           <div class="retire-hint">退场后该实体将从后续快照中消失，历史记录保留</div>
-          <button class="btn-danger-text" onclick="detailRetireEntity('${escapeHtml(e.entityId)}')">${icon('activity', 'w-3.5 h-3.5')} 退场实体</button>
+          <button class="btn-danger-text" onclick="detailRetireEntity(${q(e.entityId)})">${icon('activity', 'w-3.5 h-3.5')} 退场实体</button>
         </div>
       </div>
     </div>
@@ -266,7 +266,7 @@ function detailPropertiesPanel() {
       <div class="property-name">${escapeHtml(detailPropLabel(k))}</div>
       <div class="property-value" title="${escapeHtml(v)}">${escapeHtml(v)}</div>
       <div class="property-actions">
-        <button class="property-edit-btn" onclick="detailEditProperty('${escapeHtml(k)}', '${escapeHtml(String(v))}')">${icon('pencil', 'w-3 h-3')} 编辑</button>
+        <button class="property-edit-btn" onclick="detailEditProperty(${q(k)}, ${q(String(v))})">${icon('pencil', 'w-3 h-3')} 编辑</button>
       </div>
     </div>`).join('');
   return `
@@ -307,7 +307,7 @@ function detailDeclarationsPanel() {
       ${closed
         ? (d.closeReason ? `<div class="close-reason">闭合原因：${escapeHtml(d.closeReason)}</div>` : '')
         : `<div class="declaration-actions">
-            <button class="decl-action-btn close" onclick="detailCloseDeclaration('${escapeHtml(d.declarationId)}')">闭合</button>
+            <button class="decl-action-btn close" onclick="detailCloseDeclaration(${q(d.declarationId)})">闭合</button>
           </div>`}
     </div>`;
   }).join('');
@@ -342,7 +342,7 @@ function detailRelationsPanel() {
       </div>
       ${closed ? '' : `
       <div class="relation-card-actions">
-        <button class="decl-action-btn close" onclick="detailCloseRelation('${escapeHtml(r.sourceId)}', '${escapeHtml(r.targetId)}', '${escapeHtml(r.label)}')">闭合</button>
+        <button class="decl-action-btn close" onclick="detailCloseRelation(${q(r.sourceId)}, ${q(r.targetId)}, ${q(r.label)})">闭合</button>
       </div>`}
     </div>`;
   };
@@ -368,7 +368,7 @@ function detailVisibilityPanel() {
     const title = rec
       ? `${VIS_STATE_LABELS[state]} · 置信 ${Math.round((rec.confidence || 0) * 100)}% · ${rec.source}`
       : '未知 · 点击设置';
-    return `<td title="${escapeHtml(title)}" onclick="detailVisibilityClick('${escapeHtml(ch.entityId)}', '${escapeHtml(decl.declarationId)}')">
+    return `<td title="${escapeHtml(title)}" onclick="detailVisibilityClick(${q(ch.entityId)}, ${q(decl.declarationId)})">
       <span class="visibility-cell ${state}">${sym}</span>
     </td>`;
   };
@@ -400,7 +400,7 @@ function detailEventsPanel() {
     const src = ev.source === 'engine' ? { label: 'AI', cls: 'ai' } : { label: '手动', cls: 'manual' };
     const label = EVENT_TYPE_LABELS[ev.type] || ev.type;
     return `
-    <div class="event-timeline-item" onclick="detailOpenEvent('${escapeHtml(ev.eventId)}')">
+    <div class="event-timeline-item" onclick="detailOpenEvent(${q(ev.eventId)})">
       <div class="event-type-dot ${escapeHtml(ev.type)}"></div>
       <div class="event-content">
         <div class="event-meta-row">
@@ -463,7 +463,7 @@ function detailEditProperty(property, value) {
       <div><label class="text-sm text-muted">新值</label><input id="det-prop-value" class="input" value="${escapeHtml(value)}"></div>
       <p class="text-xs text-muted">保存后旧声明将闭合，新声明在当前 StoryTime（${escapeHtml(App.storyTime)}）生效。</p>
     </div>`,
-    `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="detailSaveProperty('${escapeHtml(property)}')">保存</button>`);
+    `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="detailSaveProperty(${q(property)})">保存</button>`);
 }
 
 async function detailSaveProperty(property) {

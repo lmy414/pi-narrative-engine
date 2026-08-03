@@ -99,7 +99,7 @@ ViewRender.graph = () => {
 
   const typeTabs = [{ id: 'all', label: '全部' }]
     .concat(Object.keys(ENTITY_TYPES).map((t) => ({ id: t, label: ENTITY_TYPES[t].label })))
-    .map((t) => `<button type="button" class="type-tab${t.id === typeFilter ? ' active' : ''}" onclick="setGraphType('${t.id}')">${t.label}</button>`)
+    .map((t) => `<button type="button" class="type-tab${t.id === typeFilter ? ' active' : ''}" onclick="setGraphType(${q(t.id)})">${t.label}</button>`)
     .join('');
 
   const listItems = listEntities.map((e) => graphEntityItemHtml(e, selectedId)).join('');
@@ -181,13 +181,20 @@ ViewAfterRender.graph = () => {
   startStoryTimeWatcher();
 };
 
+/** 切出世界图视图时销毁 3D 场景与挂起的防抖重建，释放 WebGL 上下文 */
+function cleanupGraphView() {
+  if (_graph3dRebuildTimer) { clearTimeout(_graph3dRebuildTimer); _graph3dRebuildTimer = null; }
+  graphDispose3D();
+  stopStoryTimeWatcher();
+}
+
 // ==================== 左侧实体列表 ====================
 
 function graphEntityItemHtml(e, selectedId) {
   const type = ENTITY_TYPES[e.entityType] || { label: e.entityType, color: '#8a8a8a' };
   const name = (e.properties && e.properties.name) || e.entityId;
   return `
-  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity('${e.entityId}')" data-entity-id="${e.entityId}">
+  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity(${q(e.entityId)})" data-entity-id="${e.entityId}">
     <span class="entity-dot" style="background:${type.color}"></span>
     <div class="entity-info">
       <div class="entity-name">${escapeHtml(name)}</div>
@@ -220,7 +227,7 @@ function graphInspectorHtml(inspectorId) {
       <div class="prop-row">
         <span class="prop-key">${escapeHtml(k)}</span>
         <span class="prop-value">${escapeHtml(String(v))}</span>
-        <button type="button" class="prop-edit" title="编辑 ${escapeHtml(k)}" onclick="editGraphProperty('${entity.entityId}', '${escapeHtml(k)}')">${icon('pencil', 'w-3.5 h-3.5')}</button>
+        <button type="button" class="prop-edit" title="编辑 ${escapeHtml(k)}" onclick="editGraphProperty(${q(entity.entityId)}, ${q(k)})">${icon('pencil', 'w-3.5 h-3.5')}</button>
       </div>`)
     .join('');
   const aliveRow = entity.alive === undefined ? '' : `
@@ -242,7 +249,7 @@ function graphInspectorHtml(inspectorId) {
       const otherType = ENTITY_TYPES[other.entityType] || { color: '#8a8a8a' };
       const otherName = (other.properties && other.properties.name) || other.entityId;
       return `
-      <div class="rel-row" onclick="graphSelectEntity('${otherId}')" title="选中 ${escapeHtml(otherName)}">
+      <div class="rel-row" onclick="graphSelectEntity(${q(otherId)})" title="选中 ${escapeHtml(otherName)}">
         <span class="entity-dot" style="background:${otherType.color}"></span>
         <span class="rel-name">${escapeHtml(otherName)}</span>
         <span class="rel-meta"><span class="rel-label">${escapeHtml(r.label)}</span>${icon(out ? 'arrow-right' : 'arrow-left', 'w-3 h-3 rel-arrow')}</span>
@@ -257,7 +264,7 @@ function graphInspectorHtml(inspectorId) {
     .slice(-3)
     .reverse()
     .map((ev) => `
-      <div class="event-row" onclick="navigate('#/events?event=${ev.eventId}')" title="查看事件链">
+      <div class="event-row" onclick="navigate('#/events?event=' + encodeURIComponent(${q(ev.eventId)}))" title="查看事件链">
         <span class="event-time">${escapeHtml(ev.storyTime)}</span>
         <span class="event-type-tag">${escapeHtml(ev.type)}</span>
         <span class="event-summary">${escapeHtml(ev.summary || '')}</span>
@@ -268,7 +275,7 @@ function graphInspectorHtml(inspectorId) {
   <div class="inspector-header">
     <div class="inspector-type-row">
       <span class="type-badge" style="background:${type.bg};color:${type.color}">${escapeHtml(type.label)}</span>
-      <button type="button" class="icon-btn" title="更多操作" onclick="openEntityDetail('${entity.entityId}')">${icon('more-horizontal', 'w-4 h-4')}</button>
+      <button type="button" class="icon-btn" title="更多操作" onclick="openEntityDetail(${q(entity.entityId)})">${icon('more-horizontal', 'w-4 h-4')}</button>
     </div>
     <h3 class="inspector-name">${escapeHtml(name)}</h3>
     <div class="inspector-id">${escapeHtml(entity.entityId)}</div>
@@ -296,7 +303,18 @@ function graphInspectorHtml(inspectorId) {
 // 经 index.html 以 CDN UMD 引入，全局 ForceGraph3D。
 // 数据沿用 graphLoadData 的 graphData（entities/relations），筛选语义与 2D canvas 一致。
 
-let _graph3d = null; // 当前实例；重建前暂停动画，避免累积 WebGL 上下文
+let _graph3d = null; // 当前实例；重建/切出前销毁 WebGL 资源，避免累积上下文
+let _graph3dRebuildTimer = null; // 搜索输入防抖：停止连续输入后 250ms 才重建 3D 场景
+
+/** 销毁当前 3D 场景（WebGL 上下文释放）；重建与切出视图共用 */
+function graphDispose3D() {
+  if (!_graph3d) return;
+  try {
+    _graph3d.pauseAnimation();
+    if (typeof _graph3d._destructor === 'function') _graph3d._destructor();
+  } catch (e) { /* noop：组件销毁异常不影响页面 */ }
+  _graph3d = null;
+}
 
 /** 初始化/重建 3D 场景：ViewAfterRender.graph 在 3D 模式下调用，筛选变更时整棵重建 */
 function graphInit3D() {
@@ -321,7 +339,7 @@ function graphInit3D() {
     type: e.entityType
   }));
 
-  if (_graph3d) { try { _graph3d.pauseAnimation(); } catch (e) { /* noop */ } _graph3d = null; }
+  graphDispose3D();
   container.innerHTML = ''; // 清掉旧 canvas / 标签层，避免重复初始化累积
 
   const css = getComputedStyle(document.documentElement);
@@ -445,7 +463,7 @@ function setGraphType(type) {
   renderView();
 }
 
-/** 搜索：立即过滤实体列表 DOM 并重建 3D 场景（避免全量 render 丢失输入焦点） */
+/** 搜索：立即过滤实体列表 DOM；3D 场景防抖重建（避免每键一次 WebGL 重建） */
 function graphSearchEntities(value) {
   setGraphState('graphFilter', value.toLowerCase());
   const kw = value.toLowerCase();
@@ -453,7 +471,8 @@ function graphSearchEntities(value) {
     const hay = `${row.querySelector('.entity-name') ? row.querySelector('.entity-name').textContent : ''} ${row.querySelector('.entity-summary') ? row.querySelector('.entity-summary').textContent : ''}`.toLowerCase();
     row.style.display = hay.includes(kw) ? '' : 'none';
   });
-  graphInit3D();
+  if (_graph3dRebuildTimer) clearTimeout(_graph3dRebuildTimer);
+  _graph3dRebuildTimer = setTimeout(() => { _graph3dRebuildTimer = null; graphInit3D(); }, 250);
 }
 
 function toggleIncludeClosed(cb) {
@@ -484,7 +503,7 @@ function pickGraphStoryTime() {
   const options = App.storyTimes
     .map(
       (st) => `
-    <label class="st-pick-row" onclick="selectGraphStoryTime('${st}')">
+    <label class="st-pick-row" onclick="selectGraphStoryTime(${q(st)})">
       <span class="st-pick-radio">${st === App.storyTime ? '●' : '○'}</span>
       <span class="st-pick-value">${escapeHtml(st)}</span>
     </label>`

@@ -221,7 +221,7 @@ function stSessionsHtml(sessions, currentId, nowIso) {
 
 function stSessionItemHtml(s, active) {
   return `
-  <div class="st-session-item${active ? ' active' : ''}" onclick="stSwitchSession('${escapeHtml(s.id)}')">
+  <div class="st-session-item${active ? ' active' : ''}" onclick="stSwitchSession(${q(s.id)})">
     <span class="st-session-icon">${icon('message-square', 'w-3.5 h-3.5')}</span>
     <div class="st-session-main">
       <div class="st-session-name">${escapeHtml(s.name)}${s.live ? '<span class="st-live-dot"></span>' : ''}</div>
@@ -348,7 +348,7 @@ function stPlanCardHtml(p) {
     const isCollapsed = !!collapsed[key];
     return `
     <div class="st-plan-section${isCollapsed ? ' collapsed' : ''}" data-sec-key="${escapeHtml(key)}">
-      <div class="st-plan-section-head" onclick="stTogglePlanSection('${escapeHtml(p.planId)}','output-${index}')">
+      <div class="st-plan-section-head" onclick="stTogglePlanSection(${q(p.planId)},'output-${index}')">
         <span class="st-plan-section-icon">${icon('user-round', 'w-4 h-4')}</span>
         <span class="st-plan-section-title">${escapeHtml(output.actor || '角色产出')}</span>
         <span class="st-plan-section-chevron">${icon(isCollapsed ? 'chevron-right' : 'chevron-down', 'w-4 h-4')}</span>
@@ -371,8 +371,8 @@ function stPlanCardHtml(p) {
     <div class="st-plan-foot">
       <div class="st-plan-chips">${chips}</div>
       <div class="st-plan-actions">
-        <button type="button" class="st-btn st-btn-ghost" onclick="stDiscardPlan('${escapeHtml(p.planId)}')">丢弃</button>
-        <button type="button" class="st-btn st-btn-primary" onclick="stCommitPlan('${escapeHtml(p.planId)}')">提交</button>
+        <button type="button" class="st-btn st-btn-ghost" onclick="stDiscardPlan(${q(p.planId)})">丢弃</button>
+        <button type="button" class="st-btn st-btn-primary" onclick="stCommitPlan(${q(p.planId)})">提交</button>
       </div>
     </div>
   </div>`;
@@ -434,7 +434,7 @@ function stRenderDispatchTags() {
   el.innerHTML = mentions.map((m) => `
     <span class="st-mention-tag">
       <span class="st-mention-tag-name">@${escapeHtml(m.name)}</span>
-      <button type="button" class="st-mention-tag-x" title="移除" onclick="stRemoveMention('${escapeHtml(m.id)}')">${icon('x', 'w-3 h-3')}</button>
+      <button type="button" class="st-mention-tag-x" title="移除" onclick="stRemoveMention(${q(m.id)})">${icon('x', 'w-3 h-3')}</button>
     </span>`).join('');
   refreshIcons();
 }
@@ -530,7 +530,7 @@ function stMentionPanelHtml(filter, selected) {
   const items = stMentionFiltered(filter);
   if (!items.length) return '<div class="st-mention-empty">没有匹配的实体</div>';
   return items.map((o, i) => `
-    <div class="st-mention-item${i === selected ? ' active' : ''}" onclick="stSelectMention('${escapeHtml(o.id)}','${escapeHtml(stState('mentionSource', 'chat'))}')" onmouseenter="stMentionHover(${i})">
+    <div class="st-mention-item${i === selected ? ' active' : ''}" onclick="stSelectMention(${q(o.id)},${q(stState('mentionSource', 'chat'))})" onmouseenter="stMentionHover(${i})">
       <span class="st-mention-avatar">${escapeHtml(o.letter)}</span>
       <div class="st-mention-info">
         <div class="st-mention-name">${escapeHtml(o.name)}<span class="st-mention-type st-mt-${escapeHtml(o.type)}">${escapeHtml(o.typeLabel)}</span></div>

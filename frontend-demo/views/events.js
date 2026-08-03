@@ -185,7 +185,7 @@ function eventCardHtml(ev, selectedId, expandedIds) {
   }
 
   return `
-  <article class="ev-event-card ev-card-${escapeHtml(type)}${isSelected ? ' selected' : ''}${isCurrent ? ' current-storytime' : ''}${isExpanded ? ' expanded' : ''}" data-event-id="${escapeHtml(ev.eventId)}" onclick="eventSelectEvent('${escapeHtml(ev.eventId)}')">
+  <article class="ev-event-card ev-card-${escapeHtml(type)}${isSelected ? ' selected' : ''}${isCurrent ? ' current-storytime' : ''}${isExpanded ? ' expanded' : ''}" data-event-id="${escapeHtml(ev.eventId)}" onclick="eventSelectEvent(${q(ev.eventId)})">
     <span class="ev-source-pill ${isEngine ? 'ev-source-engine' : 'ev-source-manual'}">${isEngine ? 'AI' : '手动'}</span>
     <div class="ev-event-meta">
       <span class="ev-event-time">${escapeHtml(ev.storyTime || '')}</span>
@@ -200,7 +200,7 @@ function eventCardHtml(ev, selectedId, expandedIds) {
         ${entityTypeLabel ? `<span class="ev-entity-chip-type">（${escapeHtml(entityTypeLabel)}）</span>` : ''}
       </span>
     </div>
-    <div class="ev-event-expand" onclick="event.stopPropagation();eventToggleExpand('${escapeHtml(ev.eventId)}')">
+    <div class="ev-event-expand" onclick="event.stopPropagation();eventToggleExpand(${q(ev.eventId)})">
       <span class="ev-event-expand-text">${isExpanded ? '收起详情' : '展开详情'}</span>
       ${icon('chevron-down', 'ev-event-expand-icon')}
     </div>
@@ -244,7 +244,7 @@ function eventFilterEntitiesHtml() {
     const color = eventEntityTypeColor(id);
     const checked = selected.includes(id) ? ' checked' : '';
     return `
-    <div class="ev-entity-item${checked}" data-entity-filter-id="${escapeHtml(id)}" onclick="eventToggleEntity('${escapeHtml(id)}')">
+    <div class="ev-entity-item${checked}" data-entity-filter-id="${escapeHtml(id)}" onclick="eventToggleEntity(${q(id)})">
       <div class="ev-entity-checkbox"></div>
       <div class="ev-entity-avatar" style="background:${color}">${escapeHtml(name.charAt(0))}</div>
       <span class="ev-entity-name">${escapeHtml(name)}</span>
@@ -262,7 +262,7 @@ function eventTypeTagsHtml() {
     { type: 'death', label: 'death 退场' }
   ];
   return tags.map(t =>
-    `<span class="ev-type-tag${active === t.type ? ' active' : ''}" data-type="${t.type}" onclick="eventSelectType('${t.type}')">${escapeHtml(t.label)}</span>`
+    `<span class="ev-type-tag${active === t.type ? ' active' : ''}" data-type="${t.type}" onclick="eventSelectType(${q(t.type)})">${escapeHtml(t.label)}</span>`
   ).join('');
 }
 
@@ -278,7 +278,7 @@ function eventCausalPanelHtml(ev) {
     const color = eventEntityTypeColor(id);
     const role = eventEntityTypeLabel(id);
     return `
-    <div class="ev-entity-list-item" onclick="eventJumpToEntity('${escapeHtml(id)}')">
+    <div class="ev-entity-list-item" onclick="eventJumpToEntity(${q(id)})">
       <div class="ev-entity-avatar" style="background:${color}">${escapeHtml(name.charAt(0))}</div>
       <div class="ev-entity-list-meta">
         <div class="ev-entity-list-name">${escapeHtml(name)}</div>
@@ -322,7 +322,7 @@ function eventCausalPanelHtml(ev) {
     </div>
     ${factHtml ? `<div class="ev-detail-section"><div class="ev-detail-label">新事实</div><div class="ev-fact-list">${factHtml}</div></div>` : ''}
     ${invalidHtml ? `<div class="ev-detail-section"><div class="ev-detail-label">失效声明</div><div class="ev-fact-list">${invalidHtml}</div></div>` : ''}
-    <button class="ev-btn-jump" onclick="eventJumpToGraph('${escapeHtml(ev.storyTime || '')}')">${icon('globe', 'w-4 h-4')} 跳转到世界图（此时刻）</button>
+    <button class="ev-btn-jump" onclick="eventJumpToGraph(${q(ev.storyTime || '')})">${icon('globe', 'w-4 h-4')} 跳转到世界图（此时刻）</button>
   </aside>`;
 }
 
