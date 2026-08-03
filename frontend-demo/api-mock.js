@@ -52,7 +52,11 @@ function getChain(eventId) {
   const target = MOCK_EVENTS.find(e => e.eventId === eventId);
   if (!target) return { events: [] };
   const events = [];
+  // L-FE-5：环检测（causes 引用成环时旧实现递归无限下钻 → 栈溢出）
+  const visited = new Set();
   function collect(e) {
+    if (visited.has(e.eventId)) return;
+    visited.add(e.eventId);
     events.push(e);
     if (e.causes) {
       for (const causeId of e.causes) {

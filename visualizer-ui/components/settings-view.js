@@ -51,12 +51,9 @@
         rulesetDraft: "",
         rulesetSaved: "",
         rulesetSaving: false,
-        // 依赖与升级
+        // 依赖与升级（一键更新执行链已删除，仅保留依赖检查与版本查询）
         doctor: null,
         doctorLoading: false,
-        updateLines: [],
-        updateRunning: false,
-        updateSource: null,
         // 高级
         novelJson: null,
         novelForm: { name: "", chaptersDir: "", storyTimeFormat: "" },
@@ -237,35 +234,6 @@
         }).catch(function (err) {
           self.toast("检查更新失败：" + err.message, "error");
         });
-      },
-      startUpdate: function () {
-        var self = this;
-        if (this.updateRunning) return;
-        if (!window.confirm("执行一键更新（git pull + build + sync）？")) return;
-        this.updateLines = [];
-        this.updateRunning = true;
-        var es = api.adminUpdateStream();
-        this.updateSource = es;
-        es.onmessage = function (e) {
-          var evt;
-          try { evt = JSON.parse(e.data); } catch (err) { return; }
-          self.updateLines.push(evt);
-          if (evt.stage === "done" || evt.stage === "error") {
-            self.updateRunning = false;
-            es.close();
-            self.updateSource = null;
-            if (evt.stage === "done") {
-              self.toast("更新完成，请在 PI 会话内执行 /reload");
-            } else {
-              self.toast("更新失败：" + (evt.error || "未知错误"), "error");
-            }
-          }
-        };
-        es.onerror = function () {
-          self.updateRunning = false;
-          es.close();
-          self.updateSource = null;
-        };
       },
       // ============ 高级 ============
       loadNovelJson: function () {

@@ -308,8 +308,10 @@
         var self = this;
         this.closeStream();
         this.sseError = "";
-        // 先用 fetch 探测端点状态，便于显示明确错误
-        fetch("/api/debug/events").then(function (r) {
+        // L-FE-4：探测请求挂 AbortController（组件卸载后中止回调）+ 走 api.js 封装
+        var ctrl = new AbortController();
+        this._probeAbort = ctrl;
+        V3.api.debugEvents(ctrl.signal).then(function (r) {
           if (r.status === 503) {
             // debugBus 未注入 → 端点存在但调试总线未启用
             return r.json().then(function (body) {
@@ -343,15 +345,17 @@
             this.sseError = "浏览器不支持 SSE";
             return;
           }
-          var es = new ES("/api/debug/stream");
+          var es = new ES(V3.api.debugStreamUrl);
           this.eventSource = es;
           es.onopen = function () {
             self.connected = true;
             self.sseError = "";
+            self._sseRetryCount = 0;  // M-Logic-13：连接成功复位退避
           };
           es.onmessage = function (msg) {
             if (!msg || !msg.data) return;
             if (msg.data.charAt(0) === ":") return;  // 心跳注释
+            self._sseRetryCount = 0;  // M-Logic-13：收到消息复位退避
             try {
               var ev = JSON.parse(msg.data);
               console.debug("[debug-view] SSE event:", ev && ev.stage, ev && ev.status);
@@ -364,9 +368,14 @@
             self.connected = false;
             if (!self.paused) {
               self.clearReconnectTimer();
+              // M-Logic-13 修复：指数退避重连（1s→2s→4s…→30s 上限），
+              // 旧实现固定 3s 重连——后端不可达时持续高频打挂
+              var attempt = self._sseRetryCount || 0;
+              var delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+              self._sseRetryCount = attempt + 1;
               self.reconnectTimer = setTimeout(function () {
                 self.connectStream();
-              }, 3000);
+              }, delay);
             }
           };
         } catch (e) {
@@ -376,7 +385,7 @@
       /* 手动拉取历史事件并填充到前端（诊断 + 补救 SSE 时序问题） */
       sendTestEvent: function () {
         var self = this;
-        fetch("/api/debug/events").then(function (r) {
+        V3.api.debugEvents().then(function (r) {
           if (!r.ok) {
             window.ElementPlus.ElMessage({ message: "调试端点不可用（HTTP " + r.status + "）", type: "error" });
             return;
@@ -406,6 +415,11 @@
         });
       },
       closeStream: function () {
+        // L-FE-4：中止未完成的探测请求（组件卸载后不再执行回调）
+        if (this._probeAbort) {
+          try { this._probeAbort.abort(); } catch (e) {}
+          this._probeAbort = null;
+        }
         if (this.eventSource) {
           try { this.eventSource.close(); } catch (e) {}
           this.eventSource = null;
@@ -446,9 +460,8 @@
       /* 清空事件（调用后端 clear + 前端清空） */
       clearEvents: function () {
         var self = this;
-        fetch("/api/debug/clear", { method: "POST" })
-          .then(function (r) { return r.json(); })
-          .then(function () {
+        V3.api.debugClear()
+        .then(function () {
             self.events = [];
             self.traces = [];
             self.selectedNodeId = "";

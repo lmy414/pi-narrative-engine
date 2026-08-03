@@ -14,7 +14,7 @@
     },
     emits: ["select"],
     data: function () {
-      return { graph: null, ro: null };
+      return { graph: null, ro: null, focusTimer: null };
     },
     computed: {
       dimmedSet: function () {
@@ -92,15 +92,18 @@
         .nodeColor(function (n) { return self.nodeColor(n); })
         .nodeOpacity(0.92)
         .nodeResolution(24)
+        /* M-Qual-6 修复：label 是 3d-force-graph 的 HTML tooltip，
+           name/summary 必须转义（实体名/摘要被污染时悬停即 XSS） */
         .nodeLabel(function (n) {
-          return n.name + "（" + (U.TYPE_NAME[n.type] || n.type) + "）" +
-            (n.dead ? " †" : "") + (n.summary ? "<br>" + n.summary : "");
+          var esc = window.V3.putil.escapeHtml;
+          return esc(n.name) + "（" + esc(U.TYPE_NAME[n.type] || n.type) + "）" +
+            (n.dead ? " †" : "") + (n.summary ? "<br>" + esc(n.summary) : "");
         })
         .linkColor(function (l) { return l.closed ? "#3a3f4a" : "#5a6478"; })
         .linkWidth(function (l) { return l.closed ? 0.6 : 1.2; })
         .linkDirectionalArrowLength(4)
         .linkDirectionalArrowRelPos(1)
-        .linkLabel(function (l) { return l.label + (l.closed ? "（已闭合）" : ""); })
+        .linkLabel(function (l) { return window.V3.putil.escapeHtml(l.label) + (l.closed ? "（已闭合）" : ""); })
         .nodeThreeObject(function (n) {
           var sprite = new window.SpriteText(n.name);
           sprite.color = self.dimmedSet[n.id] ? "#5a6272" : "#dfe4ec";
@@ -117,6 +120,8 @@
       this.ro.observe(holder);
     },
     beforeUnmount: function () {
+      /* M-Qual-4 修复：清 pending focus timer，防卸载后回调访问已销毁实例 */
+      if (this.focusTimer) { clearTimeout(this.focusTimer); this.focusTimer = null; }
       if (this.ro) this.ro.disconnect();
       if (this.graph) this.graph._destructor && this.graph._destructor();
     },
@@ -146,12 +151,16 @@
         var self = this;
         if (!this.graph || !this.selectedId) return;
         var tryFocus = function (attempt) {
+          /* M-Qual-4：timer 归入实例，回调前确认 graph 未被销毁 */
+          if (!self.graph) return;
           var nodes = self.graph.graphData().nodes;
           var n = null;
           for (var i = 0; i < nodes.length; i++) if (nodes[i].id === self.selectedId) { n = nodes[i]; break; }
           if (!n) return;
           if (n.x === undefined) {
-            if (attempt < 10) setTimeout(function () { tryFocus(attempt + 1); }, 300);
+            if (attempt < 10) {
+              self.focusTimer = setTimeout(function () { self.focusTimer = null; tryFocus(attempt + 1); }, 300);
+            }
             return;
           }
           var dist = 90;

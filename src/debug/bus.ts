@@ -28,12 +28,6 @@ const DEFAULT_CAPACITY = 1000;
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_ROTATED_FILES = 5;
 
-/** 自增 ID 生成器（进程内唯一，重启重置） */
-let nextEventId = 1;
-function genEventId(): string {
-  return `dbg_${Date.now().toString(36)}_${nextEventId++}`;
-}
-
 type Listener = (event: DebugEvent) => void;
 
 /**
@@ -42,6 +36,12 @@ type Listener = (event: DebugEvent) => void;
  * @param capacity 环形缓冲容量，缺省 1000
  */
 export function createDebugBus(capacity: number = DEFAULT_CAPACITY): DebugBus {
+  // L-BE-2：事件 ID 序号移入实例闭包（此前模块级全局，多实例共享）
+  let seq = 0;
+  function genEventId(): string {
+    return `dbg_${Date.now().toString(36)}_${++seq}`;
+  }
+
   // 自管理订阅者列表：每个 listener 在 try/catch 中独立调用，单个抛错不影响其他
   const listeners = new Set<Listener>();
   // 环形缓冲：用数组 + 头指针实现 FIFO
@@ -95,7 +95,7 @@ export function createDebugBus(capacity: number = DEFAULT_CAPACITY): DebugBus {
     };
   }
 
-  return { emit, subscribe, snapshot, clear };
+  return { emit, subscribe, snapshot, clear, genEventId };
 }
 
 /**
@@ -119,6 +119,7 @@ export function createProjectDebugBus(
     subscribe: (listener) => globalBus.subscribe(listener),
     snapshot: () => globalBus.snapshot(),
     clear: () => globalBus.clear(),
+    genEventId: () => globalBus.genEventId(),
     drain: () => queue,
   };
 }
@@ -245,7 +246,7 @@ export function startSpan(
     };
   }
 
-  const eventId = genEventId();
+  const eventId = bus.genEventId();
   const startTs = Date.now();
 
   bus.emit({
@@ -262,7 +263,7 @@ export function startSpan(
     eventId,
     end(output?: unknown): void {
       bus.emit({
-        id: genEventId(),
+        id: bus.genEventId(),
         ts: Date.now(),
         traceId,
         stage,
@@ -275,7 +276,7 @@ export function startSpan(
     error(err: unknown): void {
       const errMsg = err instanceof Error ? err.message : String(err);
       bus.emit({
-        id: genEventId(),
+        id: bus.genEventId(),
         ts: Date.now(),
         traceId,
         stage,

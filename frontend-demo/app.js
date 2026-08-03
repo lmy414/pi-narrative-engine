@@ -13,7 +13,6 @@ const App = {
   toasts: [],
   modal: null,
   drawer: null,
-  loading: false,
   // 视图级状态：按路由命名空间（viewState(routeId).xxx），保留平面字段以兼容 views.js
   viewState: {}
 };
@@ -110,10 +109,9 @@ function hideAppLoading() {
 }
 
 async function withLoading(fn) {
-  App.loading = true;
   showAppLoading();
   try { return await fn(); }
-  finally { App.loading = false; hideAppLoading(); }
+  finally { hideAppLoading(); }
 }
 
 function handleApiError(err) {
@@ -179,7 +177,16 @@ function renderDrawer() {
 // =================== 路由 ===================
 function navigate(hash, statePatch = {}) {
   cleanupRouteRuntime(routeId());
-  if (statePatch) Object.assign(App, statePatch);
+  if (statePatch) {
+    const { viewState: vs, ...flat } = statePatch;
+    Object.assign(App, flat);
+    if (vs && typeof vs === 'object') {
+      // M-Logic-8 修复：浅合并进现有 App.viewState，不替换整个对象引用——
+      // 旧实现 Object.assign(App, patch) 会换掉 App.viewState 引用，
+      // 持有旧引用的视图代码（渲染闭包）写入将丢失（跨页返回状态消失）。
+      Object.keys(vs).forEach((k) => { App.viewState[k] = vs[k]; });
+    }
+  }
   window.location.hash = hash;
 }
 function cleanupRouteRuntime(id) {
@@ -679,10 +686,8 @@ async function render() {
   }
   // 先跑 loader，再一次性重建壳层：壳层能反映 loader 更新过的 App.storyTime 等状态
   if (viewLoaders[view]) {
-    App.loading = true;
     try { await viewLoaders[view](); }
     catch (e) { handleApiError(e); }
-    finally { App.loading = false; }
   }
   renderShell();
   const root = $('#view-root');

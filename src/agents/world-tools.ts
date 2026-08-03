@@ -334,6 +334,7 @@ const limitedQueryParams = Type.Object({
  *
  * 已知局限：Search 类无 characterId 过滤参数，先检索后过滤存在信息泄漏窗口
  * （搜索结果本身对 LLM 可见），本阶段接受，后续优化。
+ * 跟踪：docs/audits/2026-08-03-code-audit.md L-BE-4
  */
 export function createLimitedQueryTool(
   ports: OrchestratorPorts,
@@ -379,7 +380,8 @@ export function createRoleLimitedTools(ports: OrchestratorPorts, characterId: st
 // ============================================================================
 
 const eventApplyParams = Type.Object({
-  eventId: Type.String({ description: "事件 ID（evt_ 前缀）" }),
+  // L-BE-5：eventId 由 LLM 生成且无格式校验，可能重复/孤立；按引擎约定（evt_ 前缀）收紧
+  eventId: Type.String({ description: "事件 ID（evt_ 前缀）", pattern: "^evt_[A-Za-z0-9_.-]+$" }),
   type: Type.Union([
     Type.Literal("birth"),
     Type.Literal("death"),
@@ -398,7 +400,7 @@ const eventApplyParams = Type.Object({
     ]),
   }), { description: "新增事实（change 事件必填）" })),
   invalidated: Type.Optional(Type.Array(Type.Object({
-    declarationId: Type.String(),
+    declarationId: Type.String({ description: "声明 ID（decl- 前缀）", pattern: "^decl-[A-Za-z0-9_.-]+$" }),
     property: Type.String(),
   }), { description: "闭合的旧事实（同 property 变更时填）" })),
 });
@@ -585,6 +587,9 @@ export function createReasoningTools(ports: OrchestratorPorts, sink?: string[]):
 /** 最近 storyTime（缺省参数兜底：取全部时间点最后一个） */
 async function latestStoryTime(ports: OrchestratorPorts): Promise<string> {
   const times = await ports.worldGraph.listStoryTimes();
-  if (times.length === 0) return "";
+  // L-BE-1：空图时抛明确错误（此前返回 "" 被当查询值传给下游 → 静默返回 null，LLM 困惑）
+  if (times.length === 0) {
+    throw new Error("世界图为空：尚无任何 storyTime（先用 world_event_apply 写入事件）");
+  }
   return [...times].sort().at(-1) ?? "";
 }

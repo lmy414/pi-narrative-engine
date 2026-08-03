@@ -256,6 +256,7 @@ function q(str) {
     compareStoryTime,
     groupEventsByChapter,
     filterEvents,
+    eventEntityIds,
     groupSessionsByTime,
     countWords,
     resolveTheme,

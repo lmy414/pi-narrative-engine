@@ -44,6 +44,20 @@ function dbgFilteredLogs() {
   });
 }
 
+// M-Qual-3：渲染上限（性能保护）——事件过多时只渲染最近 N 条，
+// 避免每次 SSE 事件全量重渲 1000+ 行 DOM 导致卡顿
+const DBG_RENDER_LIMIT = 500;
+
+function dbgVisibleLogs(filtered) {
+  return filtered.length > DBG_RENDER_LIMIT ? filtered.slice(-DBG_RENDER_LIMIT) : filtered;
+}
+
+function dbgTruncateNote(filtered) {
+  return filtered.length > DBG_RENDER_LIMIT
+    ? `<span class="dbg-truncate-note" title="性能保护：仅渲染最近 ${DBG_RENDER_LIMIT} 条">仅显示最近 ${DBG_RENDER_LIMIT} 条（共 ${filtered.length} 条）</span>`
+    : '';
+}
+
 ViewRender.debug = () => {
   const logs = dbgState('dbgLogs', []) || [];
   const status = dbgState('dbgStatus', 'all');
@@ -72,11 +86,12 @@ ViewRender.debug = () => {
           <button class="dbg-density-btn ${density === 'compact' ? 'dbg-active' : ''}" onclick="dbgSetDensity('compact')">紧凑</button>
         </div>
         <span class="dbg-buffer-count">缓冲 <strong id="dbg-buffer-count">${logs.length}</strong> 条</span>
+        ${dbgTruncateNote(filtered)}
         ${ApiRuntime.isMock ? `<button class="dbg-btn-tool" onclick="dbgSimulateLog()" title="模拟一条新的调试事件">${icon('plus', 'w-3.5 h-3.5')} 模拟</button>` : ''}
         <button class="dbg-btn-tool dbg-btn-danger" onclick="dbgOpenClearConfirm()" title="清空内存缓冲">${icon('trash-2', 'w-3.5 h-3.5')} 清空</button>
       </div>
       <div class="dbg-log-container ${density === 'compact' ? 'dbg-compact' : ''}" id="dbg-log-container">
-        <div class="dbg-log-list" id="dbg-log-list">${filtered.length ? filtered.map((event) => dbgLogItemHtml(event, density)).join('') : dbgEmptyHtml()}</div>
+        <div class="dbg-log-list" id="dbg-log-list">${filtered.length ? dbgVisibleLogs(filtered).map((event) => dbgLogItemHtml(event, density)).join('') : dbgEmptyHtml()}</div>
       </div>
       <div class="dbg-autoscroll-toggle ${autoScroll ? '' : 'dbg-off'}" onclick="dbgToggleAutoScroll()">
         ${icon('arrow-down-to-line', 'dbg-autoscroll-icon')}<span class="dbg-autoscroll-label">${autoScroll ? '自动滚动' : '已暂停'}</span>
@@ -161,7 +176,7 @@ function dbgRenderLogList() {
   const element = $('#dbg-log-list');
   if (!element) return;
   const logs = dbgFilteredLogs();
-  element.innerHTML = logs.length ? logs.map((event) => dbgLogItemHtml(event, dbgState('dbgDensity', 'detailed'))).join('') : dbgEmptyHtml();
+  element.innerHTML = logs.length ? dbgVisibleLogs(logs).map((event) => dbgLogItemHtml(event, dbgState('dbgDensity', 'detailed'))).join('') : dbgEmptyHtml();
   refreshIcons();
 }
 

@@ -51,6 +51,8 @@ export interface DebugBus {
   snapshot(): DebugEvent[];
   /** 清空环形缓冲 */
   clear(): void;
+  /** 生成事件 ID（实例内自增；L-BE-2：替代模块级全局序号，避免多实例共享） */
+  genEventId(): string;
 }
 
 /** 项目绑定的异步持久化目标；队列与失败隔离由 bus.ts 统一处理。 */

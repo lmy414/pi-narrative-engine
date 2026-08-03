@@ -79,6 +79,15 @@
     characterView: function (characterId, storyTime) {
       return request("GET", "/character-view" + buildQuery({ characterId: characterId, storyTime: storyTime }));
     },
+    /* L-FE-4：调试端点统一走 api.js（此前 debug-view.js 硬编码 URL 绕过封装） */
+    debugStreamUrl: BASE + "/debug/stream",
+    /* 探测端点状态：返回原始 fetch Response（调用方需区分 503/404/ok），支持 signal 取消 */
+    debugEvents: function (signal) {
+      return fetch(BASE + "/debug/events", { signal: signal });
+    },
+    debugClear: function () {
+      return request("POST", "/debug/clear", {});
+    },
     postEvent: function (event) {
       return request("POST", "/events", event);
     },
@@ -197,10 +206,6 @@
     },
     adminAppConfigWrite: function (updates) {
       return request("PUT", "/admin/app-config", updates);
-    },
-    /* 更新 SSE 流：返回 EventSource（调用方负责 close） */
-    adminUpdateStream: function (targetDir) {
-      return new EventSource(BASE + "/admin/update/stream" + buildQuery({ targetDir: targetDir }));
     }
   };
 

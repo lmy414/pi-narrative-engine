@@ -154,21 +154,33 @@ function stStartRealRuntime() {
   stEnsureChatSubscription();
   if (stSchedulerTimer) return;
   const generation = stRuntimeGeneration;
+  // M-Logic-9 修复：动态轮询间隔——有活跃任务 2s 热轮询，空闲退避到 10s；
+  // 连续失败指数退避（2s→4s→…→30s 上限），后端宕机时不再固定 2s 打挂。
+  // 用 setTimeout 链而非 setInterval（间隔随状态变化）。
+  let intervalMs = 2000;
+  let consecutiveFailures = 0;
   const poll = async () => {
     try {
       const status = await apiCall('getSchedulerStatus');
       if (generation !== stRuntimeGeneration) return;
+      consecutiveFailures = 0;
       setStState('schedulerStatus', status);
       await stLoadPlanDetails(status);
       if (generation !== stRuntimeGeneration) return;
       stRenderPlanCards();
       stRenderStages();
       stRenderQueueStatus();
+      const items = (status.queue && status.queue.items) || [];
+      const busy = items.some((item) => item.status === 'running' || item.status === 'pending');
+      intervalMs = busy ? 2000 : 10000;
     } catch (error) {
+      consecutiveFailures += 1;
+      intervalMs = Math.min(2000 * Math.pow(2, consecutiveFailures), 30000);
       if (generation === stRuntimeGeneration) handleApiError(error);
     }
+    if (generation === stRuntimeGeneration) stSchedulerTimer = setTimeout(poll, intervalMs);
   };
-  stSchedulerTimer = setInterval(poll, 2000);
+  stSchedulerTimer = setTimeout(poll, intervalMs);
 }
 
 function stEnsureChatSubscription() {
@@ -179,7 +191,7 @@ function stEnsureChatSubscription() {
 function stCloseRealRuntime() {
   stRuntimeGeneration += 1;
   if (stChatClose) stChatClose();
-  if (stSchedulerTimer) clearInterval(stSchedulerTimer);
+  if (stSchedulerTimer) clearTimeout(stSchedulerTimer);
   stChatClose = null;
   stSchedulerTimer = null;
 }

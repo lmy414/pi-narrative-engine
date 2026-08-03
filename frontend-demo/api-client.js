@@ -215,20 +215,52 @@
     setEnvConfig: function (data) { return put('/admin/config', data); }
   };
 
+  // M-Logic-12 修复：EventSource 指数退避重连。
+  // 旧实现依赖浏览器内置重连（固定 ~3s、无上限），且每次 onerror 都回调 onError
+  // （后端宕机时前端反复弹 toast）。现在：
+  // - onerror 后主动 close 并按指数延迟重建（1s→2s→4s…上限 30s），收到消息/连接成功即复位
+  // - onError 仅在断开首次通知一次，不再每 3s 轰炸调用方
   function subscribe(path, onEvent, onError) {
-    var source = new root.EventSource(API_ROOT + path);
-    source.onmessage = function (message) {
-      try { onEvent(JSON.parse(message.data)); }
-      catch (error) { if (onError) onError(error); }
+    var closed = false;
+    var attempt = 0;
+    var notified = false;
+    var timer = null;
+    var source = null;
+
+    function connect() {
+      if (closed) return;
+      source = new root.EventSource(API_ROOT + path);
+      source.onopen = function () { attempt = 0; };
+      source.onmessage = function (message) {
+        attempt = 0;
+        notified = false;
+        try { onEvent(JSON.parse(message.data)); }
+        catch (error) { if (onError) onError(error); }
+      };
+      source.onerror = function () {
+        if (closed || !source) return;
+        source.close();
+        source = null;
+        if (!notified) {
+          notified = true;
+          if (onError) {
+            var error = new Error('实时连接中断，将自动重连');
+            error.code = 'SSE_DISCONNECTED';
+            onError(error);
+          }
+        }
+        var delay = Math.min(1000 * Math.pow(2, attempt), 30_000);
+        attempt += 1;
+        timer = setTimeout(connect, delay);
+      };
+    }
+    connect();
+    return function () {
+      closed = true;
+      clearTimeout(timer);
+      if (source) source.close();
+      source = null;
     };
-    source.onerror = function () {
-      if (onError) {
-        var error = new Error('实时连接中断，浏览器将自动重连');
-        error.code = 'SSE_DISCONNECTED';
-        onError(error);
-      }
-    };
-    return function () { source.close(); };
   }
 
   ApiClient.subscribeChat = function (onEvent, onError) {

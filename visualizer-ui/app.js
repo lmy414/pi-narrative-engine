@@ -61,6 +61,7 @@
         characterViewId: "",
         charViewDeclIds: [],         // 角色可见的 declarationId 列表
         loading: false,
+        _graphLoadSeq: 0,            // M-Logic-10：loadGraph 代际守卫（丢弃过期请求）
         entityDialog: false,
         helpDialog: false,
         loadError: ""
@@ -165,18 +166,15 @@
       isWorldTab: function () {
         return this.mainTab === "workbench" || this.mainTab === "events" || this.mainTab === "debug";
       },
-      /* 项目激活成功：记录活跃项目并加载世界图 */
+      /* 项目激活成功：记录活跃项目并加载世界图
+         L-FE-3：激活回调已带 dir，不再重复调用 api.projectActive() 探测
+         （此前 onActivated 又走 init()，一次激活触发 2 次同端点请求） */
       onActivated: function (dir) {
         var self = this;
-        api.projectActive().then(function (data) {
-          self.activeProject = data.active;
-          self.init();
-          self.mainTab = "workbench";
-        }).catch(function () {
-          self.activeProject = { dir: dir, name: dir };
-          self.init();
-          self.mainTab = "workbench";
-        });
+        self.hasProjectApi = true;
+        self.activeProject = { dir: dir, name: dir };
+        self.mainTab = "workbench";
+        self.loadWorld();
       },
       init: function () {
         var self = this;
@@ -219,16 +217,21 @@
           window.ElementPlus.ElMessage({ message: "初始化失败：" + err.message, type: "error" });
         });
       },
+      /* M-Logic-10 修复：代际守卫——快速切换 storyTime 时丢弃过期请求结果，
+         防止后发先至用旧 storyTime 数据覆盖新数据 */
       loadGraph: function () {
         var self = this;
+        var seq = ++this._graphLoadSeq;
         if (!this.storyTime) { this.entities = []; this.relations = []; this.loading = false; return; }
         this.loading = true;
         api.graph(this.storyTime, this.includeClosed).then(function (g) {
+          if (seq !== self._graphLoadSeq) return;
           self.entities = g.entities || [];
           self.relations = g.relations || [];
           self.loading = false;
           self.loadCharacterView();
         }).catch(function (err) {
+          if (seq !== self._graphLoadSeq) return;
           self.loading = false;
           window.ElementPlus.ElMessage({ message: "加载世界快照失败：" + err.message, type: "error" });
         });
@@ -247,10 +250,11 @@
         var self = this;
         return api.events().then(function (data) { self.events = (data && data.events) || []; });
       },
-      /* 任何编辑成功后调用：刷新当前时刻数据 + 事件数 */
+      /* M-Qual-2 修复：三路并行刷新（原 refreshEvents/loadGraph 串行触发，loadGraph 内部再触发角色视角） */
       onChanged: function () {
         this.refreshEvents();
         this.loadGraph();
+        this.loadCharacterView();
       },
       onSelect: function (id) {
         this.selectedId = id;

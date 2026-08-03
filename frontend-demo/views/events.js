@@ -43,10 +43,18 @@ function setEventState(key, value) {
 
 // ==================== 数据加载（覆盖 viewLoaders.events） ====================
 
+/**
+ * 事件页数据加载器（覆盖 viewLoaders.events）。
+ * M-Logic-11 修复：代际守卫——快速切换 storyTime / 重复进入时，
+ * 过期请求的写入被丢弃，防止后发先至用旧 storyTime 数据覆盖新数据。
+ */
+let eventLoadSeq = 0;
 async function eventLoadData() {
+  const seq = ++eventLoadSeq;
   // 先拉 status 确定 storyTime（同 graph.js：新项目/新 commit 后先同步到最新，
   // 再带 storyTime 拉图——真实后端 storyTime 为空时 400 STORY_TIME_REQUIRED）
   const status = await apiCall('getStatus');
+  if (seq !== eventLoadSeq) return;
   setEventState('eventsStatus', status);
   syncStoryTime((status && status.storyTimes) || []);
 
@@ -54,6 +62,7 @@ async function eventLoadData() {
     apiCall('getEvents'),
     apiCall('getGraph', App.storyTime)
   ]);
+  if (seq !== eventLoadSeq) return;
   const events = data && data.events ? data.events : [];
   App.viewState.entityIndex = Object.fromEntries((graph.entities || []).map((entity) => [entity.entityId, entity]));
   // 注意：数据键用 eventList 而非 events —— 命名空间键名本身是 'events'，
@@ -84,19 +93,12 @@ viewLoaders.events = eventLoadData;
 
 /**
  * 收集事件关联实体 ID（事件自身 + newFacts/invalidated 中的实体）。
- * DemoUtils 未导出该内部函数；此处保持与 demo-utils.js filterEvents
- * 实体匹配逻辑完全一致的语义（不重写 DemoUtils 导出函数）。
+ * L-FE-2：复用 DemoUtils.eventEntityIds（此前本地重复实现，未来易漂移）。
  * @param {object} ev
  * @returns {string[]}
  */
 function eventEntityIds(ev) {
-  const ids = [];
-  if (ev && ev.entityId) ids.push(ev.entityId);
-  const facts = [].concat((ev && ev.newFacts) || [], (ev && ev.invalidated) || []);
-  for (const f of facts) {
-    if (f && f.entityId && !ids.includes(f.entityId)) ids.push(f.entityId);
-  }
-  return ids;
+  return DemoUtils.eventEntityIds(ev);
 }
 
 function eventEntity(entityId) {
