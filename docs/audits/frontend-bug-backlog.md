@@ -24,8 +24,8 @@
 | BUG-003 | 2026-08-03-baseline-recheck | P0 | 项目切换 | activateProject 不清理 viewState，切换项目后 studio/files/graph 状态污染 | fixed | 2026-08-03-fix-frontend-4-bugs |
 | BUG-004 | 2026-08-03-baseline-recheck | P1 | 图页/studio | 世界图写入后需 F5（驻留视图无失效 + storyTime 不前进 + storyTimes 陈旧） | fixed | 2026-08-03-fix-frontend-4-bugs |
 | BUG-005 | 2026-08-03-fix-frontend-4-bugs | P2 | 图页 #/graph | 驻留刷新后顶栏 StoryTime 选择器不联动（renderView 只重渲视图区，壳层陈旧） | fixed | 2026-08-03-fix-frontend-4-bugs |
-| BUG-006 | 2026-08-03-fix-frontend-4-bugs | P3 | 全局 | /favicon.ico 404（index.html 未声明 favicon） | open |  |
-| BUG-007 | 2026-08-03-fix-frontend-4-bugs | P3 | studio | 无 --embed 启动时 chat/scheduler 端点 501 EMBEDDER_UNAVAILABLE（环境性，待带 --embed 复测） | open-pending |  |
+| BUG-006 | 2026-08-03-fix-frontend-4-bugs | P3 | 全局 | /favicon.ico 404（index.html 未声明 favicon） | fixed | 2026-08-03-fix-favicon-embed |
+| BUG-007 | 2026-08-03-fix-frontend-4-bugs | P3 | studio | 无 --embed 启动时 chat/scheduler 端点 501 EMBEDDER_UNAVAILABLE（环境性，待带 --embed 复测） | fixed | 2026-08-03-fix-favicon-embed |
 
 > BUG-001 / BUG-002 历史溯源：首次见于 `2026-08-03-production-gap-bug-inventory.md` §2（用户实测上报），2026-08-03-fix-frontend-4-bugs 修复并实测确认。
 > BUG-003 / BUG-004 历史溯源：同上文档 §2 Bug 3/4，修复轮以 2 临时项目补测通过（switch 清理 / 驻留自动刷新）。
