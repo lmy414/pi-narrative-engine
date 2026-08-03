@@ -26,7 +26,12 @@
 | BUG-005 | 2026-08-03-fix-frontend-4-bugs | P2 | 图页 #/graph | 驻留刷新后顶栏 StoryTime 选择器不联动（renderView 只重渲视图区，壳层陈旧） | fixed | 2026-08-03-fix-frontend-4-bugs |
 | BUG-006 | 2026-08-03-fix-frontend-4-bugs | P3 | 全局 | /favicon.ico 404（index.html 未声明 favicon） | fixed | 2026-08-03-fix-favicon-embed |
 | BUG-007 | 2026-08-03-fix-frontend-4-bugs | P3 | studio | 无 --embed 启动时 chat/scheduler 端点 501 EMBEDDER_UNAVAILABLE（环境性，待带 --embed 复测） | fixed | 2026-08-03-fix-favicon-embed |
+| BUG-008 | 2026-08-03-fix-audit-tier1 | P1 | studio | 计划「提交」按钮点击后无任何视觉反馈（withLoading 的 loading 覆盖层无对应 CSS，为死代码），commit 为 LLM 重操作可能数秒~数十秒无反应，用户误以为按钮失效 | open | — |
+| BUG-009 | 2026-08-03-fix-audit-tier1 | P2 | 设置页 #/settings | 设置面板打开响应慢（settingsLoad 串行拉 8 个端点，其中 /api/admin/version 走 git ls-remote 网络请求实测 4.5s~14.4s，doctor spawn git；全部串行阻塞首屏渲染） | open | — |
 
 > BUG-001 / BUG-002 历史溯源：首次见于 `2026-08-03-production-gap-bug-inventory.md` §2（用户实测上报），2026-08-03-fix-frontend-4-bugs 修复并实测确认。
 > BUG-003 / BUG-004 历史溯源：同上文档 §2 Bug 3/4，修复轮以 2 临时项目补测通过（switch 清理 / 驻留自动刷新）。
 > BUG-005 为 BUG-004 修复的同轮补丁（app.js `refreshShellStoryTime()`），首轮实测发现（顶栏不联动）后立即修复，复测 11/11 通过。
+> BUG-008 / BUG-009 修复方向（2026-08-03 代码层定位，用户要求整理待修）：
+> - BUG-008：app.js `withLoading` 增加可见 loading 覆盖层（补 CSS）或按钮内联 loading 态；commit 前禁用按钮防重复点击。
+> - BUG-009：`settingsLoad` 改 Promise.all 并行（appConfig/llm/rulesets/novel/env 一组，embedder/version/doctor 懒加载组）；`compareVersions` 加超时（如 3s 超时返回 remote=null，网络慢不阻塞 UI）。
