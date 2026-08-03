@@ -7,7 +7,7 @@
  *   <out>/server/main.js         esbuild 打包产物（TS/子包全部内联）
  *   <out>/server/node_modules/   运行时依赖（npm install --omit=dev）
  *                                含原生模块 better-sqlite3 / sqlite-vec / onnxruntime-node
- *   <out>/server/visualizer-ui/  前端静态资源
+ *   <out>/server/frontend-demo/  前端静态资源
  *   <out>/server/templates/      规则集模板
  *
  * 用法：
@@ -139,10 +139,10 @@ async function main() {
     console.log("[package] 跳过 npm install（--skip-install）");
   }
 
-  // 3. 前端与模板资源
-  cpSync(resolve(repoRoot, "visualizer-ui"), join(serverDir, "visualizer-ui"), { recursive: true });
+  // 3. 前端与模板资源（前端统一为 frontend-demo；旧版 visualizer-ui 已删除）
+  cpSync(resolve(repoRoot, "frontend-demo"), join(serverDir, "frontend-demo"), { recursive: true });
   cpSync(resolve(repoRoot, "templates"), join(serverDir, "templates"), { recursive: true });
-  console.log("[package] 已复制 visualizer-ui/ 与 templates/");
+  console.log("[package] 已复制 frontend-demo/ 与 templates/");
 
   // 4. 内置 Node 运行时（当前平台；CI 应按平台下载对应 Node 发行版）
   const nodeName = process.platform === "win32" ? "node.exe" : "node";

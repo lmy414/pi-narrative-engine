@@ -1,4 +1,4 @@
-> ✅ **状态：已实施**（现行可视化的设计依据，`src/visualizer/` + `visualizer-ui/`）。
+> ✅ **状态：已实施**（现行可视化的设计依据，`src/visualizer/` + `frontend-demo/`）。
 
 # World Graph 可视化 V3 设计方案（从零重设计）
 

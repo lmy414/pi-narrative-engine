@@ -375,6 +375,7 @@ function renderInline(text) {
 
 - **L-Test-1**：无 commit 部分写入失败 / EventQueue 无界 / 子代理超时 / 路径校验的测试。
 - **L-Test-2**：`renderMarkdown` 的 javascript: 绕过场景（[tests/frontend-utils.test.ts:114-117](file:///d:/claude/pi-ex/narrative-engine/tests/frontend-utils.test.ts#L114) 仅测直白案例）。
+  - ⚠️ **随旧前端删除（2026-08-04）**：`tests/frontend-utils.test.ts` 测试对象为 `visualizer-ui/proto-utils.js`，已随旧版前端整目录删除。风险面消失：现行 `frontend-demo/views/files.js` 的 `flRenderMarkdown` 采用「整体 escapeHtml + 无 URL 渲染（flInline 仅粗体/斜体/代码）」设计，无链接协议注入面，等价安全由设计保证。
 - **L-Test-3**：`frontend-demo/app.js`（路由/状态机）、`views/*.js`（除 mock 契约外）、`graph-3d.js` / `graph.js`、`studio.js` 完全无测试。
   - ⚠️ **存疑/跳过（2026-08-04）**：视图层全为 DOM 驱动，仓库无 jsdom 依赖，补单测需引入 DOM 环境，成本高收益低；行为验证由既有 browser_use 测试轮纪律承担。部分覆盖：api-mock getChain 环检测已补测试（`tests/frontend-api-client.test.ts`，回归 L-FE-5）。
 - **L-Test-4**：`chat-routes.test.ts` 仅覆盖 `message_update`，其他 SSE 事件无回归测试。

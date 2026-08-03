@@ -7,9 +7,7 @@
  * 静态服务：uiDir 默认为 <仓库根>/frontend-demo。
  * - 开发态：src/visualizer/server.ts 上两级 = 仓库根
  * - 构建态：dist/visualizer/server.js 上两级 = 仓库根
- * - 同步态：novel/.pi/extensions/narrative-engine/visualizer/server.js
- *   上两级落在 extensions/ 下（错误），因此回退探测 ../visualizer-ui
- *   （= 扩展目录根，sync.mjs 将 visualizer-ui 复制到那里）。
+ * （旧版 visualizer-ui 前端已随扩展机制废弃删除，2026-08-04）
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -38,13 +36,11 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-/** 解析默认 uiDir：兼容开发/构建（上两级）与同步到扩展目录（上一级）两种布局 */
+/** 解析默认 uiDir：兼容开发/构建两种布局（上两级/上一级） */
 export function resolveDefaultUiDir(): string {
   const candidates = [
     resolve(__dirname, "../../frontend-demo"),
     resolve(__dirname, "../frontend-demo"),
-    resolve(__dirname, "../../visualizer-ui"),
-    resolve(__dirname, "../visualizer-ui"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;

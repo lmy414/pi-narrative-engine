@@ -61,7 +61,17 @@ test("完整工作流：创建实体 → 关系 → 事件 → 可见性 → 检
     dbPath: join(dir, "test.db"),
     eventLogPath: join(dir, "events.jsonl"),
   });
-  const embedder = new Embedder();
+  // CI 稳定性：不实例化真实 Embedder（bge-small-zh 需从 HuggingFace 下载，
+  // 429 rate limit 偶发失败），改用 stub 跑全链路；检索断言走 fulltext 模式
+  // （搜 Fact.searchable 字段，不依赖向量质量）。
+  // 零向量保持维度合法（typegraph 要求 512 维有限数数组）；fulltext 模式不读向量值
+  const zeroVec = () => new Array(512).fill(0);
+  const embedder = {
+    embed: async () => zeroVec(),
+    embedEntity: async () => zeroVec(),
+    embedFact: async () => zeroVec(),
+    embedBatch: async () => [zeroVec()],
+  } as unknown as Embedder;
   const search = new Search(wg, embedder);
 
   // 1. 创建 Macbeth + Duncan + Inverness
@@ -104,9 +114,9 @@ test("完整工作流：创建实体 → 关系 → 事件 → 可见性 → 检
   // macbeth 在 inverness，应能看到 inverness 相关的声明（具体可见性取决于 character-view 实现）
   assert.ok(Array.isArray(macbethView), "character_view 应返回数组");
 
-  // 6. reembedAll + world_query
+  // 6. reembedAll + world_query（fulltext 模式：不依赖向量，命中 Fact 的 searchable 字段）
   await wg.reembedAll(embedder);
-  const results = await search.search("Duncan", { topK: 5, storyTime: "act2-scene1" });
+  const results = await search.search("Duncan", { topK: 5, storyTime: "act2-scene1", mode: "fulltext" });
   assert.ok(results.length > 0, "检索 Duncan 应有结果");
   assert.ok(results.find(r => r.entityId === "duncan"), "应命中 duncan");
 

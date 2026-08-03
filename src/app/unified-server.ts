@@ -7,7 +7,7 @@
  * - /api/files/*     文件编辑器后端（@pi/admin files）
  * - /api/projects/*  项目管理（@pi/novel-launcher + ProjectRegistry）
  * - /api/admin/*     配置管理（@pi/admin）
- * - 静态服务 frontend-demo（visualizer-ui 仅作旧版回退）
+ * - 静态服务 frontend-demo（旧版 visualizer-ui 已随扩展机制废弃删除）
  *
  * 设计依据：docs/plans/2026-07-29-app-architecture-design.md §4.1、§11
  *

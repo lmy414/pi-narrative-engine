@@ -314,7 +314,9 @@ test("world_visibility_infer 逻辑: inferVisibility 不抛错", async () => {
 // 查询工具
 // ============================================================================
 
-test("world_query 逻辑: search 返回 EntitySearchResult", async () => {
+test("world_query 逻辑: search 返回 EntitySearchResult", { skip: !!process.env.CI }, async () => {
+  // CI 跳过：reembedAll 真实 Embedder 需下载 bge-small-zh（429 偶发）；
+  // 检索链路由 tests/e2e.test.ts 的 stub + fulltext 覆盖
   const { wg, embedder, search } = await setup();
   await wg.birthEntity("macbeth", "character", { name: "Macbeth" }, "act1-scene1");
   await wg.reembedAll(embedder);

@@ -4,8 +4,8 @@
  * 双模式：
  * - 开发：scripts/app-server.mjs 以 tsx 拉起（路径自动探测）
  * - 生产：esbuild 打包为 server/main.js，由 Tauri sidecar 以内置 Node 运行
- *   （此时入口同级的 visualizer-ui/ templates/ extension-snapshot/ 为打包资源，
- *   存在即显式传入，不存在回退开发模式自动探测）
+ *   （此时入口同级的 frontend-demo/ templates/ 为打包资源，存在即显式传入，
+ *   不存在回退开发模式自动探测）
  *
  * 用法：
  *   node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed] [--config-dir <dir>]
@@ -118,8 +118,6 @@ async function main(): Promise<void> {
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "frontend-demo"))
       ? resolve(__dirname, "frontend-demo")
-      : existsSync(resolve(__dirname, "visualizer-ui"))
-      ? resolve(__dirname, "visualizer-ui")
       : undefined,
     templatesDir: existsSync(resolve(__dirname, "templates", "novel"))
       ? resolve(__dirname, "templates", "novel")

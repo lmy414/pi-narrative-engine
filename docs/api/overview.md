@@ -50,7 +50,7 @@
 ┌──────────────────────────────────────────────────────────┐
 │  src/app/unified-server.ts (startUnifiedServer)          │
 │  - 单端口整合 world-graph + files + projects + admin     │
-│  - 静态服务 visualizer-ui                                │
+│  - 静态服务 frontend-demo                                │
 │  - ProjectRegistry 多项目句柄隔离（按目录缓存 wg 句柄）  │
 └────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │

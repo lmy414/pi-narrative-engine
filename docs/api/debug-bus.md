@@ -18,7 +18,7 @@
 | `src/debug/sse.ts` | SSE 端点处理：`handleDebugStream` / `handleDebugEvents` / `handleDebugClear` |
 | `src/knowledge-mapper-llm.ts` | P0-3+6 修复的 LLM 映射器（`knowledge_gained` → `declarationId`），独立于调试模块但同期引入 |
 | `packages/scheduler/src/debug.ts` | 调度器侧 `startSpan` 配对 start/end 事件 |
-| `visualizer-ui/components/debug-view.js` | 前端调试 tab：SSE 客户端 + DAG SVG + 节点详情抽屉 |
+| `frontend-demo/views/debug.js` | 前端调试 tab：SSE 客户端 + DAG SVG + 节点详情抽屉 |
 
 ## `DebugEvent` 结构
 

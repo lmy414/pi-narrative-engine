@@ -64,12 +64,12 @@ resources/server/**/*   →  server/
         ├── main.js                     # esbuild 打包产物(src + @pi/* 子包 TS 全内联)
         ├── package.json                # server 依赖清单(原生三件套 + @xenova/transformers)
         ├── node_modules/               # 运行时依赖(npm install --omit=dev 生成,含原生模块)
-        ├── visualizer-ui/              # 前端静态资源
+        ├── frontend-demo/          # 前端静态资源
         ├── templates/                  # 规则集模板(novel 模板)
         └── extension-snapshot/         # 扩展快照(reinstall 端点的安装源)
             ├── dist/                   # 扩展构建产物
             ├── packages/               # @pi/* 子包源码
-            ├── visualizer-ui/
+            ├── frontend-demo/
             ├── templates/
             └── package.json
 ```
@@ -148,7 +148,7 @@ curl.exe -X POST http://127.0.0.1:7421/api/admin/extension/reinstall -H "Content
 narrative-engine/
 ├── dist/                  # 扩展构建产物(从快照复制)
 ├── packages/              # @pi/* 子包源码(从快照复制)
-├── visualizer-ui/         # 前端静态资源(从快照复制)
+├── frontend-demo/          # 前端静态资源(从快照复制)
 ├── templates/             # 规则集模板(从快照复制)
 ├── package.json           # 扩展清单(从快照复制)
 └── node_modules/          # npm install --omit=dev 生成(含原生模块)

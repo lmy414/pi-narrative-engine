@@ -2,7 +2,7 @@
 
 > 本项目以 GPL-3.0 发布。本文盘点全部第三方代码、依赖及其许可证。
 > **结论先行：所有依赖均为宽松许可证（MIT / Apache-2.0 / ISC），与 GPL-3.0 兼容。**
-> 最后更新：2026-07-30（应用化：补 @pi/admin + @pi/novel-launcher + Tauri/Rust 依赖 + visualizer-ui 新页面）
+> 最后更新：2026-07-30（应用化：补 @pi/admin + @pi/novel-launcher + Tauri/Rust 依赖 + frontend-demo 新页面）
 
 ## 1. 兼容性结论
 
@@ -60,7 +60,7 @@
 >
 > Rust 标准库与 Cargo 编译工具链本身不随产物分发（开发者侧工具链，类比 Node/TypeScript 工具链），不列入本文档。
 
-## 5. Vendored 前端库（`visualizer-ui/vendor/`，随仓库分发）
+## 5. Vendored 前端库（`frontend-demo/vendor/`，随仓库分发）
 
 可视化无构建纯静态服务，以下库文件直接入库分发：
 
@@ -74,7 +74,7 @@
 | `docs/legacy/prototype-v3/v3/vendor/`（3 个 three 系文件） | 同上 | MIT | V3 原型的历史副本 |
 | `icons/*.svg`（29 个） | Lucide（按文件名取，如 trash-2 / house / circle-check） | ISC | UI 图标，以 SVG mask 方式注入（`proto.css` 引用）。来源判定：每个 SVG 的 class 含 `lucide lucide-xxx`；自 vendor 入库，未修改源码。单个 SVG 未保留版权头，再分发时建议补 Lucide 项目 LICENSE 引用 |
 
-> **项目自有文件（非第三方）**：`visualizer-ui/tokens.css`（设计 token 基线）、`visualizer-ui/proto.css`（原型设计体系组件样式）、`visualizer-ui/proto-utils.js`（原型体系工具函数）为本项目随应用化阶段 2a 新增的自有代码（文件头注释引用 `docs/plans/2026-07-29-app-architecture-design.md`），无第三方许可证问题。
+> **项目自有文件（非第三方）**：`frontend-demo/tokens.css`（设计 token 基线）、`frontend-demo/proto.css`（原型设计体系组件样式）、`frontend-demo/proto-utils.js`（原型体系工具函数）为本项目随应用化阶段 2a 新增的自有代码（文件头注释引用 `docs/plans/2026-07-29-app-architecture-design.md`），无第三方许可证问题。
 
 ## 6. AI 模型（运行时下载，不入库）
 

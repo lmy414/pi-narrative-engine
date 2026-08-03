@@ -27,12 +27,12 @@
 | 文档 | 对应实现 | 关键内容 |
 |------|---------|---------|
 | [plans/2026-07-29-app-architecture-design.md](plans/2026-07-29-app-architecture-design.md) | `tauri-app/` + `src/app/` + `@pi/admin` + `@pi/novel-launcher` | **应用化架构设计**（Tauri 壳 + unified-server + 应用内置扩展 + sidecar 打包，已部分实施） |
-| [plans/2026-07-29-config-ui-design.md](plans/2026-07-29-config-ui-design.md) | `visualizer-ui/settings-view.js` + `@pi/admin` | 配置前端页面设计（LLM 复用 PI + 扩展专属配置，已部分实施） |
+| [plans/2026-07-29-config-ui-design.md](plans/2026-07-29-config-ui-design.md) | `frontend-demo/views/settings.js` + `@pi/admin` | 配置前端页面设计（LLM 复用 PI + 扩展专属配置，已部分实施） |
 | [plans/2026-07-25-scheduler-design.md](plans/2026-07-25-scheduler-design.md) | `packages/scheduler/` | 调度器 15 项决策、plan/commit 双阶段、planner LLM 检索计划 |
 | [plans/2026-07-24-role-pool-design.md](plans/2026-07-24-role-pool-design.md) | `packages/role-pool/` | 角色池 12 项决策、酒馆卡静态层 + 动态层双层注入 |
 | [plans/2026-07-24-role-pool.md](plans/2026-07-24-role-pool.md) | `packages/role-pool/` | 角色池实施计划（9 Tasks 历史） |
 | [plans/2026-07-24-renderer.md](plans/2026-07-24-renderer.md) | `packages/renderer/` | 渲染器规则集注入、锚点章节格式 |
-| [visualization-v3-design.md](visualization-v3-design.md) | `src/visualizer/` + `visualizer-ui/` | 现行可视化（快照浏览/查询过滤/字段编辑 + 应用化扩展页面） |
+| [visualization-v3-design.md](visualization-v3-design.md) | `src/visualizer/` + `frontend-demo/` | 现行可视化（快照浏览/查询过滤/字段编辑 + 应用化扩展页面） |
 | [plans/2026-07-31-underworld-graph-extraction.md](plans/2026-07-31-underworld-graph-extraction.md) | `underworld-graph`（外部 npm 包） | world-graph 解耦独立发布（阶段 1-3 已实施，v0.1.0 已发布） |
 | [plans/2026-07-31-sdk-integration-architecture.md](plans/2026-07-31-sdk-integration-architecture.md) | pi SDK 迁移 | SDK 模式集成架构（阶段 1 已实施；含 LLM caller 签名错配问题记录，2026-07-31 已修复） |
 | [plans/2026-07-31-sdk-tool-implementation.md](plans/2026-07-31-sdk-tool-implementation.md) | pi SDK 迁移 | SDK 工具实现路径（Path A 内联扩展 / Path B 全 SDK 化，原型验证中） |
@@ -48,7 +48,7 @@
 | [legacy/import-novel-v2-redesign.md](legacy/import-novel-v2-redesign.md) | V2 导入器重设计笔记（V3 见 packages/novel-importer，测试实现待重写） |
 | [legacy/feishu-doc-summary.md](legacy/feishu-doc-summary.md) | 飞书文档整理（项目最早期构想） |
 | [visualization-design.md](visualization-design.md) | 可视化 V1 方案（未实施即被否，LiteGraph.js 蓝图风，决策历史） |
-| [legacy/prototype-v3/](legacy/prototype-v3/) | 可视化 V3 静态原型（现行实现为仓库根 visualizer-ui/） |
+| [legacy/prototype-v3/](legacy/prototype-v3/) | 可视化 V3 静态原型（现行实现为仓库根 frontend-demo/） |
 
 ## 维护约定
 

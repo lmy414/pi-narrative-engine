@@ -13,7 +13,7 @@
 - `frontend-demo/` 下任意文件（index.html / views/*.js / app.js / api-*.js / mock-data.js / styles/*.css）
 - 被 frontend-demo 引用的 mock 与接口约定
 
-`visualizer-ui/` 为旧版回退，暂不纳入；如需纳入另行扩展本规程。
+旧版 `visualizer-ui/` 已于 2026-08-04 删除，本规程覆盖 `frontend-demo/` 全部页面。
 
 ## 3. 触发条件
 
