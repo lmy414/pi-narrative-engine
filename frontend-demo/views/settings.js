@@ -104,10 +104,13 @@ function settingsMaskKey(value) {
 // ==================== 数据加载（覆盖 viewLoaders.settings） ====================
 
 async function settingsLoad() {
-  const appConfig = await apiCall('getAppConfig');
+  // 快组：并行拉取与项目无关的配置（首屏渲染依赖）
+  const [appConfig, llmData] = await Promise.all([
+    apiCall('getAppConfig'),
+    apiCall('getLlmStatus'),
+  ]);
   setSettingsState('setAppConfig', appConfig);
 
-  const llmData = await apiCall('getLlmStatus');
   const llm = llmData.slots || {};
   setSettingsState('setLlmStatus', llm);
 
@@ -116,35 +119,52 @@ async function settingsLoad() {
     setSettingsState('setKeys', settingsDeriveKeys(llm));
   }
 
-  // 项目级数据：仅在激活项目时拉取（getRulesets/getNovelJson/getEnvConfig 内部 requireActiveProject）
-  if (App.activeProject) {
-    try {
-      const rulesetData = await apiCall('getRulesets');
-      setSettingsState('setRulesets', Object.fromEntries((rulesetData.rulesets || []).map((item) => [item.name, item.content])));
-    } catch (e) { /* 无项目则保留空 */ }
-    try {
-      const novelData = await apiCall('getNovelJson');
-      setSettingsState('setNovelJson', novelData.data || {});
-    } catch (e) {}
-    try {
-      const env = await apiCall('getEnvConfig');
-      setSettingsState('setEnvConfig', env.values || {});
+  // 项目级数据：并行（仅在激活项目时拉取，getRulesets/getNovelJson/getEnvConfig 内部 requireActiveProject）
+  const projPromise = (async () => {
+    if (!App.activeProject) return;
+    const [rulesetData, novelData, env] = await Promise.allSettled([
+      apiCall('getRulesets'),
+      apiCall('getNovelJson'),
+      apiCall('getEnvConfig'),
+    ]);
+    if (rulesetData.status === 'fulfilled') {
+      setSettingsState('setRulesets', Object.fromEntries((rulesetData.value.rulesets || []).map((item) => [item.name, item.content])));
+    }
+    if (novelData.status === 'fulfilled') {
+      setSettingsState('setNovelJson', novelData.value.data || {});
+    }
+    if (env.status === 'fulfilled') {
+      setSettingsState('setEnvConfig', env.value.values || {});
       if (settingsState('setPiDebug', null) === null) {
-        setSettingsState('setPiDebug', env.values.PI_DEBUG === 'on' || env.values.PI_DEBUG === 'true');
+        setSettingsState('setPiDebug', env.value.values.PI_DEBUG === 'on' || env.value.values.PI_DEBUG === 'true');
       }
-    } catch (e) {}
-  }
-
-  // 应用级数据
-  try { setSettingsState('setEmbedder', await apiCall('getEmbedderStatus')); } catch (e) {}
-  try { setSettingsState('setVersion', await apiCall('getVersion')); } catch (e) {}
-  try { setSettingsState('setDoctor', await apiCall('getDoctor')); } catch (e) {}
+    }
+  })();
 
   // 本地 UI 状态惰性初始化
   if (settingsState('setActivePanel', null) === null) setSettingsState('setActivePanel', 'models');
   if (settingsState('setRulesetTab', null) === null) setSettingsState('setRulesetTab', 'render');
   if (settingsState('setAutosave', null) === null) setSettingsState('setAutosave', appConfig.autosave !== false);
   if (settingsState('setCustomizing', null) === null) setSettingsState('setCustomizing', []);
+
+  // 应用级数据：embedder 快，等它；version/doctor 慢（git），后台拉取不阻塞首屏
+  try { setSettingsState('setEmbedder', await apiCall('getEmbedderStatus')); } catch (e) {}
+  settingsLoadLazy();
+  await projPromise;
+}
+
+// 慢组（version 走 git ls-remote 网络可达 10s+，doctor spawn git）：后台拉取，
+// 到达后仅当仍在设置页且正查看 about 面板时刷新（不打断其他面板的编辑）
+async function settingsLoadLazy() {
+  const [v, d] = await Promise.allSettled([
+    apiCall('getVersion'),
+    apiCall('getDoctor'),
+  ]);
+  if (v.status === 'fulfilled') setSettingsState('setVersion', v.value);
+  if (d.status === 'fulfilled') setSettingsState('setDoctor', d.value);
+  if (routeId() === 'settings' && settingsState('setActivePanel', 'models') === 'about') {
+    renderView();
+  }
 }
 
 viewLoaders.settings = settingsLoad;

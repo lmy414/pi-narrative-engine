@@ -281,3 +281,34 @@ body .text-error { color: var(--error); }
 
 /* ---------- 杂项 ---------- */
 body .plan-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; background: var(--card); }
+
+/* ---------- 全局 loading 覆盖层（withLoading，BUG-008） ---------- */
+#app-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 990;
+  background: color-mix(in srgb, var(--bg-900) 25%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+#app-loading-overlay.app-loading-visible {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: wait;
+}
+#app-loading-overlay .app-loading-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.2rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  font-size: 0.9rem;
+}

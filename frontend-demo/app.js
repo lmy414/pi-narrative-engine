@@ -88,11 +88,32 @@ async function apiCall(name, ...args) {
   return res.data;
 }
 
-// 仅维护 loading 标志，不再重建壳层（原 loading 覆盖层无对应 CSS，为不可见死代码）
+// 全局 loading 覆盖层：withLoading 期间显示（spinner + 遮罩，拦截重复点击）。
+// BUG-008 修复：原实现仅置 App.loading 标志、无可见反馈；commit 等 LLM 重操作
+// 需数秒~数十秒，用户无感知视为按钮失效。150ms 延迟显示避免短操作闪烁。
+let appLoadingTimer = null;
+function showAppLoading() {
+  clearTimeout(appLoadingTimer);
+  let el = $('#app-loading-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'app-loading-overlay';
+    el.innerHTML = '<div class="app-loading-box"><span class="st-tool-spinner"></span><span>处理中…</span></div>';
+    document.body.appendChild(el);
+  }
+  appLoadingTimer = setTimeout(() => el.classList.add('app-loading-visible'), 150);
+}
+function hideAppLoading() {
+  clearTimeout(appLoadingTimer);
+  const el = $('#app-loading-overlay');
+  if (el) el.classList.remove('app-loading-visible');
+}
+
 async function withLoading(fn) {
   App.loading = true;
+  showAppLoading();
   try { return await fn(); }
-  finally { App.loading = false; }
+  finally { App.loading = false; hideAppLoading(); }
 }
 
 function handleApiError(err) {

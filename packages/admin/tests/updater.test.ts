@@ -112,6 +112,60 @@ test("compareVersions: package.json 缺失用 0.0.0 兜底", async () => {
 
 // ============ M15+M16 回归测试 ============
 
+test("compareVersions: 超时按不可达处理并 kill 子进程（BUG-009）", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-upd-"));
+  try {
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ version: "0.1.0" }),
+      "utf8",
+    );
+    // mock spawn 返回一个永不 close 的 child（模拟 git ls-remote 挂起）
+    let killed = false;
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      killed = true;
+      return true;
+    };
+    _updaterInternals.spawn = (() => child) as any;
+    try {
+      const r = await compareVersions(dir, { timeoutMs: 30 });
+      assert.equal(r.local, "0.1.0");
+      assert.equal(r.remote, null);
+      assert.equal(r.updateAvailable, false);
+      assert.equal(killed, true);
+    } finally {
+      restoreSpawn();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("compareVersions: 默认超时 5s 且快速 close 不受影响", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-upd-"));
+  try {
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ version: "0.1.0" }),
+      "utf8",
+    );
+    _updaterInternals.spawn = (() =>
+      makeMockChild("abc\trefs/tags/0.2.0\n", "", 0)) as any;
+    try {
+      const r = await compareVersions(dir);
+      assert.equal(r.remote, "0.2.0");
+      assert.equal(r.updateAvailable, true);
+    } finally {
+      restoreSpawn();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("_compareSemver: 数值比较而非字典序", () => {
   // M16 核心：0.1.10 应大于 0.1.2（字典序会判反）
   assert.ok(_compareSemver("0.1.10", "0.1.2") > 0);

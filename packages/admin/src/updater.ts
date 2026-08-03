@@ -50,15 +50,21 @@ export function _compareSemver(a: string, b: string): number {
  *
  * - 本地版本：读 repoRoot/package.json 的 version
  * - 远程版本：git ls-remote origin refs/tags/* 取最新 tag
- * - 远程不可达时 remoteVersion 为 null
+ * - 远程不可达或超时（默认 5s）时 remoteVersion 为 null
  *
  * 设计依据：docs/plans §6.4 GET /api/admin/version
+ * BUG-009 修复：git ls-remote 走网络在弱网下可达 14s+，加 timeoutMs 超时
+ * 兜底（kill 子进程并按不可达处理），避免版本检查拖慢设置页。
  */
-export async function compareVersions(repoRoot: string): Promise<{
+export async function compareVersions(
+  repoRoot: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<{
   local: string;
   remote: string | null;
   updateAvailable: boolean;
 }> {
+  const timeoutMs = opts.timeoutMs ?? 5000;
   // 本地版本
   let local = "0.0.0";
   try {
@@ -69,7 +75,7 @@ export async function compareVersions(repoRoot: string): Promise<{
     // 用 0.0.0 兜底
   }
 
-  // 远程版本：git ls-remote 取 tags
+  // 远程版本：git ls-remote 取 tags（超时 kill 并按不可达处理）
   const remoteVersion = await new Promise<string | null>((resolveVer) => {
     let stdout = "";
     let settled = false;
@@ -78,15 +84,24 @@ export async function compareVersions(repoRoot: string): Promise<{
       ["ls-remote", "--tags", "origin"],
       { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
     );
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolveVer(null);
+    }, timeoutMs);
+    timer.unref?.();
     child.stdout?.on("data", (d) => (stdout += d.toString()));
     child.on("error", () => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolveVer(null);
     });
     child.on("close", () => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       // 解析 refs/tags/v0.1.2 形式，取最大版本号
       const tags = stdout
         .split(/\r?\n/)
