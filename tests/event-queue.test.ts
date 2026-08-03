@@ -90,7 +90,13 @@ test("EventQueue: 容量防护不影响正常串行消费", async () => {
   );
   const ids: string[] = [];
   for (let i = 0; i < 5; i++) ids.push(q.enqueue(i));
-  await new Promise((r) => setTimeout(r, 100));
+  // 轮询等待而非固定 sleep：CI 慢机/负载下 setTimeout(5) 可能显著拉长
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const items = q.getAll();
+    if (items.length === 5 && items.every((i) => i.status === "done")) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
   const items = q.getAll();
   assert.equal(items.length, 5);
   assert.deepEqual(items.map((i) => i.status), ["done", "done", "done", "done", "done"]);
