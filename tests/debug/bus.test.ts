@@ -129,7 +129,9 @@ test("startSpan: end() 发射 end 事件并计算 durationMs", async () => {
   bus.subscribe((event) => received.push(event));
 
   const span = startSpan(bus, "test", "trace-1");
-  await new Promise((r) => setTimeout(r, 10));
+  // sleep 余量放大到 25ms：CI 慢机（Windows runner 时钟粒度/调度抖动）下
+  // setTimeout(10) 实测只经 9ms，断言 durationMs >= 10 会偶发失败
+  await new Promise((r) => setTimeout(r, 25));
   span.end({ result: "ok" });
 
   assert.equal(received.length, 2);

@@ -48,7 +48,9 @@ export function collectSubmission<T>(
       done = true;
       reject(new Error(`${toolName} 产出收集超时（${timeoutMs}ms）`));
     }, timeoutMs);
-    timer.unref?.();
+    // 不做 unref：node 22 的 node:test 在事件循环被 unref 清空后判定
+    // "Promise resolution is still pending" 提前终止（CI 实测）；调用方
+    // 总是 await 产出，真实运行中事件循环不会因该定时器被拖住。
   }
   const off = agent.subscribe((event) => {
     if (done) return;
