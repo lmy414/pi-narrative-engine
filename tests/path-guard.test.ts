@@ -50,11 +50,17 @@ test("assertPathInside: 同级兄弟目录路径拒绝", () => {
   );
 });
 
-test("assertPathInside: Windows 反斜杠 ../ 越界拒绝", () => {
-  assert.throws(
-    () => assertPathInside(base, `..\\outside.md`, "章节文件路径"),
-    (err: Error & { code?: string }) => err.code === "PATH_ESCAPE",
-  );
+test("assertPathInside: Windows 反斜杠 ../ 越界拒绝（win32 语义，POSIX 按字面文件名放行）", () => {
+  if (process.platform === "win32") {
+    assert.throws(
+      () => assertPathInside(base, `..\\outside.md`, "章节文件路径"),
+      (err: Error & { code?: string }) => err.code === "PATH_ESCAPE",
+    );
+  } else {
+    // POSIX：反斜杠是合法文件名字符，`..\outside.md` 为基准内字面文件名，放行属正确行为
+    const abs = assertPathInside(base, `..\\outside.md`, "章节文件路径");
+    assert.equal(abs, join(base, `..\\outside.md`));
+  }
 });
 
 test("assertPathInside: sep 前缀混淆（base+sep 开头）不误伤兄弟目录", () => {

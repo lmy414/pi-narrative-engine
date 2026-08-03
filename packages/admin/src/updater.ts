@@ -90,7 +90,9 @@ export async function compareVersions(
       child.kill();
       resolveVer(null);
     }, timeoutMs);
-    timer.unref?.();
+    // 注意：不做 timer.unref()——mock/无 fd 场景下事件循环一旦清空，
+    // node:test 会判定 "Promise resolution is still pending" 提前终止
+    // （node 22 CI 实测失败）；子进程 stdio 管道本身会保持事件循环活跃。
     child.stdout?.on("data", (d) => (stdout += d.toString()));
     child.on("error", () => {
       if (settled) return;
