@@ -153,6 +153,23 @@ test("pipeline 抛错：commit 返回失败并清理缓存", async () => {
   assert.equal(service.planCount(), 0);
 });
 
+test("pipeline 部分写入失败：commit 回传实际 appliedEventIds（L-Test-1）", async () => {
+  // 🔴-2 契约：失败也返回真实写入集合（而非假装"未写入"）；部分写入时 plan
+  // 保留供排查，仅零写入才自动删除；discard 可显式清理
+  const partialError = Object.assign(new Error("第 2 个事件写入失败"), { appliedEventIds: ["evt_a"] });
+  const { fake } = makeFakeOrchestrator({ pipelineError: partialError });
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await waitWorker();
+
+  const result = await service.commit("plan_test_1");
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.appliedEventIds, ["evt_a"], "应回传部分写入的事件 ID");
+  assert.equal(service.planCount(), 1, "部分写入时保留 plan 供排查");
+  assert.equal(service.discard("plan_test_1").ok, true);
+  assert.equal(service.planCount(), 0);
+});
+
 test("discard：清理缓存，重复 discard 返回 false", async () => {
   const { fake } = makeFakeOrchestrator();
   const service = new OrchestratorService(fake);

@@ -15,7 +15,7 @@
     "import": "node dist/tools/import-novel.js",
     "init": "node scripts/init-novel.mjs",
     "doctor": "tsx scripts/doctor.mjs",
-    "test": "tsx --test packages/role-pool/tests/*.test.ts packages/scheduler/tests/*.test.ts packages/renderer/tests/*.test.ts packages/novel-importer/tests/*.test.ts packages/admin/tests/*.test.ts packages/novel-launcher/tests/*.test.ts tests/*.test.ts tests/debug/*.test.ts",
+    "test": "tsx --test packages/role-pool/tests/*.test.ts packages/scheduler/tests/*.test.ts packages/renderer/tests/*.test.ts packages/novel-importer/tests/*.test.ts packages/admin/tests/env-store.test.ts packages/admin/tests/embedder-status.test.ts packages/admin/tests/app-config.test.ts packages/admin/tests/updater.test.ts packages/admin/tests/novel-json.test.ts packages/admin/tests/files.test.ts packages/admin/tests/doctor.test.ts packages/admin/tests/rulesets.test.ts packages/novel-launcher/tests/*.test.ts tests/*.test.ts tests/debug/*.test.ts",
     "test:packages": "tsx --test packages/role-pool/tests/*.test.ts packages/scheduler/tests/*.test.ts packages/renderer/tests/*.test.ts packages/novel-importer/tests/*.test.ts packages/admin/tests/*.test.ts packages/novel-launcher/tests/*.test.ts",
     "test:root": "tsx --test tests/*.test.ts tests/debug/*.test.ts"
   },
@@ -34,5 +34,9 @@
     "typebox": "^1.1.24",
     "typescript": "^5.4.0",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "sharp": "^0.35.0",
+    "onnxruntime-web": "^1.20.0"
   }
 }

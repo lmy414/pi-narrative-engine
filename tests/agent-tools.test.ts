@@ -252,15 +252,18 @@ test("chapter_write：insert 分支走 insertChapterSection", async () => {
   assert.deepEqual(m.calls.insertChapterSection, ["chapters/ch001.md", "evt_1", "evt_2", "插入正文"]);
 });
 
-test("chapter_write：modify/insert 缺 targetEventId 返回错误不写入", async () => {
+test("chapter_write：modify/insert 缺 targetEventId 抛错不写入（M-Logic-2 同步）", async () => {
   const m = makeMockPorts();
   const tool = createChapterWriteTool(m.ports);
-  const result = await tool.execute("1", {
-    chapterPath: "chapters/ch001.md",
-    mode: "modify",
-    eventId: "evt_2",
-    text: "正文",
-  });
-  assert.equal(result.details.ok, false);
+  await assert.rejects(
+    tool.execute("1", {
+      chapterPath: "chapters/ch001.md",
+      mode: "modify",
+      eventId: "evt_2",
+      text: "正文",
+    }),
+    /targetEventId/,
+    "缺 targetEventId 应抛错（让 agent loop 重试），而非返回 ok:false",
+  );
   assert.equal(m.calls.modifyChapterSection, undefined);
 });

@@ -12,6 +12,10 @@ const mockCode = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "frontend-demo", "api-mock.js"),
   "utf8",
 );
+const mockDataCode = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "frontend-demo", "mock-data.js"),
+  "utf8",
+);
 
 type FetchCall = { url: string; options: Record<string, any> };
 
@@ -225,4 +229,29 @@ test("rejects folder operations without fetch and maps .md node operations", asy
     ["/api/files/rename", "POST"],
     ["/api/files/delete", "POST"],
   ]);
+});
+
+function loadMockApi() {
+  return new Function(
+    "setTimeout",
+    `${mockDataCode}\n${mockCode}\n;return { getChain, MOCK_EVENTS };`,
+  )(setTimeout) as {
+    getChain: (eventId: string) => { events: Array<{ eventId: string }> };
+    MOCK_EVENTS: Array<{ eventId: string; causes: string[] }>;
+  };
+}
+
+test("getChain 对 causes 环不死循环且不重复收集（L-Test-3 / L-FE-5）", () => {
+  const { getChain, MOCK_EVENTS } = loadMockApi();
+  MOCK_EVENTS.length = 0;
+  MOCK_EVENTS.push(
+    { eventId: "evt-a", causes: ["evt-b"] },
+    { eventId: "evt-b", causes: ["evt-a"] },
+    { eventId: "evt-c", causes: [] },
+  );
+
+  const chain = getChain("evt-a");
+  const ids = chain.events.map((event) => event.eventId);
+  assert.deepEqual(ids, ["evt-a", "evt-b"]);
+  assert.equal(new Set(ids).size, ids.length);
 });

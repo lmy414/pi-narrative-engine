@@ -326,6 +326,37 @@ test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅"
   assert.equal(unsubscribed, true, "客户端断开应取消订阅");
 });
 
+test("GET events（SSE）：各类 session 事件原样透传（L-Test-4）", async () => {
+  let listener: ((event: unknown) => void) | null = null;
+  const session = makeSession({
+    subscribe: (cb) => {
+      listener = cb;
+      return () => {};
+    },
+  });
+  const ctx = makeCtx({ host: makeHost(session) });
+  const { req, res, writes, emitClose } = mockReqRes();
+  await handleChatApi(ctx, req, res, new URL("http://localhost/api/chat/events"), null);
+
+  assert.ok(listener, "应已订阅 session");
+  // 事件类型回归：start/end/工具执行/消息更新 均应原样 JSON 透传（前端按 type 分支处理）
+  const samples = [
+    { type: "session_start", sessionId: "s1" },
+    { type: "session_end", sessionId: "s1" },
+    { type: "tool_execution", tool: { name: "world_query" }, state: "running" },
+    { type: "message_update", message: { content: "流式" }, done: false },
+  ];
+  for (const sample of samples) listener!(sample);
+  const dataLines = writes.filter((w) => w.startsWith("data: "));
+  assert.equal(dataLines.length, samples.length, "每个事件一条 data 行");
+  for (let i = 0; i < samples.length; i++) {
+    const parsed = JSON.parse(dataLines[i].slice("data: ".length, -2));
+    assert.equal(parsed.type, samples[i].type, `事件类型 ${samples[i].type} 原样透传`);
+  }
+
+  emitClose();
+});
+
 test("历史消息：聚合 toolCalls/provider/model/usage，并过滤 toolResult", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "narrative-chat-history-"));
   const projectDir = path.join(tmpDir, "project");

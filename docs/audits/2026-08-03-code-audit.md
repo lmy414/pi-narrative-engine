@@ -376,6 +376,7 @@ function renderInline(text) {
 - **L-Test-1**：无 commit 部分写入失败 / EventQueue 无界 / 子代理超时 / 路径校验的测试。
 - **L-Test-2**：`renderMarkdown` 的 javascript: 绕过场景（[tests/frontend-utils.test.ts:114-117](file:///d:/claude/pi-ex/narrative-engine/tests/frontend-utils.test.ts#L114) 仅测直白案例）。
 - **L-Test-3**：`frontend-demo/app.js`（路由/状态机）、`views/*.js`（除 mock 契约外）、`graph-3d.js` / `graph.js`、`studio.js` 完全无测试。
+  - ⚠️ **存疑/跳过（2026-08-04）**：视图层全为 DOM 驱动，仓库无 jsdom 依赖，补单测需引入 DOM 环境，成本高收益低；行为验证由既有 browser_use 测试轮纪律承担。部分覆盖：api-mock getChain 环检测已补测试（`tests/frontend-api-client.test.ts`，回归 L-FE-5）。
 - **L-Test-4**：`chat-routes.test.ts` 仅覆盖 `message_update`，其他 SSE 事件无回归测试。
 - **L-Test-5**：无安全相关测试（监听地址 / CORS / 请求体大小 / 超时 / 路径遍历）。
 - **L-Test-6**：CI 与本地脚本差异——CI 显式排除 `pi-status.test.ts`（[.github/workflows/test.yml:59](file:///d:/claude/pi-ex/narrative-engine/.github/workflows/test.yml#L59)），但根 `package.json` 的 `test` 脚本用 glob 会包含它，本地 `npm test` 在某些环境可能卡住。

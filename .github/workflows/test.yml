@@ -65,3 +65,8 @@ jobs:
       # H5 修复：根 tests/ 全量纳入 CI（含 e2e + 集成测试 + tests/debug/）
       - name: root tests
         run: npx tsx --test tests/*.test.ts tests/debug/*.test.ts
+
+      # L-Test-7：生产依赖安全审计（显式官方 registry——镜像源 audit 端点未实现；
+      # 已知无修复版本的传递项：epub2→adm-zip、underworld-graph→drizzle-orm）
+      - name: npm audit (production)
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org

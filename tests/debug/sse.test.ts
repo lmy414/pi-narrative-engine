@@ -39,13 +39,18 @@ function mockReqRes(): {
   const headers: Record<string, string | number | string[]> = {};
   let ended = false;
   const reqEmitter = new EventEmitter();
+  const resEmitter = new EventEmitter();
 
   const req = Object.assign(reqEmitter, {
     method: "GET",
     url: "/api/debug/stream",
   }) as unknown as IncomingMessage;
 
-  const res = {
+  // M-Logic-7 同步：sse.ts 现对 req/res 都挂 close/error 监听（半开连接检测），
+  // mock res 需具备 EventEmitter 能力
+  const res = Object.assign(resEmitter, {
+    writable: true,
+    destroyed: false,
     writeHead(status: number, h?: Record<string, string | number | string[]>) {
       headers["_status"] = status;
       if (h) Object.assign(headers, h);
@@ -61,7 +66,7 @@ function mockReqRes(): {
       if (chunk !== undefined) writes.push(chunk);
       ended = true;
     },
-  } as unknown as ServerResponse;
+  }) as unknown as ServerResponse;
 
   return {
     req,
@@ -69,8 +74,14 @@ function mockReqRes(): {
     writes,
     headers,
     isEnded: () => ended,
-    emitClose: () => reqEmitter.emit("close"),
-    emitError: (err: Error) => reqEmitter.emit("error", err),
+    emitClose: () => {
+      reqEmitter.emit("close");
+      resEmitter.emit("close");
+    },
+    emitError: (err: Error) => {
+      reqEmitter.emit("error", err);
+      resEmitter.emit("error", err);
+    },
   };
 }
 

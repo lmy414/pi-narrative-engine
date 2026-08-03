@@ -1280,3 +1280,19 @@ test("M-Sec-1：HTTP 安全头统一下发（nosniff / DENY / no-referrer）", a
   assert.equal(staticRes.headers.get("x-content-type-options"), "nosniff", "静态资源响应同样生效");
   assert.equal(staticRes.headers.get("referrer-policy"), "no-referrer");
 });
+
+test("L-Test-5：请求体超限返回 413 MAX_BODY_SIZE", async () => {
+  const big = "x".repeat(1024 * 1024 + 64);
+  const r = await api("/admin/rulesets", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "n", content: big }),
+  });
+  assert.equal(r.status, 413, "超过 1MB 上限应 413");
+  assert.equal(r.error?.code, "MAX_BODY_SIZE");
+});
+
+test("L-Test-5：服务只监听 127.0.0.1（不暴露局域网）", () => {
+  const url = new URL(server.url);
+  assert.equal(url.hostname, "127.0.0.1", "unified-server 必须绑定回环地址");
+});
