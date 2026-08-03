@@ -164,6 +164,82 @@ function navigate(hash, statePatch = {}) {
 function cleanupRouteRuntime(id) {
   if (id === 'studio' && typeof cleanupStudioView === 'function') cleanupStudioView();
   if (id === 'debug' && typeof cleanupDebugView === 'function') cleanupDebugView();
+  if (id === 'graph' || id === 'events') stopStoryTimeWatcher();
+}
+
+// =================== 全局 StoryTime 同步（graph/events/驻留失效共用） ===================
+
+/**
+ * 用后端 status.storyTimes 同步全局 storyTimes / storyTime（BUG-004 修复核心）：
+ * - storyTime 为空 → 置为最新时刻
+ * - 用户位于时间线前沿（等于旧列表最大值）→ 新时刻出现时自动前进到最新
+ * - 用户停留在历史时刻且仍存在 → 保持不变（不打断手动选择）
+ */
+function syncStoryTime(times) {
+  const list = times || [];
+  const prevMax = App.storyTimes.length ? App.storyTimes[App.storyTimes.length - 1] : null;
+  const atFrontier = !App.storyTime || App.storyTime === prevMax;
+  App.storyTimes = list;
+  if (!list.length) {
+    if (atFrontier) App.storyTime = null;
+    return;
+  }
+  if (atFrontier || !list.includes(App.storyTime)) {
+    App.storyTime = list[list.length - 1];
+  }
+}
+
+// 驻留视图失效：停留在 graph/events 页时，后台编排 commit 落盘新时刻后自动刷新。
+// 每 8s 轻量轮询 /status 对比时间线前沿，变化才触发重载（不打断手动选择的历史时刻）。
+let storyTimeWatcher = null;
+function startStoryTimeWatcher() {
+  if (ApiRuntime.isMock || storyTimeWatcher) return;
+  storyTimeWatcher = setInterval(async () => {
+    try {
+      const status = await apiCall('getStatus');
+      const prev = App.storyTime;
+      syncStoryTime(status.storyTimes || []);
+      if (App.storyTime !== prev) {
+        refreshShellStoryTime();
+        renderView({ reload: true });
+      }
+    } catch (e) { /* 状态拉取失败静默忽略，下个周期重试 */ }
+  }, 8000);
+}
+function stopStoryTimeWatcher() {
+  if (storyTimeWatcher) { clearInterval(storyTimeWatcher); storyTimeWatcher = null; }
+}
+
+// 顶栏 StoryTime 选择器联动：watcher 触发 renderView({reload:true}) 只重渲 #view-root，
+// 壳层选择器不重建（BUG-005 修复），这里就地更新当前值与下拉选项
+function refreshShellStoryTime() {
+  const container = $('.top-nav .storytime-selector');
+  if (!container) return;
+  const value = container.querySelector('.storytime-value');
+  if (value) value.innerHTML = escapeHtml(App.storyTime || '—');
+  const dropdown = container.querySelector('#storytime-dropdown');
+  if (dropdown) {
+    dropdown.innerHTML = App.storyTimes.map(st =>
+      `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime='${st}';render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
+    ).join('');
+  }
+}
+
+// =================== 项目切换状态清理（BUG-003） ===================
+
+/**
+ * 切换/创建/关闭项目时清理项目级视图状态，防止跨项目污染：
+ * - 丢弃全部路由命名空间与平面字段（studio 会话/消息、files 打开的 tabs、
+ *   graph/events 数据与选中态、entityIndex、plan details、筛选/搜索等）
+ * - 保留 projects 命名空间与扫描列表平面字段（项目清单与项目本身无关）
+ * - 复位 storyTimes / storyTime（由新项目 status 重新填充）
+ */
+function resetProjectScopedState() {
+  const keep = new Set(['projects', 'scannedProjects', 'scanRoots']);
+  Object.keys(App.viewState).forEach((k) => { if (!keep.has(k)) delete App.viewState[k]; });
+  stopStoryTimeWatcher();
+  App.storyTimes = [];
+  App.storyTime = null;
 }
 async function parseRoute() {
   const previousRoute = routeId();
@@ -349,6 +425,7 @@ async function createProject() {
   await withLoading(async () => {
     await apiCall('createProject', dir, name || undefined);
     await apiCall('activateProject', dir);
+    resetProjectScopedState();
     const active = await apiCall('getActiveProject');
     App.activeProject = {
       dir,
@@ -367,6 +444,7 @@ async function activateProject(dir) {
   await withLoading(async () => {
     try {
       await apiCall('activateProject', dir);
+      resetProjectScopedState();
       const active = await apiCall('getActiveProject');
       const scanned = projectsList().find((project) => project.dir === dir);
       App.activeProject = scanned || {
@@ -394,6 +472,7 @@ async function migrateThenActivate(dir) {
   await withLoading(async () => {
     await apiCall('migrateProject', dir);
     await apiCall('activateProject', dir);
+    resetProjectScopedState();
     const active = await apiCall('getActiveProject');
     const scanned = projectsList().find((project) => project.dir === dir);
     App.activeProject = scanned || {
@@ -424,9 +503,8 @@ async function openFolder(dir) {
 async function closeProject(dir) {
   await withLoading(async () => {
     await apiCall('closeProject', dir);
+    resetProjectScopedState();
     App.activeProject = null;
-    App.storyTimes = [];
-    App.storyTime = null;
     render();
     toast('项目已关闭', 'info');
   });
@@ -463,7 +541,9 @@ function openQuickEvent() {
   openModal('快速记事件',
     `<div class="space-y-3">
       <div><label class="text-sm text-muted">事件 ID</label><input id="qe-id" class="input" value="evt-${Date.now()}"></div>
-      <div><label class="text-sm text-muted">类型</label><select id="qe-type" class="select"><option value="birth">birth</option><option value="change">change</option><option value="death">death</option></select></div>
+      <div><label class="text-sm text-muted">类型</label><select id="qe-type" class="select" onchange="onQuickEventTypeChange()"><option value="birth">birth</option><option value="change">change</option><option value="death">death</option></select></div>
+      <div id="qe-etype-row"><label class="text-sm text-muted">实体类型</label><select id="qe-etype" class="select"><option value="character">character（角色）</option><option value="location">location（地点）</option><option value="item">item（物品）</option><option value="concept">concept（概念）</option></select></div>
+      <div><label class="text-sm text-muted">实体名称</label><input id="qe-name" class="input" placeholder="如：艾莉亚（birth 事件填写）" spellcheck="false"></div>
       <div><label class="text-sm text-muted">故事时间</label><input id="qe-st" class="input" value="${App.storyTime || ''}"></div>
       <div><label class="text-sm text-muted">实体 ID</label><input id="qe-entity" class="input" value="${App.viewState.selectedEntityId || ''}"></div>
       <div><label class="text-sm text-muted">摘要</label><textarea id="qe-summary" class="textarea" rows="3"></textarea></div>
@@ -471,14 +551,29 @@ function openQuickEvent() {
     `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickEvent()">保存</button>`);
 }
 
+function onQuickEventTypeChange() {
+  const row = $('#qe-etype-row');
+  if (!row) return;
+  const t = $('#qe-type');
+  row.style.display = t && t.value === 'birth' ? '' : 'none';
+}
+
 async function submitQuickEvent() {
+  const type = $('#qe-type').value;
+  const entityId = $('#qe-entity').value;
+  const name = ($('#qe-name').value || '').trim();
   const body = {
     eventId: $('#qe-id').value,
-    type: $('#qe-type').value,
+    type,
     storyTime: $('#qe-st').value,
-    entityId: $('#qe-entity').value,
+    entityId,
     summary: $('#qe-summary').value
   };
+  // birth 事件补实体类型与名称（newFacts.name → 实体属性 name），否则新实体无名显示 entityId
+  if (type === 'birth') {
+    body.entityType = $('#qe-etype').value;
+    if (name) body.newFacts = [{ entityId, property: 'name', value: name, modality: 'fact' }];
+  }
   closeModal();
   await withLoading(async () => {
     await apiCall('addEvent', body);

@@ -44,6 +44,12 @@ function setEventState(key, value) {
 // ==================== 数据加载（覆盖 viewLoaders.events） ====================
 
 async function eventLoadData() {
+  // 先拉 status 确定 storyTime（同 graph.js：新项目/新 commit 后先同步到最新，
+  // 再带 storyTime 拉图——真实后端 storyTime 为空时 400 STORY_TIME_REQUIRED）
+  const status = await apiCall('getStatus');
+  setEventState('eventsStatus', status);
+  syncStoryTime((status && status.storyTimes) || []);
+
   const [data, graph] = await Promise.all([
     apiCall('getEvents'),
     apiCall('getGraph', App.storyTime)
@@ -53,14 +59,6 @@ async function eventLoadData() {
   // 注意：数据键用 eventList 而非 events —— 命名空间键名本身是 'events'，
   // 若双写同名键会把 viewState('events') 命名空间对象覆盖成数组（参考 graph.js 用 graphData 键）
   setEventState('eventList', events);
-
-  // 刷新全局 storyTimes / storyTime（与 graph.js 同源），保证跨页一致
-  const status = await apiCall('getStatus');
-  setEventState('eventsStatus', status);
-  App.storyTimes = (status && status.storyTimes) || [];
-  if (!App.storyTime && App.storyTimes.length) {
-    App.storyTime = App.storyTimes[App.storyTimes.length - 1];
-  }
 
   // 默认选中：优先当前 storyTime 对应事件，否则最后一个事件
   let selectedId = eventState('selectedEventId', null);
@@ -388,6 +386,7 @@ ViewRender.events = () => {
 
 ViewAfterRender.events = () => {
   // 事件链视图无额外 DOM 副作用；占位以确保覆盖
+  startStoryTimeWatcher();
 };
 
 // ==================== 交互 ====================

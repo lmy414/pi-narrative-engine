@@ -47,17 +47,16 @@ function setGraphState(key, value) {
  * 相比旧 loadGraph：支持「显示已闭合」开关（includeClosed），并缓存事件供 Inspector 使用。
  */
 async function graphLoadData() {
+  // 先拉 status 确定 storyTime（新项目/新 commit 后 storyTime 为空或落后时先同步到最新），
+  // 再带 storyTime 拉图——真实后端在 storyTime 为空时直接 400 STORY_TIME_REQUIRED（mock 忽略参数所以 mock 不坏）
+  const status = await apiCall('getStatus');
+  setGraphState('graphStatus', status);
+  syncStoryTime(status.storyTimes || []);
+
   const includeClosed = graphState('includeClosed', false);
   const data = await apiCall('getGraph', App.storyTime, includeClosed ? '1' : '0');
   setGraphState('graphData', data);
   App.viewState.entityIndex = Object.fromEntries((data.entities || []).map((entity) => [entity.entityId, entity]));
-
-  const status = await apiCall('getStatus');
-  setGraphState('graphStatus', status);
-  App.storyTimes = status.storyTimes || [];
-  if (!App.storyTime && App.storyTimes.length) {
-    App.storyTime = App.storyTimes[App.storyTimes.length - 1];
-  }
 
   // 事件缓存：StoryTime 变化时刷新（供 Inspector「最近事件」）
   if (graphState('_eventsAt', null) !== App.storyTime) {
@@ -179,6 +178,7 @@ ViewRender.graph = () => {
 
 ViewAfterRender.graph = () => {
   graphInit3D();
+  startStoryTimeWatcher();
 };
 
 // ==================== 左侧实体列表 ====================

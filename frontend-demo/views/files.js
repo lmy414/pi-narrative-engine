@@ -64,6 +64,16 @@ function flBasename(path) {
   return s.split('/').pop() || s;
 }
 
+// 后端 /api/files/tree 节点只有 path/kind/size/mtime（无 name 字段），
+// 统一派生 name = basename(path) 供树渲染/图标色使用（mock 自带 name 也以 basename 为准，语义一致）
+function flNormalizeTree(nodes) {
+  return (nodes || []).map((n) => ({
+    ...n,
+    name: flBasename(n.path),
+    children: n.children ? flNormalizeTree(n.children) : n.children
+  }));
+}
+
 function flExt(path) {
   const s = String(path);
   const i = s.lastIndexOf('.');
@@ -91,7 +101,7 @@ function flTimeHHmm(iso) {
 
 async function flLoadData() {
   const fileData = await apiCall('getFileTree');
-  setFlState('flTree', fileData.tree || []);
+  setFlState('flTree', flNormalizeTree(fileData.tree || []));
 
   if (flState('flChaptersDir', null) === null) {
     try {
