@@ -1,0 +1,2 @@
+# vendor 第三方库锁定字节：行尾转换会改变内容 → SRI 校验失败（2026-08-04 修复）
+frontend-demo/vendor/* -text

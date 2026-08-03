@@ -287,7 +287,9 @@ async function handleProjects(
       const resolved = resolve(root);
       const within = allowedRoots.some((allowed) => {
         const rel = relative(resolve(allowed), resolved);
-        return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+        // rel === "" 表示 root 恰等于白名单根本身（应放行）；
+        // 其余需为根下的相对子路径（不以 .. 开头且非绝对路径）
+        return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
       });
       if (!within) {
         fail(

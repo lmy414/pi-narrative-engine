@@ -281,6 +281,28 @@ test("projects/scan: 缺 root 报 400 MISSING_FIELD", async () => {
   assert.equal(r.error?.code, "MISSING_FIELD");
 });
 
+test("M-Collab-4：扫描根白名单——根本身放行、越界 403", async () => {
+  const saved = (await api("/admin/app-config")).data;
+  await api("/admin/app-config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ launcher: { defaultScanRoots: [root] } }),
+  });
+  try {
+    const same = await api(`/projects/scan?root=${encodeURIComponent(root)}`);
+    assert.equal(same.status, 200, "root 恰等于白名单根本身应放行");
+    const outside = await api(`/projects/scan?root=${encodeURIComponent(join(root, "..", "白名单外"))}`);
+    assert.equal(outside.status, 403, "白名单外路径应 403");
+    assert.equal(outside.error?.code, "SCAN_ROOT_NOT_ALLOWED");
+  } finally {
+    await api("/admin/app-config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ launcher: saved.launcher }),
+    });
+  }
+});
+
 test("projects/meta: 正常读取 / 不存在项目报错", async () => {
   const ok1 = await api(`/projects/meta?dir=${encodeURIComponent(projA)}`);
   assert.equal(ok1.data.meta.name, "甲");
