@@ -34,7 +34,6 @@ export function handleDebugStream(
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
-    "access-control-allow-origin": "*",
     "X-Accel-Buffering": "no", // Nginx 等代理不缓冲
   });
   // 立即冲刷头部 + 首条注释：缓冲为空时客户端也能立刻确认连接已建立
@@ -93,7 +92,6 @@ export function handleDebugEvents(
   const body = JSON.stringify({ ok: true, data: { events }, error: null });
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
   });
   res.end(body);
 }
@@ -109,7 +107,6 @@ export function handleDebugClear(
   const body = JSON.stringify({ ok: true, data: { cleared: true }, error: null });
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
   });
   res.end(body);
 }

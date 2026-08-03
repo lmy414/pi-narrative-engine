@@ -1236,3 +1236,35 @@ test("entities/:id/kill：实体退场后该时刻快照消失，历史不丢；
   assert.equal(nf.status, 404);
   assert.equal(nf.error?.code, "ENTITY_NOT_FOUND");
 });
+
+test("POST 请求体超上限 → 413 MAX_BODY_SIZE（响应可读，连接不中断）", async () => {
+  const big = JSON.stringify({ summary: "z".repeat(2 * 1024 * 1024) });
+  const res = await fetch(`${base}api/events`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: big,
+  });
+  assert.equal(res.status, 413);
+  const json = (await res.json()) as { error: { code: string } };
+  assert.equal(json.error.code, "MAX_BODY_SIZE");
+});
+
+test("恶意 Origin 请求 /api/* → 403 ORIGIN_REJECTED；同源无 Origin 放行", async () => {
+  const evil = await fetch(`${base}api/status`, {
+    headers: { origin: "http://evil.example" },
+  });
+  assert.equal(evil.status, 403);
+  assert.equal(evil.headers.get("access-control-allow-origin"), null);
+  const evilJson = (await evil.json()) as { error: { code: string } };
+  assert.equal(evilJson.error.code, "ORIGIN_REJECTED");
+
+  const sameOrigin = await fetch(`${base}api/status`, {
+    headers: { origin: `http://127.0.0.1:${server.port}` },
+  });
+  assert.equal(sameOrigin.status, 200);
+  assert.equal(
+    sameOrigin.headers.get("access-control-allow-origin"),
+    `http://127.0.0.1:${server.port}`,
+    "白名单 Origin 回显精确值而非通配 *",
+  );
+});

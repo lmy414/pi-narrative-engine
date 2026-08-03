@@ -130,11 +130,19 @@ export class OrchestratorService {
       this.plans.delete(planId);
       return this.toCommitResult(commit, planId);
     } catch (err) {
-      this.plans.delete(planId);
+      // 一致性缺口修复（2026-08-03 代码审计 🔴-2）：推理代理可能已通过
+      // 写工具实际写入世界图（processEvent 不可逆），此处如实返回已写入的
+      // appliedEventIds，而不是假装"未写入"。plan 仅在确实未写入任何事件时
+      // 才删除（可干净重试）；已部分写入时保留 plan 供用户 discard 或排查，
+      // 避免脏数据被静默吞掉。
+      const written = (err as Error & { appliedEventIds?: string[] }).appliedEventIds ?? [];
+      if (written.length === 0) {
+        this.plans.delete(planId);
+      }
       return {
         ok: false,
         planId,
-        appliedEventIds: [],
+        appliedEventIds: written,
         writtenText: "",
         chapterPath: "",
         error: err instanceof Error ? err.message : String(err),

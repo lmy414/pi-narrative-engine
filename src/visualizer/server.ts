@@ -52,11 +52,24 @@ export function resolveDefaultUiDir(): string {
   return candidates[0];
 }
 
-/** 读取 POST 请求体（JSON），空体返回 null，解析失败抛错 */
-export function readBody(req: IncomingMessage): Promise<unknown> {
+/** 读取 POST 请求体（JSON），空体返回 null，解析失败抛错；超过上限抛 MAX_BODY_SIZE */
+export function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {
   return new Promise((resolvePromise, rejectPromise) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
+    let total = 0;
+    req.on("data", (c: Buffer) => {
+      total += c.length;
+      if (total > maxBytes) {
+        const err = new Error(`请求体超过大小上限（${maxBytes} 字节）`) as Error & { code?: string };
+        err.code = "MAX_BODY_SIZE";
+        rejectPromise(err);
+        // 不销毁连接：排空剩余请求体，让上层 413 响应能正常发回客户端
+        req.removeAllListeners("data");
+        req.resume();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => {
       const raw = Buffer.concat(chunks).toString("utf-8").trim();
       if (!raw) {

@@ -403,8 +403,8 @@ const eventApplyParams = Type.Object({
   }), { description: "闭合的旧事实（同 property 变更时填）" })),
 });
 
-/** 写 change 事件到世界图 */
-export function createEventApplyTool(ports: OrchestratorPorts): AgentTool<typeof eventApplyParams> {
+/** 写 change 事件到世界图；sink 非空时把成功写入的 eventId 记录其中（失败溯源用） */
+export function createEventApplyTool(ports: OrchestratorPorts, sink?: string[]): AgentTool<typeof eventApplyParams> {
   return {
     name: "world_event_apply",
     label: "World Event Apply",
@@ -421,6 +421,7 @@ export function createEventApplyTool(ports: OrchestratorPorts): AgentTool<typeof
         ...(params.newFacts ? { newFacts: params.newFacts } : {}),
         ...(params.invalidated ? { invalidated: params.invalidated } : {}),
       });
+      sink?.push(params.eventId);
       const details = { ok: true, eventId: params.eventId, entityId: params.entityId };
       return {
         content: [{ type: "text", text: `事件已应用：${params.eventId}（${params.type} @ ${params.storyTime}）` }],
@@ -562,13 +563,13 @@ export function createRelationCloseTool(ports: OrchestratorPorts): AgentTool<typ
   };
 }
 
-/** 可见推理代理完整工具集：3 只读 + 6 写 */
-export function createReasoningTools(ports: OrchestratorPorts): AgentTool<any>[] {
+/** 可见推理代理完整工具集：3 只读 + 6 写；sink 记录已写入事件 ID（提交失败溯源用） */
+export function createReasoningTools(ports: OrchestratorPorts, sink?: string[]): AgentTool<any>[] {
   return [
     createEntityGetTool(ports),
     createRelationsTool(ports),
     createEventChainTool(ports),
-    createEventApplyTool(ports),
+    createEventApplyTool(ports, sink),
     createVisibilitySetTool(ports),
     createVisibilityCloseTool(ports),
     createVisibilityInferTool(ports),

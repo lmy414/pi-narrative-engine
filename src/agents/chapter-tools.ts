@@ -17,6 +17,7 @@
 import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { OrchestratorPorts } from "../orchestrator/assembly.ts";
+import { assertPathInside } from "../path-guard.ts";
 
 const SEQUENTIAL = { executionMode: "sequential" as const };
 
@@ -24,8 +25,8 @@ const chapterReadParams = Type.Object({
   chapterPath: Type.String({ description: "章节文件路径" }),
 });
 
-/** 读章节全文（衔接上下文） */
-export function createChapterReadTool(ports: OrchestratorPorts): AgentTool<typeof chapterReadParams> {
+/** 读章节全文（衔接上下文）；cwd 非空时校验路径不越界 */
+export function createChapterReadTool(ports: OrchestratorPorts, cwd?: string): AgentTool<typeof chapterReadParams> {
   return {
     name: "chapter_read",
     label: "Chapter Read",
@@ -33,7 +34,8 @@ export function createChapterReadTool(ports: OrchestratorPorts): AgentTool<typeo
     parameters: chapterReadParams,
     ...SEQUENTIAL,
     async execute(_id, params: Static<typeof chapterReadParams>) {
-      const content = await ports.renderer.readChapter(params.chapterPath);
+      const chapterPath = cwd ? assertPathInside(cwd, params.chapterPath, "章节文件路径") : params.chapterPath;
+      const content = await ports.renderer.readChapter(chapterPath);
       return {
         content: [{ type: "text", text: content.length > 0 ? content : "(章节文件为空或不存在)" }],
         details: { content, length: content.length },
@@ -50,8 +52,8 @@ const chapterWriteParams = Type.Object({
   targetEventId: Type.Optional(Type.String({ description: "modify/insert 模式的目标锚点事件 ID" })),
 });
 
-/** 写章节文件（add/modify/insert 三分支） */
-export function createChapterWriteTool(ports: OrchestratorPorts): AgentTool<typeof chapterWriteParams> {
+/** 写章节文件（add/modify/insert 三分支）；cwd 非空时校验路径不越界 */
+export function createChapterWriteTool(ports: OrchestratorPorts, cwd?: string): AgentTool<typeof chapterWriteParams> {
   return {
     name: "chapter_write",
     label: "Chapter Write",
@@ -63,8 +65,9 @@ export function createChapterWriteTool(ports: OrchestratorPorts): AgentTool<type
     ...SEQUENTIAL,
     async execute(_id, params: Static<typeof chapterWriteParams>) {
       const r = ports.renderer;
+      const chapterPath = cwd ? assertPathInside(cwd, params.chapterPath, "章节文件路径") : params.chapterPath;
       if (params.mode === "add") {
-        await r.appendToChapter(params.chapterPath, params.eventId, params.text);
+        await r.appendToChapter(chapterPath, params.eventId, params.text);
       } else {
         if (!params.targetEventId) {
           return {
@@ -73,24 +76,24 @@ export function createChapterWriteTool(ports: OrchestratorPorts): AgentTool<type
           };
         }
         if (params.mode === "modify") {
-          await r.modifyChapterSection(params.chapterPath, params.targetEventId, params.text);
+          await r.modifyChapterSection(chapterPath, params.targetEventId, params.text);
         } else {
-          await r.insertChapterSection(params.chapterPath, params.targetEventId, params.eventId, params.text);
+          await r.insertChapterSection(chapterPath, params.targetEventId, params.eventId, params.text);
         }
       }
-      const details = { ok: true, chapterPath: params.chapterPath, mode: params.mode, eventId: params.eventId };
+      const details = { ok: true, chapterPath, mode: params.mode, eventId: params.eventId };
       return {
-        content: [{ type: "text", text: `章节已写入：${params.chapterPath}（${params.mode}，锚点 ${params.eventId}）` }],
+        content: [{ type: "text", text: `章节已写入：${chapterPath}（${params.mode}，锚点 ${params.eventId}）` }],
         details,
       };
     },
   };
 }
 
-/** 渲染器子代理工具集 */
-export function createRendererTools(ports: OrchestratorPorts): AgentTool<any>[] {
+/** 渲染器子代理工具集；cwd 为项目根（路径越界防护基准） */
+export function createRendererTools(ports: OrchestratorPorts, cwd?: string): AgentTool<any>[] {
   return [
-    createChapterReadTool(ports),
-    createChapterWriteTool(ports),
+    createChapterReadTool(ports, cwd),
+    createChapterWriteTool(ports, cwd),
   ];
 }

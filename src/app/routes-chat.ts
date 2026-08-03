@@ -186,7 +186,6 @@ function handleChatEvents(
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
-    "access-control-allow-origin": "*",
     "X-Accel-Buffering": "no",
   });
   // 立即冲刷头部 + 首条注释：无事件期间客户端也能立刻确认连接已建立

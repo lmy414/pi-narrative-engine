@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { WorldGraph } from "underworld-graph";
+import { assertPathInside } from "../path-guard.ts";
 
 /** 导入时写入世界图的卡字段（与 static-card-loader KNOWN_FIELDS 对齐 + 扩展） */
 export const CARD_FACT_FIELDS = [
@@ -117,15 +118,19 @@ export function extractPngChunks(buf: Buffer): string {
 
 /**
  * 从文件解析角色卡（按扩展名分发）
+ *
+ * @param cardPath 卡文件路径（绝对或相对）
+ * @param baseDir 可选：路径越界防护基准目录（传入项目 cwd 后拒绝 ../ 越界；不传不校验）
  */
-export async function parseCardFile(cardPath: string): Promise<ParsedCard> {
-  const ext = path.extname(cardPath).toLowerCase();
+export async function parseCardFile(cardPath: string, baseDir?: string): Promise<ParsedCard> {
+  const target = baseDir ? assertPathInside(baseDir, cardPath, "角色卡文件路径") : cardPath;
+  const ext = path.extname(target).toLowerCase();
   if (ext === ".json") {
-    const json = JSON.parse(await fs.readFile(cardPath, "utf8"));
+    const json = JSON.parse(await fs.readFile(target, "utf8"));
     return extractCardData(json);
   }
   if (ext === ".png") {
-    const buf = await fs.readFile(cardPath);
+    const buf = await fs.readFile(target);
     const jsonText = extractPngChunks(buf);
     return extractCardData(JSON.parse(jsonText));
   }

@@ -38,6 +38,24 @@ import type { ChatContext } from "./chat-context.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/** 允许跨源访问的 Origin 白名单（Tauri 壳 + 本机同端口）；无 Origin/Referer（CLI/curl）放行 */
+const ALLOWED_ORIGIN_HOSTS = new Set<string>([
+  "tauri://localhost",
+  "http://tauri.localhost",
+]);
+
+function originAllowed(origin: string, port: number): boolean {
+  if (ALLOWED_ORIGIN_HOSTS.has(origin)) return true;
+  try {
+    const u = new URL(origin);
+    if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost") return false;
+    if (u.port === "") return false; // 缺省端口（80/443）不可能是本服务
+    return Number(u.port) === port;
+  } catch {
+    return false;
+  }
+}
+
 export interface UnifiedServerOptions {
   /** 多项目注册表（调用方持有，负责 closeAll） */
   registry: ProjectRegistry;
@@ -100,6 +118,20 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
   const repoRoot = opts.repoRoot ?? resolve(__dirname, "../..");
   const uiDir = opts.uiDir ?? resolveDefaultUiDir();
 
+  // SSE 全局连接上限（🔴-7：防 fd 耗尽；SSE 端点共享配额）
+  const MAX_SSE_CONNECTIONS = 10;
+  let sseConnectionCount = 0;
+
+  /** 申请/释放 SSE 连接配额；返回是否成功 */
+  function tryAcquireSse(): boolean {
+    if (sseConnectionCount >= MAX_SSE_CONNECTIONS) return false;
+    sseConnectionCount += 1;
+    return true;
+  }
+  function releaseSse(): void {
+    sseConnectionCount = Math.max(0, sseConnectionCount - 1);
+  }
+
   // LLM 依赖：authStorage 实例（与主会话运行时实例读写同一 auth.json）；
   // resolveModel 走 LlmConfigStore default slot → env（与 /api/admin/llm 共用 llm-resolver 口径）
   const configDir = opts.configDir ?? opts.appConfigDir ?? _defaultConfigDir();
@@ -136,19 +168,60 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
     void (async () => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+        // 同源校验：浏览器跨站请求（CSRF / 任意网页操控本地服务）直接 403。
+        // 仅校验 /api/*（静态资源与 SSE 无鉴权语义）；无 Origin 的 CLI 客户端放行。
+        const origin = req.headers.origin;
+        if (origin) {
+          const port = server.address() && typeof server.address() === "object"
+            ? (server.address() as { port: number }).port
+            : (opts.port ?? 7421);
+          if (!originAllowed(origin, port)) {
+            res.writeHead(403, { "content-type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({
+              ok: false,
+              data: null,
+              error: { code: "ORIGIN_REJECTED", message: "跨站请求被拒绝（Origin 不在白名单）" },
+            }));
+            return;
+          }
+          // 白名单内的跨源（Tauri 壳 origin 与 127.0.0.1 变体）回显精确 Origin，替代通配 *
+          res.setHeader("access-control-allow-origin", origin);
+          res.setHeader("vary", "Origin");
+        }
         let body: unknown = null;
         if (req.method === "POST" || req.method === "PUT") {
           try {
             body = await readBody(req);
           } catch (err) {
-            res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+            const tooLarge = (err as Error & { code?: string }).code === "MAX_BODY_SIZE";
+            res.writeHead(tooLarge ? 413 : 400, { "content-type": "application/json; charset=utf-8" });
             res.end(JSON.stringify({
               ok: false,
               data: null,
-              error: { code: "INVALID_JSON", message: (err as Error).message },
+              error: {
+                code: tooLarge ? "MAX_BODY_SIZE" : "INVALID_JSON",
+                message: (err as Error).message,
+              },
             }));
             return;
           }
+        }
+
+        // SSE 端点统一配额（🔴-7：防 fd 耗尽）。识别 /api/chat/events 与 /api/debug/stream；
+        // 配额满返回 503，成功连接在 res close 时释放。
+        const isSseEndpoint = req.method === "GET" &&
+          (url.pathname === "/api/chat/events" || url.pathname === "/api/debug/stream");
+        if (isSseEndpoint && !tryAcquireSse()) {
+          res.writeHead(503, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({
+            ok: false,
+            data: null,
+            error: { code: "SSE_LIMIT_REACHED", message: `SSE 连接数已达上限（${MAX_SSE_CONNECTIONS}）` },
+          }));
+          return;
+        }
+        if (isSseEndpoint) {
+          res.on("close", releaseSse);
         }
 
         // 扩展路由（files/projects/admin）优先；chat/scheduler 路由其次；未命中再进世界图路由
@@ -230,6 +303,10 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
 
   return new Promise((resolvePromise, rejectPromise) => {
     server.once("error", rejectPromise);
+    // 超时防护（🔴-7）：慢请求头/体超时兜底；SSE 长连接不受影响
+    // （requestTimeout 只约束请求接收阶段；响应期由心跳 keep-alive 维持）
+    server.headersTimeout = 60_000;
+    server.requestTimeout = 30_000;
     server.listen(opts.port ?? 7421, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : (opts.port ?? 7421);

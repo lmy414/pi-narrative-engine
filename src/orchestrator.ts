@@ -19,7 +19,6 @@
 
 import type { StructuredEvent } from "@pi/scheduler";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { isAbsolute, join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
 import type { OrchestratorPorts } from "./orchestrator/assembly.ts";
@@ -30,6 +29,7 @@ import { createRendererAgent } from "./agents/renderer-agent.ts";
 import { createReasoningTools, createPlannerTools, createRoleLimitedTools } from "./agents/world-tools.ts";
 import { createRendererTools } from "./agents/chapter-tools.ts";
 import { collectSubmission } from "./agents/collect.ts";
+import { assertPathInside } from "./path-guard.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
 import type { DebugBus, DebugSpan } from "./debug/types.ts";
@@ -369,6 +369,10 @@ export class Orchestrator {
       parentId = rootSpan.eventId;
     }
     try {
+      // 已实际写入世界图的事件 ID（写工具 sink 记录 + diffusion 摘要回填），
+      // 失败时附加到错误对象，让调用方（OrchestratorService.commit）如实返回
+      const appliedSink: string[] = [];
+
       // 1. 可见推理代理：注入世界图只读+写工具，自主裁决并写入
       const reasoningSpan = startSpan(bus, "reasoner", traceId, { slot: "reasoning" }, parentId);
       let diffusion: DiffusionOutput;
@@ -379,6 +383,7 @@ export class Orchestrator {
           this.opts.llmStore.getApiKey("reasoning"),
           event,
           outputs,
+          appliedSink,
         );
         reasoningSpan.end({
           provider: reasoningModel.provider,
@@ -395,6 +400,9 @@ export class Orchestrator {
         });
       } catch (err) {
         reasoningSpan.error(err);
+        if (appliedSink.length > 0) {
+          (err as Error & { appliedEventIds?: string[] }).appliedEventIds = [...appliedSink];
+        }
         throw err;
       }
 
@@ -422,6 +430,12 @@ export class Orchestrator {
         });
       } catch (err) {
         rendererSpan.error(err);
+        // 渲染阶段失败时世界图可能已写入：sink（写工具真实记录）优先，
+        // diffusion 摘要（LLM 自报）去重补充
+        const written = [...new Set([...appliedSink, ...(diffusion.appliedEventIds ?? [])])];
+        if (written.length > 0) {
+          (err as Error & { appliedEventIds?: string[] }).appliedEventIds = written;
+        }
         throw err;
       }
 
@@ -446,14 +460,15 @@ export class Orchestrator {
     }
   }
 
-  /** 可见推理子代理（阶段 A：注入世界图工具，自主写世界图） */
+  /** 可见推理子代理（阶段 A：注入世界图工具，自主写世界图）；sink 记录实际写入的事件 ID */
   private async runReasoning(
     model: Model<any>,
     apiKey: string,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
+    sink: string[],
   ): Promise<DiffusionOutput> {
-    const tools = createReasoningTools(this.opts.ports);
+    const tools = createReasoningTools(this.opts.ports, sink);
     const reasoning = createReasoningAgent(
       model,
       apiKey,
@@ -486,7 +501,7 @@ export class Orchestrator {
     outputs: RoleAgentOutput[],
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
-    const tools = createRendererTools(this.opts.ports);
+    const tools = createRendererTools(this.opts.ports, this.opts.cwd);
     const chapterPath = this.resolveChapterPath(event);
     const renderer = createRendererAgent(
       model,
@@ -516,10 +531,13 @@ export class Orchestrator {
    *
    * 关键修正（pure-SDK 后）：服务进程 cwd ≠ 项目目录，裸相对路径会被
    * 渲染器章节工具写到进程 cwd（扩展时代 pi 进程 cwd 即项目根，无此问题）。
+   *
+   * 安全（2026-08-03 代码审计 🔴-5）：任何输入路径必须落在项目根内，
+   * 拒绝 `../` 越界（绝对路径也校验，防 LLM 被诱导读/写项目外文件）。
    */
   private resolveChapterPath(event: StructuredEvent): string {
     const p = event.chapterPath ?? `chapters/${event.storyTime}.md`;
-    return isAbsolute(p) ? p : join(this.opts.cwd, p);
+    return assertPathInside(this.opts.cwd, p, "章节文件路径");
   }
 
   /** 角色系统提示词：规则集 + 角色卡 */

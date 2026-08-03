@@ -33,7 +33,6 @@ function send(res: ServerResponse, status: number, payload: JsonValue): void {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
   });
   res.end(body);
 }
@@ -138,7 +137,6 @@ export async function handleApi(
       await handlePost(wg, res, segments, body);
     } else if (method === "OPTIONS") {
       res.writeHead(204, {
-        "access-control-allow-origin": "*",
         "access-control-allow-methods": "GET, POST, OPTIONS",
         "access-control-allow-headers": "content-type",
       });
