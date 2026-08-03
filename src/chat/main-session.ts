@@ -133,5 +133,7 @@ export class MainSessionHost {
   /** 释放 runtime（会话持久化文件保留，可恢复） */
   async dispose(): Promise<void> {
     await this.runtime.dispose();
+    // M-Qual-8：清空 services，防止释放后 applyModelConfig 对已释放实例误操作
+    this.services = null;
   }
 }

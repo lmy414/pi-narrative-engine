@@ -41,11 +41,26 @@ export function handleDebugStream(
   res.write(`:connected\n\n`);
 
   // 发送一条 SSE 消息
+  let dead = false;
+  // M-Logic-7 修正：cleanup 声明提前（let + 可空），markDead 可能在 cleanup
+  // 赋值前触发（如历史快照发送时 res 已 destroyed）——此前 const 在闭包内
+  // 后置声明导致 TDZ ReferenceError
+  let cleanup: (() => void) | null = null;
+  function markDead(): void {
+    if (dead) return;
+    dead = true;
+    cleanup?.();
+  }
+
   function send(event: unknown): void {
+    if (dead || res.destroyed || !res.writable) {
+      markDead();
+      return;
+    }
     try {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     } catch {
-      // 写入失败（客户端已断开），忽略
+      markDead();
     }
   }
 
@@ -57,17 +72,34 @@ export function handleDebugStream(
   // 2. 订阅新事件
   const unsubscribe = bus.subscribe((event) => send(event));
 
-  // 3. 启动心跳
+  // 3. 启动心跳；同时探测 TCP 半开连接（客户端消失但未收到 RST/FIN 时，
+  //    res.write 持续"成功"但数据在内核缓冲堆积）——writableLength 持续
+  //    非零超过阈值（2 个心跳周期）判定死连接并清理
+  const HALF_OPEN_GRACE_MS = 60_000;
+  let stuckSince = 0;
   const heartbeatTimer = setInterval(() => {
+    if (dead || res.destroyed || !res.writable) {
+      markDead();
+      return;
+    }
+    if (res.writableLength > 0) {
+      if (stuckSince === 0) stuckSince = Date.now();
+      else if (Date.now() - stuckSince > HALF_OPEN_GRACE_MS) {
+        markDead();
+        return;
+      }
+    } else {
+      stuckSince = 0;
+    }
     try {
       res.write(`:heartbeat\n\n`);
     } catch {
-      // 忽略
+      markDead();
     }
   }, HEARTBEAT_INTERVAL_MS);
 
   // 4. 客户端断开时清理
-  const cleanup = () => {
+  cleanup = () => {
     clearInterval(heartbeatTimer);
     unsubscribe();
     try {
@@ -76,9 +108,14 @@ export function handleDebugStream(
       // 已结束
     }
   };
+  // 若判死发生在 cleanup 赋值之前（历史快照阶段 res 已不可写），补执行一次清理
+  if (dead) cleanup();
 
-  req.on("close", cleanup);
-  req.on("error", cleanup);
+  req.on("close", markDead);
+  req.on("error", markDead);
+  // response close 事件比 req close 更可靠（HTTP/1.1 响应关闭后不可写即断连）
+  res.on("close", markDead);
+  res.on("error", markDead);
 }
 
 /**

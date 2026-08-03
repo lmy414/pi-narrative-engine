@@ -222,7 +222,10 @@ export async function handleSchedulerApi(
     }
 
     // PUT /api/scheduler/mode — body { mode: "plan" | "yolo" }（B7：会话级默认模式，持久化 + 即时生效）
+    // M-Collab-3 修复：要求活跃项目上下文（与其他 scheduler 端点语义一致），
+    // 避免"在项目外无感知修改全局默认模式"的隐式跨项目影响
     if (segment === "/mode" && method === "PUT") {
+      const cwd = requireActiveDir(ctx);
       const obj = requireBody(body, ["mode"]);
       const mode = obj.mode;
       if (mode !== "plan" && mode !== "yolo") {

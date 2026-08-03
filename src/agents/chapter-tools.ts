@@ -70,10 +70,10 @@ export function createChapterWriteTool(ports: OrchestratorPorts, cwd?: string): 
         await r.appendToChapter(chapterPath, params.eventId, params.text);
       } else {
         if (!params.targetEventId) {
-          return {
-            content: [{ type: "text", text: `错误：${params.mode} 模式需要 targetEventId` }],
-            details: { ok: false, error: "missing targetEventId" },
-          };
+          // M-Logic-2 修复：缺 targetEventId 是调用方（LLM）参数错误，必须抛错
+          // 让 agent loop 感知失败并修正参数重试；旧实现返回 ok:false 不抛错，
+          // orchestrator 只看 render_result.ok（LLM 自报）→ CommitSummary.ok 与实际写入不一致
+          throw new Error(`${params.mode} 模式需要 targetEventId（目标锚点事件 ID），请修正参数后重试`);
         }
         if (params.mode === "modify") {
           await r.modifyChapterSection(chapterPath, params.targetEventId, params.text);

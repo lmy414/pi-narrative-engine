@@ -13,7 +13,7 @@
  * 安全前提：只监听 localhost，端点不做鉴权。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { getModel } from "@earendil-works/pi-ai";
 import type { KnownProvider } from "@earendil-works/pi-ai";
 import type { AuthStorage } from "@earendil-works/pi-coding-agent";
@@ -272,11 +272,32 @@ async function handleProjects(
   const [, sub] = segments;
 
   // GET /api/projects/scan?root=&maxDepth=
+  // M-Collab-4 修复：扫描根白名单校验——app-config launcher.defaultScanRoots 非空时，
+  // root 必须落在其中某个根目录（或其子目录）内，否则 403；白名单为空（首次配置）放行。
+  // 纵深防御：即使鉴权被绕过，恶意请求也无法用 scan 探测文件系统任意路径。
   if (sub === "scan" && method === "GET") {
     const root = url.searchParams.get("root");
     if (!root) {
       fail(res, 400, "MISSING_FIELD", "缺少必填参数 root");
       return;
+    }
+    const appConfig = ctx.appConfigDir ? await readAppConfig(ctx.appConfigDir) : null;
+    const allowedRoots = appConfig?.launcher.defaultScanRoots ?? [];
+    if (allowedRoots.length > 0) {
+      const resolved = resolve(root);
+      const within = allowedRoots.some((allowed) => {
+        const rel = relative(resolve(allowed), resolved);
+        return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+      });
+      if (!within) {
+        fail(
+          res,
+          403,
+          "SCAN_ROOT_NOT_ALLOWED",
+          `扫描根目录不在白名单内（app-config launcher.defaultScanRoots），已拒绝：${resolved}`,
+        );
+        return;
+      }
     }
     const maxDepthRaw = url.searchParams.get("maxDepth");
     const projects = await discoverProjects(root, {
@@ -558,6 +579,28 @@ async function handleAdmin(
     }
     if (method === "PUT") {
       const obj = requireBody(body, []);
+      // M-Sec-3 修复：novel.json 是项目清单文件，此前不校验任何字段直接整体写入，
+      // 可写入非法结构破坏文件。校验：顶层必须是对象 + 已知字段必须是字符串。
+      if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+        const err = new Error("novel.json 更新体必须是 JSON 对象") as Error & { code?: string };
+        err.code = "INVALID_BODY";
+        throw err;
+      }
+      for (const key of [
+        "name",
+        "engine",
+        "engineVersion",
+        "worldGraphDir",
+        "chaptersDir",
+        "storyTimeFormat",
+        "createdAt",
+      ]) {
+        if (key in obj && typeof obj[key] !== "string") {
+          const err = new Error(`novel.json 字段 ${key} 必须是字符串（收到 ${JSON.stringify(obj[key])}）`) as Error & { code?: string };
+          err.code = "INVALID_BODY";
+          throw err;
+        }
+      }
       ok(res, await writeNovelJson(requireActiveDir(ctx), obj));
       return;
     }

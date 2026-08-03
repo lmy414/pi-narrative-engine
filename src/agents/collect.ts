@@ -59,7 +59,14 @@ export function collectSubmission<T>(
         return;
       }
       done = true;
-      resolve(event.result?.details as T);
+      // M-Qual-1：details 缺失时显式 reject（此前静默 resolve undefined，
+      // 下游 Cannot read properties of undefined 难定位）
+      const details = event.result?.details;
+      if (details === undefined) {
+        reject(new Error(`${toolName} 产出缺少 details（tool_execution_end 无 result.details）`));
+        return;
+      }
+      resolve(details as T);
     } else if (event.type === "agent_end" && !done) {
       done = true;
       reject(new Error(`${toolName} 未提交产出（agent 已终止）`));

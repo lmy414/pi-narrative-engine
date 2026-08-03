@@ -101,7 +101,8 @@ async function main() {
     target: "node20",
     format: "esm",
     sourcemap: false,
-    minify: false,
+    // M-Qual-7：混淆剥离注释（此前 minify: false 暴露内部实现细节）
+    minify: true,
     external: EXTERNALS,
     logLevel: "info",
   });

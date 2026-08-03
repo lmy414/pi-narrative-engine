@@ -247,11 +247,14 @@ export class Orchestrator {
               timestamp: Date.now(),
             },
           ];
-          // 串行：注入前序角色公开产出
-          for (const prior of priorOutputs) {
+          // M-Qual-5：前序角色产出合并为单条 user message（此前每条 prior 各一条
+          // user 消息，连续多条 user 消息可能被 LLM 误解为多轮对话）
+          if (priorOutputs.length > 0) {
             userMessages.push({
               role: "user",
-              content: `【前序角色 ${prior.actor} 的行动】${prior.action}`,
+              content: priorOutputs
+                .map((prior) => `【前序角色 ${prior.actor} 的行动】${prior.action}`)
+                .join("\n\n"),
               timestamp: Date.now(),
             });
           }

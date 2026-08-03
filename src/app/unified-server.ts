@@ -15,6 +15,7 @@
  */
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { chmodSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
@@ -135,7 +136,18 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
   // LLM 依赖：authStorage 实例（与主会话运行时实例读写同一 auth.json）；
   // resolveModel 走 LlmConfigStore default slot → env（与 /api/admin/llm 共用 llm-resolver 口径）
   const configDir = opts.configDir ?? opts.appConfigDir ?? _defaultConfigDir();
-  const authStorage = AuthStorage.create(join(configDir, "pi-agent", "auth.json"));
+  const authPath = join(configDir, "pi-agent", "auth.json");
+  // M-Sec-4：AuthStorage 仅在新文件创建/写入后 chmod 0o600（目录 0o700），
+  // 对旧版本创建的存量 auth.json 不会修正权限，此处显式收紧一次；
+  // Windows 上 chmod 为 no-op，文件 ACL 由系统继承控制，注释存疑以备案。
+  if (existsSync(authPath)) {
+    try {
+      chmodSync(authPath, 0o600);
+    } catch {
+      // 权限收紧失败不影响启动（读取仍由 AuthStorage 负责）
+    }
+  }
+  const authStorage = AuthStorage.create(authPath);
   const llmStore = opts.llmConfigStore ?? null;
   const piStatusDeps: PiStatusDeps = {
     authStorage,
@@ -316,7 +328,7 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : (opts.port ?? 7421);
       resolvePromise({
-        url: `http://localhost:${port}/`,
+        url: `http://127.0.0.1:${port}/`,
         port,
         async close() {
           await new Promise<void>((resolveClose, rejectClose) => {

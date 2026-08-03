@@ -57,8 +57,8 @@ function createDefaultLlmCaller(
         },
         { apiKey, headers, maxTokens: 4000, temperature: 0.7 },
       );
-      if (msg.stopReason === "error" || msg.errorMessage) {
-        throw new Error(`角色池 LLM 调用失败: ${msg.errorMessage ?? "unknown"}`);
+      if (msg.stopReason === "error" || msg.stopReason === "aborted" || msg.errorMessage) {
+        throw new Error(`角色池 LLM 调用失败: ${msg.errorMessage ?? msg.stopReason}`);
       }
       const toolCall = msg.content.find(block => block.type === "toolCall");
       if (!toolCall || toolCall.type !== "toolCall") {

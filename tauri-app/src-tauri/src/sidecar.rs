@@ -12,7 +12,6 @@
 //   （阶段 5 打包：runtime/node 为 Node 单文件运行时，server/ 为应用 bundle）
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-
 /// 去除 Windows UNC 长路径前缀（\\?\）：tauri 的 resource_dir 返回 verbatim
 /// 路径，直接传给 node 会导致模块解析错乱（lstat 'D:' EISDIR）
 fn strip_unc(p: &Path) -> PathBuf {
@@ -103,16 +102,36 @@ fn spawn_prod(port: u16, resource_dir: &Path) -> Result<Child, String> {
     if !entry.exists() {
         return Err(format!("未找到服务入口: {}", entry.display()));
     }
+    // M-Collab-6 修复：生产模式日志重定向到文件（%APPDATA%/narrative-engine/logs/sidecar.log），
+    // 不再 Stdio::inherit()——Node 进程日志（可能含 API key 错误、项目路径）不应泄到
+    // Tauri 宿主进程 stdout/stderr（dev 模式保留 inherit 便于开发）。
+    let log = sidecar_log_file(&resource_dir)?;
+    let stdout_log = log.try_clone().map_err(|e| format!("clone 日志句柄失败: {e}"))?;
     Command::new(node_exe)
         .arg(entry)
         .arg("--port")
         .arg(port.to_string())
         .current_dir(&resource_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(log))
         .spawn()
         .map_err(|e| format!("spawn sidecar 失败: {e}"))
+}
+
+/// 生产模式 sidecar 日志文件：%APPDATA%/narrative-engine/logs/sidecar.log（追加模式）
+fn sidecar_log_file(fallback_dir: &Path) -> Result<std::fs::File, String> {
+    let log_dir = std::env::var_os("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| fallback_dir.join("logs"))
+        .join("narrative-engine")
+        .join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("创建日志目录失败: {e}"))?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("sidecar.log"))
+        .map_err(|e| format!("打开日志文件失败: {e}"))
 }
 
 /// 启动 sidecar，返回句柄（调用方负责 kill）

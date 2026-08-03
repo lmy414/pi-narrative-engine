@@ -87,9 +87,12 @@ export async function handleChatApi(
       requireActiveDir(ctx);
       const text = requireText(body);
       // chat.message span：覆盖"接收 → preflight"阶段（流式生成经 /api/chat/events 推送，
-      // 不在本 span 内；abort 语义由会话层管理，此处只记 preflight 成败）
+      // 不在本 span 内；abort 语义由会话层管理，此处只记 preflight 成败）。
+      // M-Sec-2 修复：不落盘用户输入原文（此前 text 前 200 字符经 debug bus
+      // 持久化到 <cwd>/.pi/logs/debug.jsonl，用户未被明示输入会被持久化）；
+      // 仅记录长度等元信息，调试面板展示时无敏感原文。
       const span = startSpan(ctx.debugBus, "chat.message", newTraceId(), {
-        text: text.slice(0, 200),
+        chars: text.length,
       });
       try {
         const host = await ctx.chatContext.ensureHost();

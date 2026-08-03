@@ -137,13 +137,19 @@ export class LlmConfigStore {
     return model;
   }
 
-  /** 取某 slot 的 apiKey：slot → default → NE_LLM_API_KEY → provider 标准 env */
+  /**
+   * 取某 slot 的 apiKey：解析后配置（slot → default → env 兜底）的 apiKey →
+   * NE_LLM_API_KEY → 解析后 provider 标准 env。
+   *
+   * 修正（M-Logic-1）：旧实现先查 slot 显式 apiKey、再查 default 的 apiKey，
+   * 导致 slot 显式配置 {provider:"openai", name} 无 key、default 配置
+   * {provider:"deepseek", apiKey} 时把 deepseek 的 key 给 openai 用（401）。
+   * 现在 key 只来自"解析到的这份配置"（slot 命中则 slot、default 命中则 default），
+   * 其余回退到该 provider 的标准 env，杜绝跨 provider 借 key。
+   */
   getApiKey(slot: LlmSlot): string {
     const cfg = this.resolveConfig(slot);
-    const key = this.configs.get(slot)?.apiKey
-      ?? this.configs.get("default")?.apiKey
-      ?? process.env.NE_LLM_API_KEY
-      ?? getEnvApiKey(cfg.model.provider);
+    const key = cfg.apiKey ?? process.env.NE_LLM_API_KEY ?? getEnvApiKey(cfg.model.provider);
     if (!key) {
       throw new Error(
         `slot=${slot} 缺 API Key：已尝试 slot/default 配置、NE_LLM_API_KEY 与 ${cfg.model.provider} 标准 env` +
