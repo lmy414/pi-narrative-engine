@@ -322,13 +322,32 @@ export class Orchestrator {
       };
 
       if (event.mode === "yolo") {
-        const pipeline = await this.runPostRolePipeline(event, eventId, outputs, {
-          traceId,
-          parentId: rootSpan.eventId,
-        });
-        result.diffusion = pipeline.diffusion;
-        result.render = pipeline.render;
-        result.commit = pipeline.commit;
+        if (outputs.length === 0) {
+          // M-Logic-4 修复：所有角色失败（outputs 为空）时不跑后半链路——
+          // 避免渲染器用空产出写出空章节文件；提交摘要如实标记失败并附角色错误
+          const commit: CommitSummary = {
+            ok: false,
+            appliedEventIds: [],
+            visibilityChanges: undefined,
+            writtenText: "",
+            chapterPath: this.resolveChapterPath(event),
+            errors: errors.length > 0
+              ? errors.map(({ characterId, error }) => `${characterId}: ${error}`)
+              : ["无角色产出（characterIds 可能为空或全部失败）"],
+          };
+          result.diffusion = { changes: [] } as DiffusionOutput;
+          result.render = { chapterPath: this.resolveChapterPath(event), text: "" } as RenderOutput;
+          result.commit = commit;
+        } else {
+          const pipeline = await this.runPostRolePipeline(event, eventId, outputs, {
+            traceId,
+            parentId: rootSpan.eventId,
+            roleErrors: errors,
+          });
+          result.diffusion = pipeline.diffusion;
+          result.render = pipeline.render;
+          result.commit = pipeline.commit;
+        }
       }
 
       rootSpan.end({ mode: result.mode, planId, outputs: outputs.length, errors: errors.length });
@@ -354,7 +373,7 @@ export class Orchestrator {
     event: StructuredEvent,
     eventId: string,
     outputs: RoleAgentOutput[],
-    trace?: { traceId: string; parentId?: string },
+    trace?: { traceId: string; parentId?: string; roleErrors?: { characterId: string; error: string }[] },
   ): Promise<{ diffusion: DiffusionOutput; render: RenderOutput; commit: CommitSummary }> {
     const bus = this.opts.debugBus ?? null;
     const traceId = trace?.traceId ?? newTraceId();
@@ -439,10 +458,15 @@ export class Orchestrator {
         throw err;
       }
 
-      const errors: string[] = [];
+      // M-Logic-3 修复：聚合 role 阶段错误到 CommitSummary.errors，
+      // 客户端可看到角色失败信息（此前硬编码空数组丢失错误）。
+      // 语义保持：单角色失败不阻断提交（errors 仅透出信息），ok 由渲染结果决定。
+      const errors: string[] = (trace?.roleErrors ?? []).map(
+        ({ characterId, error }) => `${characterId}: ${error}`,
+      );
       const writtenText = render.text ?? "";
       const appliedEventIds = diffusion.appliedEventIds ?? [];
-      const ok = render.ok !== false && errors.length === 0;
+      const ok = render.ok !== false;
 
       const commit: CommitSummary = {
         ok,

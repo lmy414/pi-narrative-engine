@@ -22,11 +22,13 @@ import type { Agent } from "@earendil-works/pi-agent-core";
  *
  * @param agent 目标子代理
  * @param toolName 产出提交工具名（retrieval_plan / character_action / ...）
+ * @param timeoutMs 产出收集超时（默认 180s；超时 reject，防止子代理挂死时编排永久悬挂）
  * @returns promise 产出（tool_execution_end.details）+ dispose 取消订阅
  */
 export function collectSubmission<T>(
   agent: Agent,
   toolName: string,
+  timeoutMs = 180_000,
 ): { promise: Promise<T>; dispose: () => void } {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -39,6 +41,15 @@ export function collectSubmission<T>(
   void promise.catch(() => {});
 
   let done = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new Error(`${toolName} 产出收集超时（${timeoutMs}ms）`));
+    }, timeoutMs);
+    timer.unref?.();
+  }
   const off = agent.subscribe((event) => {
     if (done) return;
     if (event.type === "tool_execution_end" && event.toolName === toolName) {
@@ -55,5 +66,11 @@ export function collectSubmission<T>(
     }
   });
 
-  return { promise, dispose: off };
+  return {
+    promise,
+    dispose: () => {
+      if (timer) clearTimeout(timer);
+      off();
+    },
+  };
 }

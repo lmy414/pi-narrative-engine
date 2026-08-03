@@ -1268,3 +1268,15 @@ test("恶意 Origin 请求 /api/* → 403 ORIGIN_REJECTED；同源无 Origin 放
     "白名单 Origin 回显精确值而非通配 *",
   );
 });
+
+test("M-Sec-1：HTTP 安全头统一下发（nosniff / DENY / no-referrer）", async () => {
+  const apiRes = await fetch(`${base}api/status`);
+  assert.equal(apiRes.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(apiRes.headers.get("x-frame-options"), "DENY");
+  assert.equal(apiRes.headers.get("referrer-policy"), "no-referrer");
+
+  const staticRes = await fetch(`${base}no-such-asset.js`);
+  assert.equal(staticRes.status, 404);
+  assert.equal(staticRes.headers.get("x-content-type-options"), "nosniff", "静态资源响应同样生效");
+  assert.equal(staticRes.headers.get("referrer-policy"), "no-referrer");
+});

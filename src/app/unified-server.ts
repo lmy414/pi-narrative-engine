@@ -165,6 +165,11 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
   };
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    // M-Sec-1：HTTP 安全头统一下发（writeHead 的同名 header 会覆盖，其余合并保留）。
+    // nosniff 防 MIME 嗅探误判；DENY 防点击劫持；no-referrer 防路径/查询泄漏给外部站点
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("x-frame-options", "DENY");
+    res.setHeader("referrer-policy", "no-referrer");
     void (async () => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {

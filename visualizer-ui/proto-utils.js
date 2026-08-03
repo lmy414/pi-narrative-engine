@@ -59,6 +59,18 @@
       .replace(/"/g, "&quot;");
   }
 
+  /* 链接协议白名单（🔴-10 修复）：仅放行 http/https/mailto。
+   * 先 percent-decode 并剥离 C0 控制符/空白再提取 scheme，防止
+   * java%73cript: / jav\tascript: / data:text/html 等绕过黑名单正则。 */
+  function safeLinkHref(href) {
+    var decoded;
+    try { decoded = decodeURIComponent(href); } catch (e) { decoded = href; }
+    var cleaned = String(decoded).replace(/[\u0000-\u0020\u007f]+/g, "");
+    var m = cleaned.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+    if (m && !/^(https?|mailto)$/i.test(m[1])) return null;
+    return href;
+  }
+
   /* 行内 markdown：**粗** *斜* `码` [文](url) */
   function renderInline(text) {
     var s = escapeHtml(text);
@@ -66,8 +78,9 @@
     s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (_, t, u) {
-      var href = u.replace(/javascript:[^"']*/i, "");
-      return '<a href="' + href + '" target="_blank" rel="noopener">' + t + "</a>";
+      var href = safeLinkHref(u);
+      if (href === null) return escapeHtml(t); // 危险协议：保留文字，不生成链接
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + t + "</a>";
     });
     return s;
   }

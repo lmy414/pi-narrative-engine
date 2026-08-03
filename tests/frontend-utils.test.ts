@@ -116,6 +116,31 @@ test("renderMarkdown: javascript: 链接被剥离", () => {
   assert.ok(!html.includes("javascript:"));
 });
 
+test("renderMarkdown: javascript: 绕过变体被剥离（🔴-10）", () => {
+  // 黑名单正则仅匹配字面量 javascript:，以下变体均可绕过旧实现
+  const bypassCases = [
+    "[x](jav\tascript:alert(1))",       // 制表符（HTML href 解析前 trim 控制符）
+    "[x](jav%73cript:alert(1))",         // percent 编码
+    "[x](JaVaScRiPt:alert(1))",          // 大小写混合
+    "[x](data:text/html,<script>alert(1)</script>)", // data: 协议
+    "[x](vbscript:msgbox(1))",           // vbscript:
+    "[x](java\nscript:alert(1))",        // 换行控制符
+  ];
+  for (const md of bypassCases) {
+    const html = U.renderMarkdown(md);
+    assert.ok(!html.includes("<a "), "不应生成链接: " + md + " → " + html);
+    assert.ok(!html.includes("javascript:"), "不应残留 javascript: " + md);
+    assert.ok(!html.includes("data:text/html"), "不应残留 data: " + md);
+  }
+});
+
+test("renderMarkdown: 合法链接协议保留（http/https/mailto/相对路径）", () => {
+  assert.ok(U.renderMarkdown("[官网](https://example.com)").includes('href="https://example.com"'));
+  assert.ok(U.renderMarkdown("[邮件](mailto:a@b.com)").includes('href="mailto:a@b.com"'));
+  assert.ok(U.renderMarkdown("[内网](http://127.0.0.1:7421/x)").includes('href="http://127.0.0.1:7421/x"'));
+  assert.ok(U.renderMarkdown("[相对](./docs/1.md)").includes('href="./docs/1.md"'));
+});
+
 test("renderMarkdown: 分割线", () => {
   assert.ok(U.renderMarkdown("---").includes("<hr>"));
 });

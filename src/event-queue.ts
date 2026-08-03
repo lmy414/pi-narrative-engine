@@ -32,27 +32,64 @@ export type QueueWorker<TEvent = unknown, TResult = unknown> = (
   event: TEvent,
 ) => Promise<TResult>;
 
+/** EventQueue 构造选项（🔴-4：容量与 TTL 防护） */
+export interface EventQueueOptions {
+  /** 队列容量上限（含所有状态），默认 200；超出时淘汰最旧已完成项，全未完成则入队抛错 */
+  maxLength?: number;
+  /** 已完成项保留时长 ms，默认 1h；enqueue/getStatus/getAll 时惰性清理过期项，0 表示不清理 */
+  finishedTtlMs?: number;
+}
+
 /**
  * 内存事件队列
  *
  * 单消费者：processing 标志防重入；worker 串行消费。
+ * 容量防护：maxLength 上限 + 已完成项 TTL 惰性清理，防止长时间运行队列无限增长。
  */
 export class EventQueue<TEvent = unknown, TResult = unknown> {
   private queue: QueuedEvent<TEvent, TResult>[] = [];
   private processing = false;
   private worker: QueueWorker<TEvent, TResult>;
   private onDone?: (queueId: string, result: TResult) => void;
+  private readonly maxLength: number;
+  private readonly finishedTtlMs: number;
 
   constructor(
     worker: QueueWorker<TEvent, TResult>,
     onDone?: (queueId: string, result: TResult) => void,
+    opts: EventQueueOptions = {},
   ) {
     this.worker = worker;
     this.onDone = onDone;
+    this.maxLength = opts.maxLength ?? 200;
+    this.finishedTtlMs = opts.finishedTtlMs ?? 3600_000;
+  }
+
+  /** 清理超过 TTL 的已完成项（惰性，每次查询/入队前调用） */
+  private sweepFinished(): void {
+    if (this.finishedTtlMs <= 0) return;
+    const cutoff = Date.now() - this.finishedTtlMs;
+    this.queue = this.queue.filter((q) => {
+      if (q.status !== "done" && q.status !== "error") return true;
+      return (q.finishedAt ?? 0) >= cutoff;
+    });
   }
 
   /** 入队，立即返回 queueId（不执行） */
   enqueue(event: TEvent): string {
+    this.sweepFinished();
+    // 容量保护：先淘汰最旧已完成项腾出空间；全部未完成时拒绝入队
+    while (this.queue.length >= this.maxLength) {
+      const doneIdx = this.queue.findIndex(
+        (q) => q.status === "done" || q.status === "error",
+      );
+      if (doneIdx === -1) {
+        throw new Error(
+          `EventQueue 已满（${this.maxLength} 条未完成，请等待处理）`,
+        );
+      }
+      this.queue.splice(doneIdx, 1);
+    }
     const queueId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     this.queue.push({
       queueId,
@@ -102,11 +139,13 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
 
   /** 查询单条状态 */
   getStatus(queueId: string): QueuedEvent<TEvent, TResult> | undefined {
+    this.sweepFinished();
     return this.queue.find((q) => q.queueId === queueId);
   }
 
   /** 查询全部 */
   getAll(): QueuedEvent<TEvent, TResult>[] {
+    this.sweepFinished();
     return this.queue.slice();
   }
 
