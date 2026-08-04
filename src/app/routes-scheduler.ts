@@ -170,7 +170,7 @@ export async function handleSchedulerApi(
       const cwd = requireActiveDir(ctx);
       const obj = requireBody(body, ["planId"]);
       const service = await ctx.getService(cwd);
-      const result = service.commit(String(obj.planId));
+      const result = await service.commit(String(obj.planId));
       if (!result.ok) {
         const rawErr = result.error ?? "COMMIT_FAILED";
         // 状态保护错误码直接透传；plan 不存在映射为 PLAN_NOT_FOUND；其余兜底 COMMIT_FAILED

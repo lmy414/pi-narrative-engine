@@ -45,22 +45,20 @@ const stubSchedulerService = {
     return { queueId: "q-stub-1", mode: event.mode === "yolo" ? "yolo" : "plan" };
   },
   async commit(planId: string) {
-    if (!stubPlanIds.delete(planId)) {
+    if (!stubPlanIds.has(planId)) {
       return {
         ok: false,
         planId,
-        appliedEventIds: [] as string[],
-        writtenText: "",
-        chapterPath: "",
+        status: "confirmed" as const,
         error: `plan ${planId} not found (expired or never created)`,
       };
     }
+    // BUG-014 异步化：入队即返回，plan 不删除（状态流转由后台处理）
     return {
       ok: true,
       planId,
-      appliedEventIds: ["evt_a"],
-      writtenText: "正文",
-      chapterPath: "chapters/ch001.md",
+      queueId: "q-stub-commit-1",
+      status: "committing" as const,
     };
   },
   discard(planId: string) {
@@ -775,7 +773,7 @@ test("scheduler/dispatch: 参数校验 400（缺字段/坏 storyTime/坏 charact
   assert.equal(badMode.error?.code, "INVALID_BODY");
 });
 
-test("scheduler/commit: 未知 planId 404；已知 planId 成功", async () => {
+test("scheduler/commit: 未知 planId 404；已知 planId 入队成功（BUG-014 异步化）", async () => {
   const nf = await sendJson("POST", "/scheduler/commit", { planId: "plan_ghost" });
   assert.equal(nf.status, 404);
   assert.equal(nf.error?.code, "PLAN_NOT_FOUND");
@@ -784,9 +782,11 @@ test("scheduler/commit: 未知 planId 404；已知 planId 成功", async () => {
   const yes = await sendJson("POST", "/scheduler/commit", { planId: "plan_ok" });
   assert.equal(yes.ok, true);
   assert.equal(yes.data.planId, "plan_ok");
-  assert.deepEqual(yes.data.appliedEventIds, ["evt_a"]);
-  const gone = await api("/scheduler/plans/plan_ok");
-  assert.equal(gone.status, 404, "commit 后详情删除");
+  assert.equal(yes.data.queueId, "q-stub-commit-1");
+  assert.equal(yes.data.status, "committing");
+  // 异步化后 plan 不立即删除，仍可查询
+  const stillThere = await api("/scheduler/plans/plan_ok");
+  assert.equal(stillThere.ok, true, "commit 后 plan 仍存在（异步化，TTL 清理）");
 
   const miss = await sendJson("POST", "/scheduler/commit", {});
   assert.equal(miss.status, 400);

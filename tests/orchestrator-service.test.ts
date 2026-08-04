@@ -116,11 +116,15 @@ test("plan 模式：dispatch 后 plans 缓存，commit 触发后半链路并清�
   await waitWorker();
   assert.equal(service.planCount(), 1, "plan 模式完成后缓存 plan");
 
+  // BUG-014 异步化：commit 入队即返回，不等 pipeline 执行
   const commitResult = await service.commit("plan_test_1");
   assert.equal(commitResult.ok, true);
-  assert.deepEqual(commitResult.appliedEventIds, ["evt_x"]);
-  assert.equal(commitResult.writtenText, "渲染正文");
-  assert.equal(service.planCount(), 0, "commit 后清理缓存");
+  assert.equal(commitResult.status, "committing");
+  assert.equal(typeof commitResult.queueId, "string");
+  // 等后台 commit pipeline 完成
+  await waitWorker();
+  // plan 保留（TTL 清理），status 流转
+  assert.notEqual(service.planCount(), 0, "commit 后 plan 保留（异步化，TTL 清理）");
 
   // 后半链路收到正确的 event / eventId / outputs
   assert.equal(calls.length, 1);
@@ -139,24 +143,30 @@ test("commit 幂等：plan 不存在时报错", async () => {
 
   const second = await service.commit("plan_test_1");
   assert.equal(second.ok, false);
-  assert.match(second.error ?? "", /not found/);
+  // BUG-014：重复 commit 同一 plan 返回 COMMIT_IN_PROGRESS
+  assert.equal(second.error, "COMMIT_IN_PROGRESS");
 });
 
-test("pipeline 抛错：commit 返回失败并清理缓存", async () => {
+test("pipeline 抛错：commit 入队成功，后台失败后 plan 标记 error", async () => {
+  // BUG-014 异步化：commit 入队即返回 ok=true，pipeline 错误在后台处理
   const { fake } = makeFakeOrchestrator({ pipelineError: new Error("可见推理失败") });
   const service = new OrchestratorService(fake);
   service.dispatch(makeResult("plan").event);
   await waitWorker();
 
   const result = await service.commit("plan_test_1");
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? "", /可见推理失败/);
-  assert.equal(service.planCount(), 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "committing");
+  // 等后台 commit pipeline 完成
+  await waitWorker();
+  const plan = service.getPlan("plan_test_1");
+  // plan 保留，status 流转为 error
+  assert.notEqual(plan, undefined);
+  assert.equal(plan?.status, "error");
 });
 
-test("pipeline 部分写入失败：commit 回传实际 appliedEventIds（L-Test-1）", async () => {
-  // 🔴-2 契约：失败也返回真实写入集合（而非假装"未写入"）；部分写入时 plan
-  // 保留供排查，仅零写入才自动删除；discard 可显式清理
+test("pipeline 部分写入失败：commit 入队成功，后台失败后 plan 标记 error 保留供排查（L-Test-1）", async () => {
+  // BUG-014 异步化 + 🔴-2 契约：部分写入失败时 plan 保留供排查
   const partialError = Object.assign(new Error("第 2 个事件写入失败"), { appliedEventIds: ["evt_a"] });
   const { fake } = makeFakeOrchestrator({ pipelineError: partialError });
   const service = new OrchestratorService(fake);
@@ -164,9 +174,13 @@ test("pipeline 部分写入失败：commit 回传实际 appliedEventIds（L-Test
   await waitWorker();
 
   const result = await service.commit("plan_test_1");
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.appliedEventIds, ["evt_a"], "应回传部分写入的事件 ID");
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "committing");
+  // 等后台 commit pipeline 完成
+  await waitWorker();
   assert.equal(service.planCount(), 1, "部分写入时保留 plan 供排查");
+  const plan = service.getPlan("plan_test_1");
+  assert.equal(plan?.status, "error");
   assert.equal(service.discard("plan_test_1").ok, true);
   assert.equal(service.planCount(), 0);
 });
@@ -278,6 +292,7 @@ test("getPlan：返回公开详情 DTO，且 commit/discard 后不可查询", as
   await waitWorker();
 
   const detail = service.getPlan("plan_test_1");
+  // BUG-014: PlanDetail 新增 status（必有）+ commitQueueId?/commitError?（optional，未提交时不存在）
   assert.deepEqual(Object.keys(detail ?? {}).sort(), [
     "cast",
     "characterIds",
@@ -287,6 +302,7 @@ test("getPlan：返回公开详情 DTO，且 commit/discard 后不可查询", as
     "planId",
     "retrievalPlan",
     "stages",
+    "status",
     "storyTime",
   ]);
   assert.deepEqual(detail?.stages.map(({ stage, status }) => ({ stage, status })), [
@@ -304,8 +320,11 @@ test("getPlan：返回公开详情 DTO，且 commit/discard 后不可查询", as
   assert.equal(service.getPlan("plan_test_1")?.stages[0].status, "done");
   assert.equal(service.getPlan("plan_test_1")?.outputs[0].state_changes, undefined);
 
+  // BUG-014 异步化：commit 入队后 plan 不删除，status 流转为 "committing"
   await service.commit("plan_test_1");
-  assert.equal(service.getPlan("plan_test_1"), undefined);
+  const committed = service.getPlan("plan_test_1");
+  assert.notEqual(committed, undefined);
+  assert.equal(committed?.status, "committing");
 
   service.dispatch(result.event);
   await waitWorker();

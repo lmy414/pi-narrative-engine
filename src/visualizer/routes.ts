@@ -194,7 +194,20 @@ async function handleGet(
     if (sub === "history") {
       const history = await wg.getEntityHistory(id);
       const relations = await wg.getRelationHistory(id);
-      ok(res, { ...history, relations });
+      // BUG-016：world-graph 的 getEntityHistory 不返回 events 字段，
+      // 前端详情抽屉事件 tab 永远显示「暂无事件」。补一层关联查询：
+      // 实体参与的事件 = 事件主角 entityId === id ，或 newFacts 中含该实体
+      let events: unknown[] = [];
+      try {
+        const allEvents = await wg.getAllEvents();
+        events = allEvents.filter((ev: { entityId: string; newFacts?: Array<{ entityId: string }> }) =>
+          ev.entityId === id ||
+          (ev.newFacts && ev.newFacts.some((f) => f.entityId === id)),
+        );
+      } catch (_) {
+        // getAllEvents 不可用时（旧版 world-graph），events 留空不阻塞其他 tab
+      }
+      ok(res, { ...history, relations, events });
       return;
     }
     if (!sub) {

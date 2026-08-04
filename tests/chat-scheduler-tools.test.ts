@@ -39,12 +39,12 @@ function makeStubService(): {
     },
     commit: async (planId: string) => {
       calls.push({ method: "commit", args: [planId] });
+      // BUG-014 异步化：返回 queueId + status
       return {
         ok: true,
         planId,
-        appliedEventIds: ["evt_a"],
-        writtenText: "正文",
-        chapterPath: "chapters/ch001.md",
+        queueId: "q-commit-1",
+        status: "committing" as const,
       };
     },
     discard: (planId: string) => {
@@ -172,8 +172,8 @@ test("scheduler_commit：转发 planId 并映射结果", async () => {
 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], { method: "commit", args: ["plan_1"] });
-  assert.match(textOf(result), /已提交 plan plan_1/);
-  assert.match(textOf(result), /chapters\/ch001.md/);
+  assert.match(textOf(result), /已入队 plan plan_1/);
+  assert.match(textOf(result), /q-commit-1/);
 });
 
 test("scheduler_discard：转发 planId 并映射结果", async () => {

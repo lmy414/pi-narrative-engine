@@ -131,7 +131,7 @@ export function createSchedulerTools(provider: OrchestratorProvider): ToolDefini
         planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
       }),
       async execute(_id, params, _signal, _onUpdate) {
-        const result = provider().commit(params.planId);
+        const result = await provider().commit(params.planId);
         const text = result.ok
           ? `已入队 plan ${params.planId} 的 commit 任务（queueId: ${result.queueId}），后台执行中。通过 scheduler_queue_status 查询进度。`
           : `提交失败：${result.error ?? "plan 不存在"}`;
