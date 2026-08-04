@@ -3,174 +3,107 @@
 > 从零到可用的完整 checklist。遇到问题先跑 `npm run doctor` 自检。
 > 小说工程结构定义见 `docs/novel-project-structure.md`。
 >
-> **本文档描述项目级 sync 模式**（开发者从源码部署）。终端用户安装 Tauri 桌面应用见
-> [app-mode.md](app-mode.md)。
+> **本文档描述纯 SDK 独立应用形态**（2026-08 起）：引擎是直接依赖 pi SDK
+> （@earendil-works/pi-agent-core / pi-ai / pi-coding-agent）的独立应用，
+> 经 `node scripts/app-server.mjs` 启动本地服务。**扩展机制（`.pi/extensions/`、`npm run sync`）已删除**。
 
 ## 1. 前置要求
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
-| Node.js | >= 20（开发用 24） | 原生模块编译需要 |
-| C++ 编译环境 | Windows: VS Build Tools / macOS: Xcode CLT / Linux: build-essential | better-sqlite3 源码编译兜底用 |
-| pi | 最新 | 本引擎是 pi 的项目级扩展 |
-| DeepSeek API key | — | `export DEEPSEEK_API_KEY=sk-...` |
+| Node.js | >= 22.19（开发用 24） | 引擎运行要求（undici 依赖 Node>=22） |
+| 浏览器 | 现代浏览器（Chrome/Edge） | 访问前端面板 http://127.0.0.1:7421 |
+| LLM API key | 任一生效 key | 经设置页 `/api/admin/llm/key` 写入，或环境变量兜底 |
 
 ## 2. 快速开始
-
-> **两种安装模式**：项目级 sync 模式（本节，开发者用）vs 应用内置模式（[app-mode.md](app-mode.md)，终端用户用）。
-
-> 💡 **推荐安装方式**：把本仓库链接丢给你已配置好的 pi，让它帮你完成安装与排错。
-> 以下手动步骤 pi 全部能代劳（自检、修绑定、配镜像），遇到问题让它跑 `npm run doctor` 即可。
 
 ```bash
 # 1. 克隆引擎
 git clone git@github.com:lmy414/pi-narrative-engine.git narrative-engine
 cd narrative-engine
 npm install                 # workspace 全量安装（含子包）
-npm run build               # src/*.ts → dist/*.js
 
 # 2. 自检（可选但推荐）
 npm run doctor
 
-# 3. 初始化小说工程
+# 3. 初始化小说工程（可选；也可手建 novel.json + 目录）
 npm run init -- <小说目录> --name 我的小说
 
-# 4. 安装扩展依赖（原生模块编译，可能数分钟）
-cd <小说目录>/.pi/extensions/narrative-engine && npm install
+# 4. 启动本地服务
+node scripts/app-server.mjs --project <小说目录> --port 7421
+#     --project：启动时预激活项目（缺省不激活，浏览器落项目管理页）
+#     --embed：启用向量检索（首次下载模型较慢）；--port：端口（缺省 7421）
 
-# 5. 启动
-cd <小说目录> && pi
-# 然后直接口述剧情即可
+# 5. 浏览器打开 http://127.0.0.1:7421
+#    激活项目 → 设置页配 LLM key 与模型 → 开始创作
 ```
 
-### 2.1 应用内置模式（Tauri 桌面应用，备选）
+常用命令：
 
-如果你是终端用户（不想克隆源码、不想手动 npm install），可以下载 Tauri 安装器：
+| 命令 | 用途 |
+|------|------|
+| `node scripts/app-server.mjs --port 7421` | 启动服务（纯 SDK，无需 pi） |
+| `node scripts/app-server.mjs --project <dir> --embed` | 预激活项目 + 向量检索 |
+| `npm run doctor` | 环境自检 |
+| `npm test` | 全量测试（645 用例） |
+| `npm run build` | 逐文件转译 src/ → dist/ |
 
-1. 从 [Releases](https://github.com/lmy414/pi-narrative-engine/releases) 下载 `narrative-engine_0.1.0-alpha.1_x64-setup.exe`
-2. 双击安装，启动应用
-3. 按应用内提示完成首次扩展重装（从内置快照复制到 `%APPDATA%\narrative-engine\extensions\` 并自动 npm install）
-4. 在应用内扫描/新建项目，点击"启动 PI 创作"
+## 3. 已知坑
 
-详细步骤见 [app-mode.md](app-mode.md)。
+### 3.1 向量模型下载失败（huggingface.co 不可达）
 
-## 3. 已知坑（按踩坑频率排序）
-
-### 3.1 better-sqlite3 原生绑定缺失 🔴 最高频
-
-**症状**：所有 `world_*` / `scheduler_*` 工具报 `WorldGraph not initialized (session_start not fired?)`。
-**根因**：`npm install` 时 prebuild 下载失败或被跳过，绑定没编译。pi 的扩展 runner 会静默吞掉初始化错误。
-**修复**：
-
-```bash
-cd <小说目录>/.pi/extensions/narrative-engine
-npm rebuild better-sqlite3
-```
-
-（网络受限时 prebuild 下不动，会回退源码编译——所以需要 C++ 编译环境。）
-
-### 3.2 sharp 原生绑定缺失（扩展 import 即崩）🔴
-
-**症状**：扩展加载失败 / 测试文件集体崩溃，报 `Something went wrong installing the "sharp" module` / `Cannot find module '../build/Release/sharp-win32-x64.node'`。
-**根因**：`@xenova/transformers` 的 `src/utils/image.js` **静态** `import sharp from 'sharp'`（本项目只用文本 embedding，根本用不到 sharp，但 import 链躲不开）。`embedder.ts` 里的 `env.sharp = false` 只能阻止运行时调用，**防不住静态 import**——绑定一缺，整个扩展 import 即崩。
-**修复**：
-
-```bash
-cd <小说目录>/.pi/extensions/narrative-engine   # 或引擎仓库根目录
-npm rebuild sharp
-# 若 rebuild 无效（prebuild 下载失败）：
-npm install --platform=win32 --arch=x64 sharp   # 按实际平台调整
-```
-
-### 3.3 向量模型下载失败（huggingface.co 不可达）
-
-**症状**：`scheduler_dispatch` 报 `fetch failed`。
+**症状**：`--embed` 启动时模型下载失败 / `scheduler_dispatch` 报 `fetch failed`。
 **修复**：
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-# 首次成功下载后模型缓存到扩展 node_modules/.cache/，之后离线可用
-# （embedder 有 localFilesOnly 离线回退，但前提是缓存已存在）
-
+# 首次成功下载后模型缓存（~/.cache 或项目 .pi 目录），之后离线可用
 # hf-mirror.com 也不可达时，用作者自维护的备用镜像：
 export HF_ENDPOINT=https://emaostudio.online/hf-mirror
 ```
 
-**注意**：缓存路径是 `<扩展目录>/node_modules/@xenova/transformers/.cache/`（不是 `~/.cache/huggingface`）。sync 保留 node_modules，缓存不会因重新同步丢失。
+### 3.2 模型名变更
 
-### 3.4 模型名变更
+LLM 配置统一走 **LlmConfigStore 5 slot**（default/planner/role/reasoning/renderer）：
+- 设置页「模型配置」面板可视化配置各 slot 的 Provider/Model/Key，即时生效并持久化
+- 配置落在应用级配置（`%APPDATA%/narrative-engine/`），经 `GET/PUT /api/admin/llm*` 管理
+- 未配置的 slot 跟随 default slot → 环境变量兜底（provider 标准 env key）
+- `import_novel` 缺省模型 `deepseek-v4-flash`
 
-主会话 / 调度器 / 渲染器的 LLM 调用链（2026-07-29 改造后）**统一从 PI 本体配置取模型**（`ctx.model`），
-不再读 `PI_MODEL` / `PI_PLANNER_MODEL` 等环境变量——要换模型请在 PI 设置里改。
-`import_novel` 仍支持工具参数 `model` 显式指定，或环境变量 `PI_MODEL` 兜底（缺省 `deepseek-v4-flash`）。
+### 3.3 端口占用
 
-### 3.5 sync 后工具消失/行为没变
+**症状**：启动报 EADDRINUSE。
+**修复**：`netstat -ano | findstr :7421` 查占用；换端口 `--port <其他端口>`（前端 URL 同步更换）。
 
-`npm run sync` 只复制文件，**pi 需要 `/reload`（或重启会话）才加载新代码**。规则集 .md 例外（每次调用重读）。
+### 3.4 Windows 换行符
 
-### 3.6 Windows 换行符
+git 会提示 LF→CRLF 警告，无害。vendor 目录（frontend-demo/vendor/）已加 `.gitattributes` 锁 LF，勿改。
 
-git 会提示 LF→CRLF 警告，无害。可视化前端和渲染器都兼容。
+### 3.5 活跃项目重启丢失
 
-### 3.7 应用内置模式：扩展加载失败（Extension path does not exist）
-
-**症状**：应用内启动 PI 报 `Failed to load extension "C:\Users\...\AppData\Roaming\narrative-engine\extensions\narrative-engine": Extension path does not exist`。
-**根因**：应用首次启动时 `reinstallExtension` 未执行（或失败），全局扩展目录未创建 / 缺 node_modules。
-**修复**：在应用 settings 页点"重装扩展"，或调 HTTP API：
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:7421/api/admin/extension/reinstall" -Method POST -ContentType "application/json" -Body "{}"
-```
-
-### 3.8 应用内置模式：Windows spawn EINVAL
-
-**症状**：reinstall 端点返回 400 `spawn EINVAL`，全局扩展目录有文件但无 node_modules。
-**根因**：Windows 下 spawn `npm.cmd` 需 `shell: true`（Node.js 已知行为）。v0.1.0-alpha.1 已修复
-（`packages/admin/src/app-config.ts::_runNpmInstall` 补 `shell: process.platform === "win32"`），
-若旧版本遇到此问题，手动在 `%APPDATA%\narrative-engine\extensions\narrative-engine\` 跑 `npm install --omit=dev` 即可。
-
-### 3.9 应用内置模式：sidecar 启动失败
-
-**症状**：应用启动页超时提示 sidecar 未就绪。
-**根因**：端口 7421 被占用 / 内置 Node 运行时与原生模块版本不匹配 / 资源目录路径含 UNC 前缀。
-**修复**：
-- 检查端口：`netstat -ano | findstr :7421`，占用则用 `NE_PORT=<其他端口>` 环境变量改端口
-- 原生模块崩溃：需在目标平台重新执行 `npm run sidecar` 打包
-- UNC 前缀问题：v0.1.0-alpha.1 已修复（`sidecar.rs::strip_unc`）
+活跃项目为服务端内存态，重启即失；`startup-project.ts` 会从应用配置恢复最近项目（`launcher.lastProjectDir`），
+恢复失败只警告不阻断。项目切换走 `POST /api/projects/activate`。
 
 ## 4. 多平台差异
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
 | Windows 10/11 x64 | ✅ 主开发环境，全功能验证 | — |
-| macOS / Linux | ⚠️ 未实测 | 代码无平台特定逻辑；风险集中在 better-sqlite3 绑定（npm rebuild 兜底）和路径分隔符（全部用 `path.join`，理论上安全）。CI 会逐步覆盖 |
+| macOS / Linux | ⚠️ 未实测 | 代码无平台特定逻辑；风险集中在 better-sqlite3 绑定（npm rebuild 兜底）与路径分隔符（全部用 path.join）。CI 覆盖中 |
 
-## 5. pi 版本兼容性
-
-**核心机制**：扩展 API 由**宿主 pi CLI**（用户机器上运行的 pi 版本）提供，不是由本仓库 node_modules 提供。
-本仓库 devDependencies 的 `^0.77.0` 只管开发期类型检查（0.x caret 只允许 patch 漂移）。
-
-**兼容矩阵**（2026-07-25 实测，对 npm 0.82.0 类型定义逐项核对）：
-
-| 我们用到的 API | 0.77（开发） | 0.82（最新） |
-|---------------|:---:|:---:|
-| `pi.registerTool` / `ExtensionAPI` | ✅ | ✅ |
-| `pi.on("session_start" / "session_shutdown" / "before_agent_start")` | ✅ | ✅ |
-| `ctx.ui.notify` | ✅ | ✅ |
-| pi-ai `complete` / `getModel` / `validateToolCall` / `StringEnum` / `Type` | ✅ | ✅ |
-
-**结论**：pi CLI `>= 0.77` 均可运行本扩展。`npm run doctor` 会探测宿主 pi 版本并提示。
-
-## 6. 环境变量速查
+## 5. 环境变量速查
 
 | 变量 | 用途 | 缺省 |
 |------|------|------|
-| `DEEPSEEK_API_KEY` / `PI_API_KEY` | `import_novel` 的 LLM key（主会话/调度器 LLM 已走 PI 配置） | 导入时必填 |
-| `PI_MODEL` | `import_novel` 缺省模型名 | `deepseek-v4-flash` |
+| `DEEPSEEK_API_KEY` / 各 provider 标准 env key | LLM key 兜底（优先 auth.json / 设置页配置） | — |
 | `PI_EMBEDDER_MODEL` | 覆盖向量模型名（维度仍 512，切换自负其责） | `Xenova/bge-small-zh-v1.5` |
 | `PI_DEBUG` | 调试总线开关：`off` 禁用（`/api/debug/*` 返回 503） | 未设（启用） |
 | `HF_ENDPOINT` | HF 镜像（transformers.js 经 `env.remoteHost` 生效） | huggingface.co |
-| `NE_PORT` | sidecar（Tauri 应用）端口覆盖 | 7421 |
+| `NE_PORT` | 端口覆盖（与 `--port` 等价） | 7421 |
 
-## 7. CI（持续集成）
+> 项目级 `.env`（活跃项目根下）只收白名单三键：`HF_ENDPOINT` / `PI_DEBUG` / `PI_EMBEDDER_MODEL`（见 `src/app/routes-ext.ts`）。
 
-`.github/workflows/test.yml`：每次 push 在 ubuntu / windows / macos 三平台跑全部子包单测（326+，全 mock 无需 API key）。
+## 6. CI（持续集成）
+
+`.github/workflows/test.yml`：每次 push 在 ubuntu / windows 矩阵跑全量子包单测（645，全 mock 无需 API key）
++ `npm audit --omit=dev`；真模型测试（pi-status）按条件跳过（HuggingFace 429 偶发）。

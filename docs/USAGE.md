@@ -31,7 +31,7 @@
 
 ## 2. 口述创作（日常主流程）
 
-在小说工程目录启动 pi 后，直接说：
+启动服务（`node scripts/app-server.mjs --project <小说目录> --port 7421`）后，在浏览器「创作编排」页输入你的话：
 
 ```
 "彩叶在咖啡厅打工时，辉夜走进来点单，认出她是 KASSEN 里的对手"
@@ -120,34 +120,30 @@ plan 审阅时你会看到：检索计划 + 每个角色的 action / emotion / t
 
 ## 7. 可视化
 
-```
-"打开可视化"
-```
+浏览器打开 `http://127.0.0.1:7421/`（服务已启动时）。按 storyTime 快照浏览实体/关系演变（两级时间轴：章节→事件）、搜索定位、事件链、角色视角、手动编辑（编辑产生 `source:"user"` 事件）。
 
-打开 `http://localhost:7421/`：按 storyTime 快照浏览实体/关系演变（两级时间轴：章节→事件）、搜索定位、事件链、角色视角、手动编辑（编辑产生 `source:"user"` 事件）。
+### 7.1 访问入口
 
-### 7.1 两种入口
+- **Web 形态（当前）**：`node scripts/app-server.mjs` 启动后直接访问 `http://127.0.0.1:7421`（纯 SDK 独立应用，无需 pi）
+- **Tauri 桌面应用**：第二阶段 G6 待办（打包链路未验证完成）
 
-- **PI 内触发**：口述"打开可视化"，PI 调 `open_visualizer` 工具拉起可视化服务（端口 7421）并返回 URL，浏览器访问即可。
-- **Tauri 应用**：启动 Tauri 桌面应用，sidecar 自动拉起 unified-server（端口 7421），应用窗口内嵌 WebView 直接加载可视化前端。
-
-### 7.2 页面导航（v0.1.0-alpha.1 应用化后）
+### 7.2 页面导航（frontend-demo，2026-08 高保真重构后）
 
 | 页面 | 入口 | 功能 |
 |------|------|------|
-| 工作台 / 事件链 / 调试 | 顶部导航 | 原有三页（快照浏览 / 事件链 / 调试 DAG），Element Plus 旧体系 |
-| 项目管理 | "项目"页 | 扫描/新建/激活项目，启动 PI 创作（应用内置模式专属） |
-| 编辑器 | "编辑器"页 | 浏览项目文件树，读写章节文件/规则集/novel.json |
-| 设置 | "设置"页 | 编辑应用配置（扩展模式/PI 路径/扫描根/向量模型），重装扩展，检查更新 |
-| 更新流 | "更新"页 | git pull + 重建 + 重装扩展的 SSE 日志流（应用内置模式专属） |
+| 项目管理 | "项目"页 | 扫描/新建/激活项目（全局唯一活跃项目） |
+| 世界图 | "世界图"页 | 3D 全景/邻域图 + 实体列表 + 详情编辑器（属性/关系/可见性/历史） |
+| 事件链 | "事件链"页 | 事件时间线 + 因果链 + 筛选 |
+| 创作编排 | "编排"页 | 会话聊天 + plan/yolo 双模式派发 + 计划审阅/提交 + 队列状态 |
+| 调试 | "调试"页 | SSE 实时事件流（编排四阶段诊断） |
+| 文件 | "文件"页 | 项目文件树，读写章节文件/规则集/novel.json |
+| 设置 | "设置"页 | 模型配置（5 slot）、LLM key、规则集、环境变量、应用配置 |
 
-> **阶段 2b 未实施**：工作台/事件链/调试三页仍用 Element Plus 旧体系，与新增四页的原型设计体系共存，视觉不统一。
+### 7.3 调试页
 
-### 7.3 调试 tab
+**调试页**：顶部导航切到"调试"后，前端订阅 SSE 流，按 `traceId` 聚合显示编排链路事件——`scheduler_dispatch` / `scheduler_commit` 的每个内部阶段（planner / role × N / reasoner / renderer）按 `start→end` 时序列出。节点状态色编码：进行中 / 成功 / 出错。点条目看 payload / 耗时 / 错误详情。
 
-**调试 tab**（2026-07-27 新增）：顶部页签切换到"调试"后，前端订阅 SSE 流，按 `traceId` 聚合显示调度链 DAG——`scheduler_dispatch` / `scheduler_commit` 的每个内部阶段（plan / retrieve / role.turn × N / commit.step.4 × N / commit.step.4.4 / commit.step.5 / commit.step.7）都画成一个节点，按 `start→end` 时序连线。节点状态色编码：蓝色脉冲=进行中、绿色=成功、红色=出错。点节点看 payload / 耗时 / 错误详情。
-
-触发方式：开可视化后切到"调试"页签，然后说一句推进剧情（如"下一场：林冲在草料场"）。`scheduler_dispatch` 一跑就能看到 DAG 实时生长。
+触发方式：切到"调试"页，然后在「创作编排」页派发一条剧情指令，即可看到链路实时生长。
 
 ## 8. 世界图直接操作
 
@@ -160,32 +156,17 @@ plan 审阅时你会看到：检索计划 + 每个角色的 action / emotion / t
 
 ## 9. 多项目管理
 
-### 9.1 项目级 sync 模式（开发者）
+服务端 `ProjectRegistry` 管理多项目（`src/app/project-registry.ts`）：扫描/新建/激活，全局唯一活跃项目（未激活时带项目数据的端点返回 409）。
 
-一个目录 = 一个小说工程，无全局注册表：
-
-```bash
-cd narrative-engine
-npm run init -- ../小说B --name 小说B
-cd ../小说B && pi   # 独立世界图、独立章节、独立规则集
-```
-
-引擎升级：回 narrative-engine 跑 `npm run build && npm run sync -- --target <小说B>/.pi/extensions/narrative-engine`，然后 pi 里 `/reload`。
-
-### 9.2 应用内置模式（Tauri 应用）
-
-Tauri 应用内通过 `ProjectRegistry` 管理多项目：在"项目"页扫描/新建/激活项目，每个项目独立 WorldGraph 句柄。
-引擎升级走应用内重装扩展（settings 页 → 重装扩展，或 `POST /api/admin/extension/reinstall`），无需手动 sync。
-
-详细操作见 [app-mode.md](app-mode.md)。
+- **新建项目**：`npm run init -- <目录> --name <名>`（生成 novel.json + 目录骨架 + 规则集三件套模板），或在「项目」页创建
+- **激活项目**：项目页点击，或 `POST /api/projects/activate {"dir": "..."}`（`--project` 启动参数可预激活）
+- **切换项目**：激活新项目即切换；前端各视图状态随之重置（2026-08-03 BUG-003 修复）
+- **最近项目恢复**：重启服务后自动恢复上次激活项目（`startup-project.ts`，目录不存在时忽略）
 
 ## 10. FAQ
 
 **Q: 工具报 "WorldGraph not initialized"？**
-A: 九成是 better-sqlite3 绑定缺失：`cd .pi/extensions/narrative-engine && npm rebuild better-sqlite3`，然后 `/reload`。跑 `npm run doctor -- --novel <目录>` 能确诊（doctor 会连 sharp / onnxruntime-node 一起查）。
-
-**Q: pi 启动就报 sharp 模块错误 / 扩展整个加载失败？**
-A: sharp 原生绑定缺失（transformers.js 静态 import 链）。`cd .pi/extensions/narrative-engine && npm rebuild sharp` 后重启。详见 SETUP.md §3.2。
+A: 检查是否已激活项目（`POST /api/projects/activate` 或浏览器项目页激活）；服务启动用 `--project <目录>` 可预激活。若为原生模块问题，在引擎仓库根 `npm rebuild better-sqlite3` 后重启服务，或跑 `npm run doctor` 确诊。
 
 **Q: 新会话/切换会话后，引擎还记得上次写到哪吗？**
 A: 记得。`.pi/world-graph-v3/memory.md`（项目记忆）在每次事件写入后自动更新：当前 storyTime、在场角色、最近事件（含你的口述原文）。新会话启动时自动注入主会话上下文，storyTime 锚点也会从事件日志恢复。
@@ -205,11 +186,11 @@ A: 改 `规则集.md`——渲染器对它绝对服从。也可用 `render_check
 **Q: 如何回退某段剧情？**
 A: 章节文本用 modify 重写；世界图状态通过新事件显式改回（"把彩叶的 mood 改回平静"）。引擎刻意不做自动 reset（保护时序完整性）。
 
-**Q: 调试 tab 显示空 / 报 "DEBUG_UNAVAILABLE"？**
-A: 两种可能：① 你跑的是 standalone 模式（`node scripts/visualizer.mjs`），该模式不创建 `debugBus`，调试 tab 不可用——只能在 pi 会话内的 `open_visualizer` 用；② 设了环境变量 `PI_DEBUG=off`，会话级调试总线被禁用——`unset PI_DEBUG` 后重启 pi。
+**Q: 调试页显示空 / 报 "DEBUG_UNAVAILABLE"？**
+A: 设了环境变量 `PI_DEBUG=off` 时调试总线被禁用——`unset PI_DEBUG` 后重启服务。
 
-**Q: 调试 tab 的 DAG 看不到 commit.step.4.4？**
-A: 正常。4.4 步（knowledge_gained → 可见性）只在 `SchedulerCtx.knowledgeMapper` 注入时才执行；未注入 mapper 时跳过，对应节点不会出现在 DAG 中。注入由 pi 启动配置决定，详见 api/scheduler.md / api/debug-bus.md。
+**Q: 调试页看不到 reasoner/renderer 阶段？**
+A: 正常。plan 模式下 plan 详情只含前半链路（planner/role）stages；reasoner/renderer 在 commit 阶段运行，诊断走调试页 SSE 流。
 
 **Q: 想关掉调试模块省内存？**
-A: `export PI_DEBUG=off` 后重启 pi。调试总线为 null，所有 `startSpan` 调用为 no-op，零开销。环形缓冲容量 2000，正常运行下内存占用可忽略，一般无需关闭。
+A: `export PI_DEBUG=off` 后重启服务。调试总线为 null，所有 `startSpan` 调用为 no-op，零开销。

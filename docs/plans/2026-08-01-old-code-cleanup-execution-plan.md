@@ -1,7 +1,7 @@
 # 旧代码清理逐任务 TDD 执行计划（阶段 B：纯 SDK 全量收敛）
 
 > 日期：2026-08-01
-> 状态：待实施（盘点见 `docs/plans/2026-08-01-old-code-cleanup-report.md`）
+> 状态：✅ 已实施完成（2026-08-01~08-04；盘点见 `docs/plans/2026-08-01-old-code-cleanup-report.md`）
 > 决策来源（用户确认）：纯 SDK / 27 个旧业务工具迁移 / skills 与 memory 废弃 / visualizer 统一 unified-server / 删除 PI 应用链路 / `@pi/scheduler` 保留子包只删旧流水线
 > 执行约束：所有命令均在 `d:\claude\pi-ex\narrative-engine` 运行；迁移先行、删除殿后；不修改盘点报告；本计划不包含 commit 步骤
 

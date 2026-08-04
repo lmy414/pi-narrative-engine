@@ -147,7 +147,7 @@ export function createWorldGraphAdapter(wg: WorldGraph): WorldGraphPort {
 
 ## 七、已知限制
 
-- **A5 未做**：`LlmConfigStore` 持久化 + 配置入口（按 slot 独立模型的读取入口仍缺），与数据层 Ports 无依赖，已拆出独立任务
+- **A5 ✅ 已完成（2026-08-04 复核）**：`LlmConfigStore` 持久化 + 配置入口已实现——`GET/PUT /api/admin/llm*` 五端点（routes-ext.ts:429-505：llm 状态 / slot 保存 / slot 清除 / key 写入 / key 移除）+ 设置页「模型配置」Slot 表 + 应用级配置持久化（`%APPDATA%/narrative-engine/`）。本报告当时标注"未做"，代码已超期落地
 - **plans 缓存无持久化**：进程重启丢失未 commit 的 plan（yolo 全链路不受影响；plan 模式丢失可接受，后续补持久化）
 - **`RolePoolPort` 未接线**：角色由编排器直接驱动 Agent，role-pool 接口仅保留
 - **`query_limited` 信息泄漏**：检索后过滤，本阶段接受（调研 §7.2）

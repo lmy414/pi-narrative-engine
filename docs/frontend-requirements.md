@@ -41,7 +41,7 @@ curl "http://127.0.0.1:7421/api/status"
 1. 所有响应都是信封 `{ ok, data, error: { code, message } }`——先判 `ok`，错误分支读 `error.code` 做针对性处理（错误码总表见 §2.3）。
 2. **"活跃项目"是唯一全局门控**：带项目数据的端点在未激活时返回 `409 NO_ACTIVE_PROJECT`，前端统一兜底为"跳项目管理页"。
 3. 写操作全部都是 POST（GET 只读）；body 为 JSON；路径穿越有防护（403）。
-4. 服务允许跨域（`access-control-allow-origin: *`）——DEMO 可以跑在任意端口/域名下独立开发，不需要同源部署。
+4. 服务同源部署（前端静态资源与 API 同端口 7421 伺服）；CORS 已收紧（2026-08-03 安全加固）：仅放行同源，恶意 Origin 请求返回 `403 ORIGIN_REJECTED`。
 
 ---
 

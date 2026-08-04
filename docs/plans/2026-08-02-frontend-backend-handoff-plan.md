@@ -1,5 +1,8 @@
 # 前后端契约收敛 Implementation Plan
 
+> **状态**：✅ 契约收敛已实施（2026-08-02~08-04，frontend-requirements v2.1 目标契约落地 + 测试轮 8 轮验证）；**A1-A12 生产验收仍待执行**（frontend-requirements §12，排期见 [2026-08-04-phase2-plan.md](2026-08-04-phase2-plan.md) G4-4）。
+> 本文件为执行档案，勾选框不再跟踪。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 消除旧 mock 契约，完成 `frontend-demo` 与真实后端在 plan 详情、历史聊天、debug 持久化上的可验收对接。
