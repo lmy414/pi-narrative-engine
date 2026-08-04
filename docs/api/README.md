@@ -1,7 +1,7 @@
 # Narrative Engine API 文档索引
 
 > **适用分支**: `master`
-> **最后更新**: 2026-07-31（应用化 + 调试管线 + 软隔离导出整理后拆分重排）
+> **最后更新**: 2026-08-05（应用化 + 调试管线 + 软隔离导出整理后拆分重排）
 >
 > 本文档为 API 参考的总入口。原先单文件 `docs/api.md`（2000+ 行）已按主题拆分为多个小文档，
 > 便于按需阅读（AI 友好：一次只加载相关部分）。
@@ -49,7 +49,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| [visualizer.md](visualizer.md) | 可视化服务：三入口（pi 会话 / standalone / 应用）+ HTTP JSON API（含错误码）+ 前端 `visualizer-ui` |
+| [visualizer.md](visualizer.md) | 可视化服务（含 HTTP 端点，前端章节已标注 visualizer-ui/ 历史参考） |
 | [unified-server.md](unified-server.md) | 统一服务（应用化）：`startUnifiedServer` + `ProjectRegistry` 多项目 + `/api/files|projects|admin|chat|scheduler|debug` 全端点参考 + `@pi/admin` / `@pi/novel-launcher` 子包 |
 | [chat.md](chat.md) | 主会话聊天 API：`MainSessionHost`（PI SDK）+ `ChatContext` + `/api/chat/message|events|status|sessions`（SSE 事件流契约） |
 | [debug-bus.md](debug-bus.md) | 调试模块（DebugBus / SSE / startSpan 埋点） |

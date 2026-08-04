@@ -5,7 +5,7 @@
 ## 概述
 
 **架构定位**：
-- 通过 narrative-engine 扩展暴露 5 个 pi 工具（`render_*`，见 [pi-tools-render.md](pi-tools-render.md)）
+- 通过 @pi/renderer 子包提供渲染能力
 - 不独立成为 pi 扩展，随 narrative-engine 一起 build + sync
 
 **核心理念**：
@@ -71,7 +71,7 @@ export type {
 
 ## `RenderLlmCaller`
 
-注入式 LLM 调用器接口：`(systemPrompt: string, userMessage: string) => Promise<string>`。便于单测时注入 mock，生产环境用 pi-ai 的 complete 实现（见 `src/renderer-llm.ts` 的 `makeRendererLlmCaller(piCtx)`，从 PI 本体获取模型与 API Key）。
+注入式 LLM 调用器接口：`(systemPrompt: string, userMessage: string) => Promise<string>`。便于单测时注入 mock，生产环境用 pi-ai 的 complete 实现（见 `src/orchestrator/assembly.ts` + `src/orchestrator/chat-context.ts` 中构建 renderer LLM caller，从 PI 本体获取模型与 API Key）。
 
 ## 规则集.md 格式说明
 

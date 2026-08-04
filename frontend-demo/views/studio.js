@@ -302,6 +302,15 @@ function stTextHtml(text) {
   return escapeHtml(text == null ? '' : String(text)).replace(/\n/g, '<br>');
 }
 
+// BUG-017：工具调用型 AI 消息（或用户纯工具消息）常出现 m.text=""，
+// 气泡 div 里塞空字符串 → 视觉上是"空气泡"。给空内容渲染占位文本。
+function stBubbleContentHtml(text, hasTools) {
+  const raw = (text == null ? '' : String(text)).trim();
+  if (raw) return stTextHtml(text);
+  if (hasTools) return `<span class="st-bubble-empty st-bubble-empty-tools">（调用了工具，无文本回复）</span>`;
+  return `<span class="st-bubble-empty">…</span>`;
+}
+
 // ==================== 中栏：控制条 / 消息 / 输入区 ====================
 
 function stControlBarHtml(mode, status, busy) {
@@ -346,12 +355,13 @@ function stMessageHtml(m) {
   if (m.role === 'user') {
     return `
     <div class="st-msg st-msg-user">
-      <div class="st-msg-bubble st-bubble-user">${stTextHtml(m.text)}</div>
+      <div class="st-msg-bubble st-bubble-user">${stBubbleContentHtml(m.text, false)}</div>
       <span class="st-msg-time">${ts}</span>
     </div>`;
   }
   // assistant
-  const toolCalls = (m.toolCalls || []).map((tc) => stToolCardHtml(tc)).join('');
+  const tc = (m.toolCalls || []);
+  const toolCalls = tc.map((tc) => stToolCardHtml(tc)).join('');
   return `
   <div class="st-msg st-msg-ai">
     <div class="st-msg-avatar st-avatar-ai">AI</div>
@@ -360,7 +370,7 @@ function stMessageHtml(m) {
         <span class="st-msg-name">AI 助手</span>
         <span class="st-msg-time">${ts}</span>
       </div>
-      <div class="st-msg-bubble st-bubble-ai">${stTextHtml(m.text)}</div>
+      <div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(m.text, tc.length > 0)}</div>
       ${toolCalls ? `<div class="st-tool-list">${toolCalls}</div>` : ''}
     </div>
   </div>`;
@@ -919,13 +929,14 @@ function stRenderRealLiveMessage(live) {
 }
 
 function stLiveMessageHtml(live) {
+  const hasTools = Array.isArray(live.toolCalls) && live.toolCalls.length > 0;
   return `
   <div class="st-msg st-msg-ai" id="st-live-msg">
     <div class="st-msg-avatar st-avatar-ai">AI</div>
     <div class="st-msg-body">
       <div class="st-msg-meta"><span class="st-msg-name">AI 助手</span><span class="st-msg-time">${stMsgTime(live.ts)}</span></div>
-      <div class="st-msg-bubble st-bubble-ai">${stTextHtml(live.text)}</div>
-      ${(live.toolCalls || []).length ? `<div class="st-tool-list">${live.toolCalls.map((tool) => stToolCardHtml(tool)).join('')}</div>` : ''}
+      <div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(live.text, hasTools)}</div>
+      ${hasTools ? `<div class="st-tool-list">${live.toolCalls.map((tool) => stToolCardHtml(tool)).join('')}</div>` : ''}
     </div>
   </div>`;
 }

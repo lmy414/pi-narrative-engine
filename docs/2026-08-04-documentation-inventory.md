@@ -27,7 +27,7 @@
 | 文档 | 说明 |
 |---|---|
 | `docs/audits/frontend-bug-backlog.md` | 前端缺陷 backlog（活跃维护，BUG-001~010 全 fixed） |
-| `docs/plans/2026-08-04-phase2-plan.md` | 第二阶段开发目标计划（当前执行计划，批次 1-3 已实施） |
+| `docs/plans/2026-08-04-phase2-plan.md` | 第二阶段开发目标计划（当前执行计划，批次 1-4 已实施） |
 
 ### 1.3 API 参考（14）
 
@@ -71,12 +71,12 @@
 | `audits/2026-08-03-code-audit.md` | 08-03 全量审计（🔴 1-11 已修复并文档同步） |
 | `audits/2026-08-03-production-gap-bug-inventory.md` | 生产差距 bug 清单（用户实测；批次 1-3 修复并文档同步） |
 
-### 3.2 前端测试轮（11）
+### 3.2 前端测试轮（13）
 
 | 文档 | 说明 |
 |---|---|
 | `audits/frontend-test-runs/2026-08-03-*.md`（7 个） | 08-03 七轮：baseline-recheck / fix-frontend-4-bugs / fix-favicon-embed / fix-audit-tier1 / fix-tier2 / fix-bug8-9 / audit-tier3 |
-| `audits/frontend-test-runs/2026-08-04-*.md`（4 个） | 08-04 四轮：remove-old-ui / orch-skeleton / batch2-orch-visibility / batch3-frontend-robust |
+| `audits/frontend-test-runs/2026-08-04-*.md`（6 个） | 08-04 六轮：remove-old-ui / orch-skeleton / batch2-orch-visibility / batch3-frontend-robust / batch4-frontend-bugs / bug014-async-commit |
 | `audits/frontend-test-runs/shots/` | 截图存档 |
 
 ### 3.3 落地报告（4）
@@ -107,9 +107,10 @@
 | `plans/2026-08-01-data-layer-ports-implementation.md` + `execution-plan.md` | Ports 调研与执行计划（已被 report 取代） |
 | `plans/2026-08-02-studio-data-alignment.md` | studio 数据对齐决策（已被 frontend-requirements 覆盖） |
 
-## 五、滞后待更新（内容与当前代码不符，G4 任务）— 11 个
+## 五、滞后待更新（内容与当前代码不符，G4 任务）— 16 个
 
 > 执行状态：✅ 本节已按 2026-08-04 文档对齐轮全部处理，逐项见"修复方向"列（✅ = 已落实）。
+> 08-05 文档全量整理追加 5 项（见末尾 5 行，均为 ✅ 已落实）。
 
 | 文档 | 滞后内容 | 修复方向 |
 |---|---|---|
@@ -124,6 +125,11 @@
 | `plans/2026-08-02-frontend-backend-handoff-plan.md` | 验收签字 A1-A12 未勾选 | 🟡 标注待 G4-4（生产验收为执行任务，非文档更新） |
 | `docs/audits/2026-07-30-code-audit.md` | 行号基于旧代码 | ✅ 已加基线标注 + 指向 08-03 复核 |
 | `docs/api/sdk-search.md` | 依赖名待核对（inventory 初判 @nicia-ai/typegraph 可能过时） | ✅ 已核对：@nicia-ai/typegraph ~0.40.0 为 underworld-graph 实际依赖，文档正确，无需修改 |
+| `README.md`（仓库根） | 08-04 盘点后内容仍偏旧（架构/快速开始未充分反映纯 SDK 形态） | ✅ 已重写（2026-08-05）：纯 SDK 独立应用形态 + 扩展模式已废弃章节 |
+| `docs/novel-project-structure.md` | v1 未反映 pure-SDK 迁移后实际配置结构（`.pi/extensions/` / sync / extension 字段已删） | ✅ 已重写为 v2（2026-08-05） |
+| `docs/visualization-v3-design.md` | 旧稿描述 Vue 3 + Element Plus 技术栈 / `visualizer-ui/` 目录 / 多视图切换，均未实施 | ✅ 已重写为实际实现（2026-08-05）：原生 JS + Tailwind 4 + 3d-force-graph |
+| `docs/api/debug-bus.md` | `PI_DEBUG` 描述与实际开关行为不符 | ✅ 已修正 |
+| `docs/ux/frontend-ux-requirements.md` | 含 11 处尚未在 frontend-demo 实现的功能/交互项，未标注 | ✅ 已标注 11 处未实现项 |
 
 ## 六、分类统计
 
@@ -131,15 +137,43 @@
 |---|---|---|
 | 一、现行有效 | 24 | 保持，随代码维护 |
 | 二、设计归档 | 12 | 冻结，不改 |
-| 三、过程档案 | 23 | 只读存档，补状态标注即可 |
+| 三、过程档案 | 25 | 只读存档，补状态标注即可 |
 | 四、历史归档 | 17 | 冻结，移 legacy/ 或保留原位加横幅 |
-| 五、滞后待更新 | 11 | **G4 文档对齐任务清单** |
-| **合计** | **87*** | |
+| 五、滞后待更新 | 16 | **G4 文档对齐任务清单** |
+| **合计** | **92*** | |
 
-*注：84 个文件 + 仓库根 README/CHANGELOG 两个目录外文档 + 统计口径重叠（四类中含二类重复计数项 1 个）≈ 87 行次。以「84 个 docs/ 文件」为准。
+*注：84 个文件 + 仓库根 README/CHANGELOG 两个目录外文档 + 统计口径重叠（四类中含二类重复计数项 1 个）≈ 92 行次。以「84 个 docs/ 文件」为准。
+其中第三节由 23→25（08-04 测试轮 4→6，新增 2 份）、第五节由 11→16（08-05 全量整理追加 5 项）。
 
 ## 七、后续动作建议（G4）
 
-1. 按第五节 11 项清单逐一更新（每项改完即登记）
+1. 按第五节 16 项清单逐一更新（每项改完即登记）
 2. `docs/README.md` 索引重写（本盘点为底稿），采用五类结构
 3. 滞后项修正后，把「文档滞后批」从 phase2-plan 的风险清单移除
+
+## 八、08-05 文档全量整理
+
+> 日期：2026-08-05
+> 性质：盘点后的文档对齐轮，处理 08-04 盘点遗留 + 新发现的滞后项
+> 范围：重写 4 份过时文档 + 更新 15 份偏差文档 + 标注 11 处 UX 未实现项
+
+### 8.1 重写的 4 份过时文档
+
+| 文档 | 处理 |
+|---|---|
+| `README.md`（仓库根） | 重写为纯 SDK 独立应用形态 + 「扩展模式已废弃」章节 |
+| `docs/novel-project-structure.md` | 重写为 v2，同步 pure-SDK 迁移后实际配置结构 |
+| `docs/visualization-v3-design.md` | 重写为实际实现（原生 JS + Tailwind 4 + 3d-force-graph），旧 Vue 3 / Element Plus 稿归历史背景 |
+| `docs/THIRD-PARTY.md` | 重写第三方代码/依赖/许可证盘点 |
+
+### 8.2 更新的 15 份偏差文档
+
+含 `docs/api/debug-bus.md`（PI_DEBUG 描述修正）、`docs/SETUP.md`（NE_PORT 删除 + --config-dir/--embed 补充）、`docs/README.md`（索引同步）等共 15 份，逐项见第五节修复方向列。
+
+### 8.3 标注的 11 处 UX 未实现项
+
+`docs/ux/frontend-ux-requirements.md` 中 11 处尚未在 frontend-demo 实现的功能/交互项已逐处标注，作为后续前端开发 backlog。
+
+### 8.4 测试轮补充
+
+08-04 测试轮由 4 轮补登为 6 轮（新增 `batch4-frontend-bugs` / `bug014-async-commit`），见 §3.2。

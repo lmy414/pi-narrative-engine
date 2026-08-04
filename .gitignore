@@ -4,3 +4,6 @@ dist/
 .DS_Store
 *.tsbuildinfo
 .pi/logs/
+
+# Tauri 构建产物（含旧版 extension-snapshot 快照，不应入库）
+tauri-app/src-tauri/target/

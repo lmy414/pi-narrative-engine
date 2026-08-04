@@ -15,7 +15,7 @@
 | [frontend-backend-api-audit.md](frontend-backend-api-audit.md) | 前后端 API 契约核对报告 | 开发者 |
 | [ux/frontend-ux-requirements.md](ux/frontend-ux-requirements.md) | 前端 UX 需求 v1.0（功能/内容/交互，不含视觉） | 开发者/设计师 |
 | [visualization-v3-design.md](visualization-v3-design.md) | 现行可视化设计（已实施，frontend-demo 依据） | 开发者 |
-| [novel-project-structure.md](novel-project-structure.md) | 小说工程结构定义 v1（novel.json / 目录 / 应用级配置） | 开发者 |
+| [novel-project-structure.md](novel-project-structure.md) | 小说工程结构定义 v2（novel.json / 目录 / git 策略 / 应用级配置 / LLM slot 管理） | 开发者 |
 | [api/README.md](api/README.md) | **API 参考总入口**：子包 API + HTTP 端点 + 主会话工具（pi-tools-* 已标历史） | 开发者 |
 | [USAGE.md](USAGE.md) | 使用手册：口述创作 / plan-yolo / 导入 / 规则集 | 创作者 |
 | [SETUP.md](SETUP.md) | 部署指南（纯 SDK 独立应用：`node scripts/app-server.mjs`） | 部署者 |
@@ -82,3 +82,4 @@
 3. **新文档归位**：计划类 → `plans/`；核对类 → `audits/`；测试轮 → `audits/frontend-test-runs/`；过时即移 `legacy/` 并加横幅
 4. **强一致性**：文档与实际项目状态必须一致，发现差异立即修正，不允许"文档说有但实际没有"或"实际有但文档没提"
 5. **app-mode.md 已废弃**（2026-08-04）：原「应用内置模式」描述的扩展快照/重装链路随 pure-SDK 转型删除，保留作历史；Tauri 桌面分发为第二阶段 G6 待办
+6. **2026-08-05 全量整理**：重写 4 份过时文档 + 更新 15 份偏差文档 + 标注 11 处 UX 未实现项，详见 [2026-08-04-documentation-inventory.md](2026-08-04-documentation-inventory.md) §八

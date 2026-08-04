@@ -6,21 +6,11 @@
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  PI 主会话 / Scheduler / 前端                             │
-│  （通过 pi.registerTool 注册的 31 个工具调用）             │
-└──────────────────┬───────────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────────┐
-│  narrative-engine/src/index.ts                            │
-│  - session_start: 初始化 WorldGraph/Embedder/Search      │
-│    + 恢复 scheduler plan 缓存                             │
-│  - resources_discover: 贡献 src/skills/ 给 pi skill 机制  │
-│  - before_agent_start: memory.md 注入 systemPrompt 末尾   │
-│  - 注册 18 个 world_* + open_visualizer                  │
-│  - 注册 import_novel + import_character_card（导入）      │
-│  - 注册 5 个 render_*（append/modify/preview/check/rule_set）│
-│  - 注册 2 个 role_* + 3 个 scheduler_*（编排）            │
-│  - 管理 session 级 currentStoryTime                      │
+│  narrative-engine 独立应用（pure-SDK 形态）              │
+│  src/app/main.ts → startUnifiedServer + pi SDK 主会话    │
+│  - MainSessionHost 驱动主会话（无 pi.registerTool 注册） │
+│  - 编排四阶段：planner / role / reasoner / renderer      │
+│  - session 级 currentStoryTime 管理                      │
 └────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │
      ▼            ▼              ▼
@@ -55,14 +45,15 @@
 └────┬────────────┬──────────────┬─────────────────────────┘
      │            │              │
      ▼            ▼              ▼
-┌─────────────┐ ┌────────────┐ ┌──────────────────────────┐
-│ @pi/admin   │ │ @pi/novel- │ │ world-graph 路由          │
-│ - files     │ │ launcher   │ │ (复用 src/visualizer/     │
-│ - rulesets  │ │ - discover │ │  routes.ts)               │
-│ - doctor    │ │ - launchPi │ │ - /api/graph /api/search  │
-│ - updater   │ │ - create   │ │   /api/events ...         │
-│ - app-config│ │            │ │ + /api/debug/* (可选)     │
-└─────────────┘ └────────────┘ └──────────────────────────┘
+┌─────────────┐ ┌────────────────────────────────────┐ ┌──────────────────────────┐
+│ @pi/admin   │ │ @pi/novel-launcher                  │ │ world-graph 路由          │
+│ - files     │ │ 公开 API：                          │ │ (复用 src/visualizer/     │
+│ - rulesets  │ │ - discoverProjects                  │ │  routes.ts)               │
+│ - doctor    │ │ - getProjectMeta                    │ │ - /api/graph /api/search  │
+│ - updater   │ │ - probeWorldDb                      │ │   /api/events ...         │
+│ - app-config│ │ - createProject                     │ │ + /api/debug/* (可选)     │
+│             │ │ - openInFileManager                 │ │                          │
+└─────────────┘ └────────────────────────────────────┘ └──────────────────────────┘
 ```
 
 **核心依赖**：
@@ -117,7 +108,7 @@
 - `scheduler_dispatch` 时推进（2026-07-25 修复：**只前进不后退**——`storyTime > currentStoryTime` 才更新，modify/insert 锚定历史不会回拉）
 - 其他工具（如 `world_entity_get`、`world_query`）不更新
 
-**storyTime 格式**（2026-07-25 统一约定，全项目唯一权威定义见 `src/memory.ts`）：
+**storyTime 格式**（2026-07-25 统一约定，全项目唯一权威定义见 `src/orchestrator/mcp-server.ts` 的 `scheduler_dispatch` 工具参数描述；正则 `STORY_TIME_PATTERN` 位于 `src/chat/scheduler-tools.ts`）：
 - 标准格式：`ch{NNN}.ev{NNN}`（如 `ch009.ev003`）——`ch`+3 位零填充=章节号，`.ev`+3 位零填充=章内事件序号
 - 推进规则：同章内 ev+1；进新章 ch+1 且 ev 从 001 开始；零填充保证字典序==故事时序
 - 旧格式（如 `ch-2`）字符串比较仍兼容，但新写作请用标准格式
@@ -131,9 +122,6 @@ Error: storyTime required (call world_event_apply first or pass storyTime explic
 
 ### 主会话 prompt 与项目记忆
 
-- **主会话 prompt**（2026-07-28 重构）：原 `src/prompts/main-session.md` + `engine-guide.md`
-  已合并抽离为单一 pi Skill，位于 `src/skills/narrative-engine/SKILL.md`。
-  通过 `resources_discover` 事件把 `SKILLS_DIR` 注册给 pi，pi skill 机制按 progressive disclosure
-  把 name + description 注入 systemPrompt 的 `<available_skills>` 段，LLM 按需 read 加载完整内容。
-- 项目记忆 `memory.md` 仍由 `before_agent_start` 强制注入 systemPrompt 末尾（每轮重读）。
+- **主会话 prompt**：在 `src/chat/main-session.ts` 中构建（通过 `.pi/SYSTEM.md` 自动发现，由 `DefaultResourceLoader` 加载；代码不硬编码提示词）。原 `src/prompts/main-session.md` + `engine-guide.md` 与 `src/skills/narrative-engine/SKILL.md` 的 skill 注入机制已随扩展模式废弃。
+- 项目记忆 `memory.md` 仍强制注入 systemPrompt 末尾（每轮重读）。
 - 运行时数据详见 `docs/novel-project-structure.md`。

@@ -44,6 +44,8 @@ node scripts/visualizer.mjs [--db <dir>] [--port 7421] [--embed]
 
 ### 11.1.3 应用入口（unified-server，脱离 pi）
 
+> ⚠️ 以下章节描述的 `visualizer-ui/` 已于 2026-08-04 删除，现行前端在 `frontend-demo/`，以下内容仅作历史参考。
+
 ```bash
 node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 ```
@@ -69,6 +71,8 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 
 ### 11.1.4 静态文件服务
 
+> ⚠️ 以下章节描述的 `visualizer-ui/` 已于 2026-08-04 删除，现行前端在 `frontend-demo/`，以下内容仅作历史参考。
+
 - `uiDir` 默认探测顺序（`resolveDefaultUiDir`）：
   1. `<__dirname>/../../visualizer-ui`（开发态：`src/visualizer/` 上两级 = 仓库根；构建态：`dist/visualizer/` 上两级 = 仓库根）
   2. `<__dirname>/../visualizer-ui`（同步态：扩展目录下 `visualizer/server.js` 上一级 = 扩展目录根，`sync.mjs` 将 `visualizer-ui` 复制到此）
@@ -89,7 +93,7 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 | `/api/status` | — | `{ entityCount, eventCount, storyTimes }` | entityCount 基于 latest storyTime；storyTimes 升序 |
 | `/api/graph` | `storyTime` | `{ entities, relations }` | `includeClosed=1` 时 relations 来自 `getRelationHistory()`（全量），否则 `getAllRelationsAt(storyTime)`（仅有效） |
 | `/api/entities/:id` | `storyTime` | `EntitySnapshot` | 404 `ENTITY_NOT_FOUND` 若该时刻不存在 |
-| `/api/entities/:id/history` | — | `{ ...entityHistory, relations }` | 实体全版本历史 + 该实体的全量关系历史（含已闭合） |
+| `/api/entities/:id/history` | — | `{ entity, declarations, relations, events }` | 实体全版本历史 + 该实体的全量关系历史（含已闭合）；`events` 通过 `wg.getAllEvents()` 关联查询，过滤 `entityId===id` 或 `newFacts` 中含该实体的事件（BUG-016 修复：world-graph 的 `getEntityHistory` 不返回 `events` 字段，需由 server 层补齐） |
 | `/api/declarations/:declId/visibility` | —（`storyTime` 可选） | `{ declarationId, visibility }` | 该声明的可见性记录（反向查询），`storyTime` 缺省返回全部 |
 | `/api/search` | `q`, `storyTime` | `{ results: EntitySearchResult[] }` | `mode`：`fulltext`/`vector`/`hybrid`（缺省 `hybrid`，`forceFulltext` 时强制 `fulltext`）；`type`：`character`/`location`/`item`/`concept` 可选过滤 |
 | `/api/events` | — | `{ events: EventRecord[] }` | 全量事件日志 |
@@ -142,6 +146,8 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 | 503 | `DEBUG_UNAVAILABLE` | `/api/debug/*` 未注入 debugBus（`PI_DEBUG=off` 或会话未创建调试总线） |
 
 ## 11.3 前端（`visualizer-ui/`，Vue 3 + Element Plus）
+
+> ⚠️ 以下章节描述的 `visualizer-ui/` 已于 2026-08-04 删除，现行前端在 `frontend-demo/`，以下内容仅作历史参考。
 
 V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件库 + 双图视图（2D LiteGraph 画布 + 3D 力导向图）。
 
@@ -196,6 +202,8 @@ V3 workbench UI（commit 28405bc）：Vue 3 全局构建 + Element Plus 组件�
 **调试 tab**（2026-07-27 新增）：切换到"调试"页签后订阅 SSE 流，按 `traceId` 聚合 DebugEvent 重建调度链 DAG（plan → retrieve → role.turn × N → commit.step.4 × N → commit.step.4.4 → commit.step.5 → commit.step.7 → commit）。节点状态色编码（start 蓝 / end 绿 / error 红），节点详情抽屉展示 payload 与耗时。`debugBus` 未注入时 tab 显示空状态提示。
 
 ## 11.4 同步与测试
+
+> ⚠️ 以下章节描述的 `visualizer-ui/` 已于 2026-08-04 删除，现行前端在 `frontend-demo/`，以下内容仅作历史参考。
 
 **同步**：`scripts/sync.mjs` 会将 `visualizer-ui/` 一并复制到扩展目录（`novel/.pi/extensions/narrative-engine/visualizer-ui/`）。
 

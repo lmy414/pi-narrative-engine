@@ -37,6 +37,43 @@
   此前 `scheduler-llm.ts` 以 `ctx` 调用两工厂（`scheduler_dispatch` / `render_*` 工具运行时必崩），
   现从 PI 本体 `ctx.model` + `ctx.modelRegistry` 取模型与 API Key。
 
+### 修复（08-04 ~ 08-05）
+
+#### 08-04 批次 1（编排骨架 + 同源安全）
+
+- **G1-1：queueStatus 瘦身**：queueStatus 响应精简为 active 队列 + 简洁结构。
+- **G1-2：activeCount 字段**：queueStatus 新增 activeCount 字段。
+- **G1-3：planDetail 竞态容错**：planDetail 改用 Promise.allSettled 实现竞态容错。
+- **G1-7：isStreaming 兜底 busy**：GET /api/chat/status 轮询时以 isStreaming 兜底 busy 状态。
+- **同源安全加固**：恶意 Origin 请求返回 403 ORIGIN_REJECTED。
+
+#### 08-04 批次 2（编排可见性）
+
+- **G1-4：demo 残留清理**：清理 demo 残留代码。
+- **G1-5：yolo 结果卡片**：yolo 模式结果以卡片形式展示。
+- **G1-6：队列错误可见化**：队列错误信息可见化。
+- **M-Collab-2：message_end 错误标红**：message_end 含错误语义时 live 消息标红。
+
+#### 08-04 批次 3（前端可用性）
+
+- **BUG-010 修复**。
+- **M-Logic-5/7、M-Collab-5、M-Sec-2 audit 同步**。
+
+#### 08-04 批次 4
+
+- **BUG-011/012/013/015 前端 BUG 修复**。
+- **BUG-014 commit 异步化**：入队即返回 CommitEnqueueResult + plan 状态机
+  （confirmed→committing→committed/error）+ 状态保护
+  （COMMIT_IN_PROGRESS 409 / PLAN_ALREADY_COMMITTED 410）。
+
+#### 08-05
+
+- **BUG-016：实体详情事件 tab 永远"暂无"**：后端 GET /api/entities/:id/history 补关联查询拼 events 字段
+  （world-graph getEntityHistory 不返回 events）；前端 entity-detail.js 新增 summarizeEvent()
+  从 newFacts/invalidated 兜底生成摘要；api-client.js normalizeHistory 兜底 events 数组。
+- **BUG-017：聊天空气泡**：studio.js 新增 stBubbleContentHtml() 当 m.text 为空但有 toolCalls 时
+  渲染占位"（调用了工具，无文本回复）"；views.css 加 .st-bubble-empty 斜体灰字样式。
+
 ## [0.1.0-alpha.1] — 2026-07-30
 
 首个应用化测试版本。在原有"项目级扩展"开发模式之上，新增 Tauri 桌面应用入口与"应用内置扩展"模式，

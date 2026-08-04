@@ -19,7 +19,7 @@
 | 聊天角色呈现 | 主会话保持单 assistant；角色信息只在 plan `outputs[]/cast[]` 展示 | 历史/实时聊天的 `name/roleTag/characterId` |
 | plan 预览 | `GET /api/scheduler/plans/:id` 返回角色产出、cast、retrievalPlan、errors、前半链路 stages | `sections[]` 与 plan 阶段章节正文预览 |
 | 历史工具调用 | assistant 历史消息返回 `toolCalls[]`、`provider`、`model` 与标准化 `usage` 摘要；toolResult 按 `toolCallId` 回填 done/error | mock 的 `icon/duration/result`；直接透传 SDK Usage |
-| studio 阶段状态 | plan 详情只返回 `planner/role`；提交结果来自 commit 响应，后半链路诊断来自 debug 页 | 前端自造 stages；按 debug span 聚合 studio stages；在 plan 上保留 reasoner/renderer/commit |
+| studio 阶段状态 | commit 入队即返回 `{ ok, planId, queueId, status: 'committing' }`；plan 状态机 `confirmed`→`committing`→`committed`\|`error`；plan 不立即删除，由 TTL 清理 | 前端自造 stages；按 debug span 聚合 studio stages；在 plan 上保留 reasoner/renderer/commit |
 | debug | 内存 1000 条 + SSE 语义不变；事件异步追加到项目 JSONL，10 MB 轮转，保留 5 个轮转文件 | 纯内存即最终方案；日志读取 API；clear 删除磁盘日志 |
 
 ## 3. 当前实现与源码证据
@@ -33,15 +33,17 @@
 | DebugEvent | 前后端统一消费真实 schema | `src/debug/types.ts`、`frontend-demo/views/debug.js` |
 | DebugBus | 同步内存/SSE + 项目固定目录异步 JSONL sink | `src/debug/bus.ts`、`src/app/chat-context.ts` |
 | git 忽略 | 项目日志目录已忽略 | `.gitignore` |
+| history events | history 端点补 events 关联查询（BUG-016） | `src/visualizer/routes.ts` |
 
 ### 3.1 plan stages 的生命周期约束
 
 - plan detail 的 `stages[]` 只允许 `planner`、`role`。
 - 固定状态为 `done`、`error`；plan 写入缓存时前半链路已经结束，不返回虚假的 `waiting/running`。
 - `durationMs/provider/model` 仅在可取得时返回，不伪造默认值；错误阶段携带 `error`。
-- `reasoner/renderer/commit` 仅在 commit 后半链路执行，不写回 plan；commit 成功或失败后继续按现有语义删除 plan。
+- `reasoner/renderer/commit` 仅在 commit 后半链路执行，不写回 plan；commit 异步入队，`plan.status` 流转 `committed`/`error` 后保留供查询历史。
 - studio 的提交结果读取 commit 响应；需要排障时进入 debug 页观察后半链路 span。
 - status 继续只返回摘要，不把 stages 塞进列表。
+- PlanDetail 新增 `status` / `commitQueueId` / `commitError` 字段（BUG-014）。
 
 ### 3.2 历史 usage 摘要
 
@@ -60,6 +62,11 @@
 - 项目切换：旧项目尚未结束的事件继续写旧项目，新项目事件写新项目；禁止在 emit 时读取 mutable active project 决定路径。
 - `POST /api/debug/clear` 只清全局内存；不删除或截断 JSONL。
 - 服务关闭时等待各项目 sink 的串行队列 drain；普通写盘失败只告警，不反向影响业务执行。
+
+### 3.4 错误码补充（BUG-014）
+
+- `COMMIT_IN_PROGRESS` (409)：plan 正在提交中
+- `PLAN_ALREADY_COMMITTED` (410)：plan 已提交完成
 
 ## 4. 仍成立的一般对接差异
 
@@ -82,7 +89,7 @@
 - Embedder 使用 `model/isDefault/dim/cachePresent/cachePath/cacheSizeBytes`。
 - UI 主题、字号、自动保存存 localStorage；不写 app-config。
 - 可见性只写 `state:"known"`，source 只允许 `experienced/informed/witnessed`。
-- `PUT /api/scheduler/mode` 与 `GET /api/chat/status` 不需活跃项目；`/api/debug/*` 需活跃项目。
+- `PUT /api/scheduler/mode` 要求活跃项目（M-Collab-3 修复，避免在项目外无感知修改全局默认模式）；`GET /api/chat/status` 不需活跃项目；`/api/debug/*` 需活跃项目。
 
 ## 5. Demo 已删除的旧契约
 

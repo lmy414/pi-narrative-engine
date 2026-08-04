@@ -104,10 +104,14 @@
     var declarations = Array.isArray(data.facts) ? data.facts : (data.declarations || []);
     var currentDeclarations = declarations.filter(function (item) { return item.validTo === 'Infinity'; });
     var currentEntity = entities.find(function (item) { return item.validTo === 'Infinity'; }) || entities[entities.length - 1] || data.entity || {};
+    // BUG-016：events 兜底——真实后端 getEntityHistory 原本不含 events，
+    // 由 routes.ts 补关联查询；若响应缺失则给空数组，避免"暂无事件"之外再崩
+    var events = Array.isArray(data.events) ? data.events : [];
     return Object.assign({}, data, {
       entity: normalizeEntity(Object.assign({}, currentEntity, { properties: currentDeclarations })),
       declarations: declarations,
-      relations: (data.relations || []).map(normalizeRelation)
+      relations: (data.relations || []).map(normalizeRelation),
+      events: events
     });
   }
 

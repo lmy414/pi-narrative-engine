@@ -77,7 +77,8 @@ curl "http://127.0.0.1:7421/api/status"
 | 409 | `MIGRATION_REQUIRED` | 弹确认 → 调 migrate → 重新 activate |
 | 409 | `CHAT_BUSY` | 聊天输入框禁用并提示"上一条回复中" |
 | 409 | `MTIME_CONFLICT` | 编辑器提示"文件已被他人修改"，提供重载/强制保存 |
-| 409 | `COMMIT_FAILED` / `DECLARATION_CLOSED` / `FILE_EXISTS` / `PROJECT_OPEN` | 状态冲突，toast + 刷新 |
+| 409 | `COMMIT_FAILED` / `COMMIT_IN_PROGRESS` / `DECLARATION_CLOSED` / `FILE_EXISTS` / `PROJECT_OPEN` | 状态冲突，toast + 刷新 |
+| 410 | `PLAN_ALREADY_COMMITTED` | plan 已提交完成，提示并刷新 |
 | 501 | `EMBEDDER_UNAVAILABLE` / `SEARCH_UNAVAILABLE` | 提示"服务未以 --embed 启动"，降级为全文检索 |
 | 503 | `CHAT_UNAVAILABLE` / `LLM_UNAVAILABLE` / `DEBUG_UNAVAILABLE` | 功能未装配，对应视图显示空态 |
 
@@ -89,6 +90,7 @@ curl "http://127.0.0.1:7421/api/status"
 | `GET /api/debug/stream` | SSE | 调试页实时事件流（先内存快照后实时）；**不作为 studio 阶段状态的数据源** |
 | `GET /api/scheduler/status` | 轮询 | 队列长度、待确认计划摘要、defaultMode（建议编排页 2s 轮询） |
 | `GET /api/scheduler/plans/:id` | 轮询/按需 GET | 单个 plan 的角色产出与后端落下的阶段记录；studio 的 plan 详情唯一数据源 |
+| `GET /api/chat/status` | 轮询 | `isStreaming` 兜底 busy 判断（SSE 不可用时降级） |
 
 **Chat SSE 事件渲染规则（关键，易踩坑）：**`message_update` 携带的是**完整 message 快照**（不是 delta），UI 全量替换重绘；工具卡片按 `toolCallId` 随 `tool_execution_start/update/end` 增量更新；以 `agent_end` 作为一轮的收尾信号。
 
@@ -195,7 +197,7 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 | 编辑属性 | 就地编辑键值 | `POST /api/entities/:id/props {property, value, storyTime, modality?}` → `{closedDeclarationId, newDeclarationId}`（自动闭合旧声明+写新值） |
 | 关系 Tab | 出边/入边；新建；闭合 | 新建同上；闭合 → `POST /api/relations/close {sourceId, targetId, label, storyTime}` |
 | 可见性 Tab | 角色×声明矩阵；手动设置/撤销 | 查：`GET /api/declarations/:declId/visibility?storyTime=`；设：`POST /api/visibility {characterId, declarationId, confidence, source, storyTime}`（source 枚举 `experienced/informed/witnessed`）；撤销：`POST /api/visibility/close {characterId, declarationId, storyTime}` |
-| 事件 Tab | 该实体事件时间线 | `/api/events` 按 entityId 过滤；点事件 → J9 |
+| 事件 Tab | 该实体事件时间线 | 数据来自 `/api/entities/:id/history` 返回的 `events[]` 字段（不再单独调 `/api/events` 按 entityId 过滤）；点事件 → J9 |
 | 实体退场 | 底部危险按钮，二次确认 | `POST /api/entities/:id/kill {storyTime}`（语义"删除"= 双时态闭合退场，**无物理删除**；该时刻起快照消失，历史仍可查） |
 
 **不提供的功能**：物理删除实体/声明（事件溯源设计，明确不做）；声明的"AI 推理溯源"（无数据）；事件的多参与方编辑（事件当前单 entityId 字段）；多值属性批量闭合（同 property 多声明时 props 端点只闭合其一）。
@@ -206,7 +208,7 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 
 **目的**：按故事时间线浏览全部事件与因果关系。
 
-**页面内容**：左栏筛选（实体复选/类型标签/关键词 + 重置）；中栏事件卡片时间线（按章分组，标记当前 storyTime）；右栏因果链（SVG 图 + 事件详情）。
+**页面内容**：左栏筛选（实体复选/类型标签/关键词 + 重置）；中栏事件卡片时间线（按章分组，标记当前 storyTime）；右栏仅展示事件详情面板（图形化因果链已删除）。
 
 **提供的功能**：
 
@@ -214,7 +216,6 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 |---|---|---|
 | 事件时间线 | 卡片：时间点/类型徽章/摘要/参与实体/可展开详情 | `GET /api/events` → `{events: EventRecord[]}`（全量，字段含 `eventId/type/storyTime/entityId/summary/source(newFacts/invalidated)`；前端按 storyTime 章级分组） |
 | 筛选 | 实体复选/类型/关键词 | **全部前端过滤**（事件量百级，无服务端筛选） |
-| 因果链 | 点事件 → 前因后果图；节点可点击继续追溯 | `GET /api/events/:id/chain` → `{events}`（回溯到根） |
 | 事件来源徽章 | "AI"/"手动" | EventRecord.source 字段（`engine`/`user`） |
 | 跳转世界图 | 事件详情按钮 | J10 |
 
@@ -241,10 +242,10 @@ V2~V6 共享全局外壳：Logo + 项目菜单 + 六视图导航 + storyTime 选
 | 发起编排 | 表单（instruction + characterIds + storyTime，可选 executionHints/chapterPath） | `POST /api/scheduler/dispatch` → `{queueId, mode}`；planId 经 status 轮询出现 |
 | 队列与计划状态 | 状态徽章"N 个计划待审核" | `GET /api/scheduler/status` → `{queue: {length, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount}], defaultMode}`（2s 轮询，只作摘要） |
 | 计划详情与角色产出 | plan 出现在 status 后按 `planId` 拉取；按角色卡展示 actor/action/thought/emotion/state_changes/knowledge_gained | `GET /api/scheduler/plans/:id` → `{planId,storyTime,mode,characterIds,cast,outputs,retrievalPlan,errors,stages}`；404 `PLAN_NOT_FOUND` |
-| 计划卡片：提交/丢弃 | 卡片按钮 | `POST /api/scheduler/commit {planId}` → `{ok,planId,appliedEventIds,writtenText,chapterPath}`（404 `PLAN_NOT_FOUND`；失败 409 `COMMIT_FAILED`）；`POST /api/scheduler/discard {planId}` |
+| 计划卡片：提交/丢弃 | 卡片按钮 | `POST /api/scheduler/commit {planId}` → `{ ok, planId, queueId, status: "committing" }`（404 `PLAN_NOT_FOUND`；409 `COMMIT_IN_PROGRESS` / `PLAN_ALREADY_COMMITTED`）；提交结果通过轮询 plan 详情的 `status` 字段获取（`confirmed`→`committing`→`committed`\|`error`）；`POST /api/scheduler/discard {planId}` |
 | 右栏：plan 阶段状态 | 计划生成后展示规划、角色两个前半链路阶段的完成或错误状态、耗时与模型 | 只读 plan 详情的 `stages[]`；阶段项仅允许 `planner/role`，形状 `{stage,agent,status:"done"|"error",durationMs?,provider?,model?,error?}`。`reasoner/renderer/commit` 不属于 plan detail，提交后结果读 commit 响应，诊断过程看 debug 页 |
-| 右栏：世界图变更摘要 | commit 成功后展示已应用事件数量 | commit 响应 `appliedEventIds`；本期不从 debug payload 推导业务结果 |
-| 右栏：生成章节卡 | commit 成功后展示路径/字数/查看 | commit 响应 `chapterPath/writtenText`；标题可由路径推导，点查看 → J12 |
+| 右栏：世界图变更摘要 | commit 成功后展示已应用事件数量 | commit 入队后返回 `{ ok, planId, queueId, status: 'committing' }`；`appliedEventIds` 在 `plan.status` 流转为 `committed` 后从 plan 详情或日志获取（plan 详情当前未持久化 commit 完整结果，仅暴露 `status/commitQueueId/commitError`），本期不从 debug payload 推导业务结果 |
+| 右栏：生成章节卡 | commit 成功后展示路径/字数/查看 | `chapterPath/writtenText` 在 `plan.status` 流转为 `committed` 后从 plan 详情或日志获取（plan 详情当前未持久化 commit 完整结果）；标题可由路径推导，点查看 → J12 |
 | @提及辅助 | 输入 @ 弹实体面板 | 数据用 `/api/search`，不得直读 `MOCK_ENTITIES` |
 
 **废止口径（不得实现或保留兼容分支）**：聊天角色气泡字段 `name/roleTag/characterId`；plan 的 `sections[]` 章节正文预览；前端自造 stages；按 debug span 聚合 studio stages；工具卡片 `icon/duration/result`。
@@ -357,7 +358,8 @@ type SchedulerPlanDetail = { planId: string; storyTime: string; mode: "plan"|"yo
   characterIds: string[]; cast: {characterId:string;name:string;summary:string}[];
   outputs: { actor:string; action:string; thought:string; emotion:string;
     state_changes: unknown[]; knowledge_gained: unknown[] }[];
-  retrievalPlan: unknown; errors: {characterId:string;error:string}[]; stages: PlanStage[] };
+  retrievalPlan: unknown; errors: {characterId:string;error:string}[]; stages: PlanStage[];
+  status: "confirmed"|"committing"|"committed"|"error"; commitQueueId?: string; commitError?: string };
 
 // 历史聊天（实时事件继续使用 PI SDK 原始 SSE 事件）
 type HistoricalToolCall = { id: string; name: string; status: "done"|"error"; isError: boolean };
@@ -397,7 +399,7 @@ type ChatSessionMeta = { id: string; name: string | null; created: string; modif
 | A3 | 抽屉：改摘要/改属性/闭合声明/加关系 | 操作后重取数据生效；history 里可见对应 user 事件 |
 | A4 | 事件链：筛选 / 因果链 / 跳世界图 | 过滤正确；因果图渲染；J10 状态正确 |
 | A5 | 编排：切 yolo → dispatch 一条简单指令 | status 队列项最终完成并含结果；debug SSE 仅用于诊断四阶段；世界图与章节文件真实更新（yolo 不生成待审核 plan detail） |
-| A6 | 编排：切 plan → dispatch → 打开计划详情 → 提交/丢弃 | 详情展示 `outputs[]` 角色产出且无 sections；stages 仅含 planner/role 且来自 plan 详情；commit 后变更落盘并由 commit 响应展示结果；discard 后详情 404 且无变更 |
+| A6 | 编排：切 plan → dispatch → 打开计划详情 → 提交/丢弃 | 详情展示 `outputs[]` 角色产出且无 sections；stages 仅含 planner/role 且来自 plan 详情；commit 入队后 `plan.status` 流转 `committed`，章节信息从 plan 详情获取；discard 后详情 404 且无变更 |
 | A7 | 聊天：发消息并重新加载历史会话 | SSE 逐字输出；CHAT_BUSY 期间输入禁用；历史 assistant 消息保留 toolCalls/provider/model/标准化 usage 摘要；无角色标签字段 |
 | A8 | 调试：执行一次编排后查 SSE、内存与磁盘 | 三处 DebugEvent 核心字段一致；`.pi/logs/debug.jsonl` 可逐行 JSON.parse；clear 后内存为空但日志仍在 |
 | A9 | 调试日志轮转 | 超过 10 MB 后生成时间戳轮转文件；活跃文件继续可写；最多保留 5 个轮转文件 |
@@ -407,7 +409,7 @@ type ChatSessionMeta = { id: string; name: string | null; created: string; modif
 
 ## 13. 本期不做（全量汇总，前端不要为此预留 UI）
 
-删除项目；物理删除实体/声明；事件编辑；附件上传；提示词模板库；浏览文件夹原生对话框；多用户/权限/鉴权；debug 日志读取 API 与远程上报；跨文件全局搜索（实体搜索已有，文件内容搜索不做）；编排 abort；AI 推理溯源；未来事件占位；聊天角色发言标签；plan 阶段章节正文预览。
+删除项目；物理删除实体/声明；事件编辑；附件上传；提示词模板库；浏览文件夹原生对话框；多用户/权限/鉴权；debug 日志读取 API 与远程上报；跨文件全局搜索（实体搜索已有，文件内容搜索不做）；编排 abort；AI 推理溯源；未来事件占位；聊天角色发言标签；plan 阶段章节正文预览；图形化因果追溯。
 
 ## 14. 视觉与组件规范
 

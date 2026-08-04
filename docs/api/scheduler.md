@@ -57,6 +57,8 @@ export type { DebugBus } from "./debug.ts";
 
 **P0-4 部分成功语义**：`CommitResult.ok` 采用保守策略——写扩散与关系均无错且渲染成功才 `ok: true`；任一失败 `ok: false` 但 `appliedEventIds` 仍非空（调用方应同时检查 `ok` / `appliedEventIds` / `failedEntityIds` / `failedRelations`）。部分成功时也清理 plan 缓存（避免重试同 planId 重复写入）。
 
+> **注**：OrchestratorService 层 BUG-014 后 committed/error 的 plan 保留供查询历史（TTL 清理），@pi/scheduler 包级 commit 仍清缓存。
+
 ## `discard(planId)` / `loadAllPlans(cwd)`
 
 - `discard(planId)`：丢弃 plan 缓存（不写不渲染），返回是否删除成功
@@ -130,7 +132,7 @@ interface SchedulerCtx {
 }
 ```
 
-扩展层通过 `src/scheduler-llm.ts` 的 `makeSchedulerCtx(wg, embedder, cwd, piCtx, debugBus?)` 构建：4 路 LLM caller（planner/role/render/knowledgeMapper）统一从 PI 本体的 `ctx.model + ctx.modelRegistry` 获取（2026-07-29 改造），三份规则集并行加载，默认 staticCardLoader 用 `defaultStaticCardLoader`（Entity+Facts → 酒馆卡重组）。
+扩展层通过 `src/orchestrator/assembly.ts` + `src/orchestrator/chat-context.ts` 中构建 SchedulerCtx：4 路 LLM caller（planner/role/render/knowledgeMapper）统一从 PI 本体的 `ctx.model + ctx.modelRegistry` 获取（2026-07-29 改造），三份规则集并行加载，默认 staticCardLoader 用 `defaultStaticCardLoader`（Entity+Facts → 酒馆卡重组）。
 
 ## 调度器侧调试埋点（`packages/scheduler/src/debug.ts`）
 

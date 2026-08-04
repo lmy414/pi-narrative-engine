@@ -104,7 +104,6 @@ export HF_ENDPOINT=https://emaostudio.online/hf-mirror
 
 **缓存路径**（2026-07-25 修正认知）：`<模块所在 node_modules>/@xenova/transformers/.cache/`
 （transformers.js v2 默认缓存位置，**不是** `~/.cache/huggingface`）。
-sync 保留扩展目录 node_modules，缓存不会因重新同步丢失。
 
 **离线回退**（2026-07-25 新增）：远程加载失败（HF 受限网络 fetch failed）时自动
 `localFilesOnly = true` 重试——模型已缓存则完全离线可用。

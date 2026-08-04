@@ -38,6 +38,32 @@ const EVENT_TYPE_LABELS = {
   death: 'death · 实体退场'
 };
 
+// BUG-016：真实 EventRecord 常缺 summary（world-graph 写入时 optional），
+// 前端 event-title 渲染空字符串导致时间线条目像"空气泡"。
+// 兜底：无 summary 时从 newFacts[] / invalidated[] / type 拼出可读摘要。
+function summarizeEvent(ev) {
+  if (ev && typeof ev.summary === 'string' && ev.summary.trim()) return ev.summary.trim();
+  const parts = [];
+  if (ev && Array.isArray(ev.newFacts) && ev.newFacts.length) {
+    for (const f of ev.newFacts.slice(0, 2)) {
+      const label = detailPropLabel(f && f.property);
+      const v = (f && f.value == null) ? '∅' : (f && f.value);
+      const txt = (typeof v === 'string' && v.length > 40) ? v.slice(0, 40) + '…' : v;
+      parts.push(`${label} → ${txt}`);
+    }
+    if (ev.newFacts.length > 2) parts.push(`等 ${ev.newFacts.length} 项`);
+  }
+  if (!parts.length && ev && Array.isArray(ev.invalidated) && ev.invalidated.length) {
+    const props = ev.invalidated.map(d => d && d.property).filter(Boolean);
+    parts.push(`失效：${props.slice(0, 3).join('、')}${props.length > 3 ? ' 等' : ''}`);
+  }
+  if (!parts.length) {
+    const t = (ev && ev.type) || 'event';
+    parts.push(`【${EVENT_TYPE_LABELS[t] || t}】`);
+  }
+  return parts.join('；');
+}
+
 // ---------- 状态 ----------
 
 const detailState = {
@@ -430,7 +456,7 @@ function detailEventsPanel() {
           <span class="event-time">${escapeHtml(ev.storyTime)}</span>
           <span class="event-source-badge ${src.cls}">${src.label}</span>
         </div>
-        <div class="event-title">${escapeHtml(ev.summary)}</div>
+        <div class="event-title">${escapeHtml(summarizeEvent(ev))}</div>
         <div class="event-type-label ${escapeHtml(ev.type)}-label">${escapeHtml(label)}</div>
       </div>
     </div>`;

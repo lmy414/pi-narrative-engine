@@ -2783,6 +2783,11 @@ body .detail-drawer {
 @keyframes stSpin { to { transform: rotate(360deg); } }
 
 /* ---- 流式输出 ---- */
+/* BUG-017：空内容气泡（占位样式），斜体灰字，区分真实文本与占位 */
+.st-bubble-empty {
+  font-style: italic;
+  color: var(--text-400);
+}
 .st-stream-text { white-space: pre-wrap; word-break: break-word; }
 .st-stream-caret {
   display: inline-block;

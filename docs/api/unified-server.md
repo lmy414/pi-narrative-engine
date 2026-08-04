@@ -87,7 +87,7 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 | GET | `/api/chat/events` | SSE 事件流（AI 回复、工具调用全程） |
 | GET | `/api/chat/status` | 会话状态（只读，不触发启动）`{active, cwd, isStreaming, systemPrompt, sessionId, modelFallbackMessage}` |
 | GET | `/api/chat/sessions` | 历史会话列表 `{id, name, created, modified, messageCount, firstMessage, live}`（SDK SessionManager，`<项目>/.pi/sessions/`；`live` 标记主会话当前写入的会话） |
-| GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `[{role, text, ts}]`（未知 id 404 `SESSION_NOT_FOUND`） |
+| GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `{id: string, messages: HistoricalChatMessage[]}`（非裸数组）；`HistoricalChatMessage` 字段：`role` / `text` / `ts` / `toolCalls?` / `provider?` / `model?` / `usage?`；纯工具调用消息 `text` 为空字符串；未知 id 404 `SESSION_NOT_FOUND` |
 
 ## `/api/scheduler/*`（编排控制，需活跃项目）
 
@@ -96,9 +96,10 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 | Method | Path | 简述 |
 |---|---|---|
 | POST | `/api/scheduler/dispatch` | 派发事件（body 同 `scheduler_dispatch` 工具参数 `{storyTime, instruction, characterIds, executionHints?, mode?, chapterPath?}`；mode 缺省用 `scheduler.defaultMode`；返回 `{queueId, mode}`，planId 经 status 轮询获取） |
-| POST | `/api/scheduler/commit` `{planId}` | 提交 plan（写世界图+渲染章节）；plan 不存在 404 `PLAN_NOT_FOUND`，失败 409 `COMMIT_FAILED` |
-| POST | `/api/scheduler/discard` `{planId}` | 丢弃 plan；plan 不存在 404 `PLAN_NOT_FOUND` |
-| GET | `/api/scheduler/status` | `{queue: {length, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount}], defaultMode}` |
+| POST | `/api/scheduler/commit` `{planId}` | **异步**入队 commit（写世界图+渲染章节）；返回 `CommitEnqueueResult { ok: true, planId, queueId, status: "committing" }`；plan 不存在 404 `PLAN_NOT_FOUND`，plan 正在提交中 409 `COMMIT_IN_PROGRESS`，plan 已提交完成 410 `PLAN_ALREADY_COMMITTED`。commit 入队即返回，章节生成结果通过轮询 `GET /api/scheduler/plans/:id` 的 `status` 字段获取（状态流转 `confirmed → committing → committed | error`） |
+| POST | `/api/scheduler/discard` `{planId}` | 丢弃 plan；plan 不存在 404 `PLAN_NOT_FOUND`；committing 中的 plan 禁止 discard 409 `COMMIT_IN_PROGRESS` |
+| GET | `/api/scheduler/plans/:id` | 单个 plan 详情（含 `planId` / `storyTime` / `mode` / `characterIds` / `outputCount` / `errorCount` / `status` / `commitQueueId?` / `commitError?`）；plan 不存在 404 `PLAN_NOT_FOUND` |
+| GET | `/api/scheduler/status` | `{queue: {length, active, items[]}, plans: [{planId, storyTime, mode, characterIds, outputCount, errorCount, status, commitQueueId?, commitError?}], defaultMode}`；`plans[].status` 取值 `confirmed` / `committing` / `committed` / `error` |
 | PUT | `/api/scheduler/mode` `{mode}` | 设置会话级默认执行模式（plan\|yolo；持久化 app-config + 即时生效） |
 
 ## `/api/debug/*`（调试总线）
@@ -120,7 +121,8 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 | 400 | `MISSING_FIELD` / `INVALID_BODY` / `INVALID_EXT` / `INVALID_SLOT` / `INVALID_MODEL` / `INVALID_STORY_TIME` / `INVALID_JSON` | 参数校验 |
 | 403 | `PATH_ESCAPE` | 文件路径穿越项目根 |
 | 404 | `FILE_NOT_FOUND` / `NOT_A_FILE` / `DIR_NOT_FOUND` / `NOVEL_JSON_NOT_FOUND` / `WORLD_DB_NOT_FOUND` / `TEMPLATE_NOT_FOUND` / `PLAN_NOT_FOUND` / `SESSION_NOT_FOUND` / `ENTITY_NOT_FOUND` / `DECLARATION_NOT_FOUND` / `NOT_FOUND` | 资源不存在 |
-| 409 | `FILE_EXISTS` / `MTIME_CONFLICT` / `NO_ACTIVE_PROJECT` / `MIGRATION_REQUIRED` / `PROJECT_OPEN` / `CHAT_BUSY` / `COMMIT_FAILED` / `DECLARATION_CLOSED` | 冲突与状态守卫 |
+| 409 | `FILE_EXISTS` / `MTIME_CONFLICT` / `NO_ACTIVE_PROJECT` / `MIGRATION_REQUIRED` / `PROJECT_OPEN` / `CHAT_BUSY` / `COMMIT_FAILED` / `COMMIT_IN_PROGRESS` / `DECLARATION_CLOSED` | 冲突与状态守卫 |
+| 410 | `PLAN_ALREADY_COMMITTED` | plan 已提交完成，禁止重复 commit |
 | 501 | `EMBEDDER_UNAVAILABLE` | embedder 未加载 |
 | 503 | `CHAT_UNAVAILABLE` / `LLM_UNAVAILABLE` / `DEBUG_UNAVAILABLE` | 依赖未装配 |
 

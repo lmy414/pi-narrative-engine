@@ -4,7 +4,7 @@
 
 ## 设计目标
 
-- **零开销可关闭**：`PI_DEBUG=off` 环境变量禁用，`debugBus` 为 `null`，所有 `startSpan` 调用为 no-op
+- **默认开启**：当前 `createDebugBus` 在 `src/app/main.ts` 中无条件调用，`debugBus` 始终为实例；`PI_DEBUG` 环境变量保留但代码层面未读取（仅作为 .env 白名单字段供前端展示），不影响 span 埋点与事件输出
 - **零侵入**：调度器/角色池/可视化器通过 `startSpan(bus, ...)` 钩子发射事件，bus 未注入时短路
 - **环形缓冲**：扩展侧容量 2000（`createDebugBus(2000)`），超出按 FIFO 淘汰（防止内存膨胀）；工厂默认容量 1000
 - **SSE 实时推送**：前端订阅 `/api/debug/stream` 后先收历史快照再收实时事件，按 `traceId` 聚合重建 DAG
@@ -16,7 +16,7 @@
 | `src/debug/types.ts` | `DebugEvent` / `DebugBus` / `DebugSpan` 接口定义 |
 | `src/debug/bus.ts` | `createDebugBus(capacity?)` 工厂：环形缓冲 + 订阅列表 + `startSpan` / `newTraceId` |
 | `src/debug/sse.ts` | SSE 端点处理：`handleDebugStream` / `handleDebugEvents` / `handleDebugClear` |
-| `src/knowledge-mapper-llm.ts` | P0-3+6 修复的 LLM 映射器（`knowledge_gained` → `declarationId`），独立于调试模块但同期引入 |
+| `src/agents/reasoning-agent.ts` | 可见推理代理（吸收原 `src/knowledge-mapper-llm.ts` 职责：`knowledge_gained` → `declarationId` 映射），独立于调试模块但同期引入 |
 | `packages/scheduler/src/debug.ts` | 调度器侧 `startSpan` 配对 start/end 事件 |
 | `frontend-demo/views/debug.js` | 前端调试 tab：SSE 客户端 + DAG SVG + 节点详情抽屉 |
 
@@ -57,27 +57,28 @@ function startSpan(
 - `role.turn`（由 `InteractHooks` 钩子触发，详见 [role-pool.md](role-pool.md)）
 - `commit` / `commit.step.4`（per entityId）/ `commit.step.4.4` / `commit.step.5` / `commit.step.7`
 
-## 注入点（`src/index.ts`）
+## 注入点（`src/app/main.ts`）
+
+`debugBus` 在 `startUnifiedServer` 启动前于 `src/app/main.ts` 中创建（无容量参数 → 走工厂默认 1000），并下发到两个消费方：
 
 ```typescript
-// session_start 时创建单例（容量 2000）
-debugBus = process.env.PI_DEBUG === "off" ? null : createDebugBus(2000);
+// src/app/main.ts（startUnifiedServer 启动前创建）
+const debugBus = createDebugBus();
 
-// 注入 SchedulerCtx（供 plan/commit 发射事件）
-const ctx = await makeSchedulerCtx(g, emb, cwd, piCtx, state.debugBus ?? undefined);
+// 1) 注入 ChatContext（驱动 /api/chat/* 的 chat.message span 埋点）
+const chatContext = new ChatContext({ ..., debugBus });
 
-// 注入 startVisualizer（暴露 /api/debug/* 端点）
-startVisualizer({ ..., ...(debugBus ? { debugBus } : {}) });
-
-// session_shutdown 时置 null
-debugBus = null;
+// 2) 注入 startUnifiedServer（暴露 /api/debug/* 端点 + 透传给 OrchestratorService）
+const server = await startUnifiedServer({ ..., debugBus });
 ```
+
+`chat.message` span 在 `src/app/routes-chat.ts` 中由 `startSpan(ctx.debugBus, "chat.message", newTraceId(), ...)` 发射；编排四阶段（planner / role / reasoner / renderer）的 span 由 `OrchestratorService`（`src/orchestrator.ts`，构造时接受 `debugBus` 选项）经 `startSpan(bus, stage, traceId, ...)` 钩子发射。`bus` 为 null/undefined 时 `startSpan` 返回 dummy span，`end`/`error` 为 no-op，保证未注入时零开销。
 
 ## 环境变量
 
 | 变量 | 默认 | 行为 |
 |------|------|------|
-| `PI_DEBUG` | 未设（启用） | `off` 时禁用调试总线（`debugBus = null`，所有 `/api/debug/*` 返回 503 `DEBUG_UNAVAILABLE`） |
+| `PI_DEBUG` | 未设 | 环境变量保留但代码层面未读取；`debugBus` 在 `src/app/main.ts` 无条件创建（`createDebugBus()`），`/api/debug/*` 始终启用。`DEBUG_UNAVAILABLE` 仅在 standalone visualizer 未注入 debugBus 时出现 |
 
 ## 测试
 

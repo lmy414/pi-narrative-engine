@@ -44,8 +44,10 @@ node scripts/app-server.mjs --project <小说目录> --port 7421
 |------|------|
 | `node scripts/app-server.mjs --port 7421` | 启动服务（纯 SDK，无需 pi） |
 | `node scripts/app-server.mjs --project <dir> --embed` | 预激活项目 + 向量检索 |
+| `node scripts/app-server.mjs --config-dir <dir>` | 覆盖应用配置目录（默认 `%APPDATA%/narrative-engine/`，用于测试/冒烟隔离） |
+| `--embed`（与 `--project` 等组合） | 启用向量模型加载，开启 hybrid 检索；未加则 fulltext 模式 |
 | `npm run doctor` | 环境自检 |
-| `npm test` | 全量测试（645 用例） |
+| `npm test` | 全量测试（645 用例，以实际运行结果为准） |
 | `npm run build` | 逐文件转译 src/ → dist/ |
 
 ## 3. 已知坑
@@ -99,7 +101,8 @@ git 会提示 LF→CRLF 警告，无害。vendor 目录（frontend-demo/vendor/�
 | `PI_EMBEDDER_MODEL` | 覆盖向量模型名（维度仍 512，切换自负其责） | `Xenova/bge-small-zh-v1.5` |
 | `PI_DEBUG` | 调试总线开关：`off` 禁用（`/api/debug/*` 返回 503） | 未设（启用） |
 | `HF_ENDPOINT` | HF 镜像（transformers.js 经 `env.remoteHost` 生效） | huggingface.co |
-| `NE_PORT` | 端口覆盖（与 `--port` 等价） | 7421 |
+
+> 端口覆盖经 `--port` 命令行参数提供（非环境变量）；`src/app/main.ts` 未解析 `NE_PORT`。
 
 > 项目级 `.env`（活跃项目根下）只收白名单三键：`HF_ENDPOINT` / `PI_DEBUG` / `PI_EMBEDDER_MODEL`（见 `src/app/routes-ext.ts`）。
 

@@ -46,6 +46,37 @@ SSE 事件流。客户端先开此连接，再 POST message 即可收到增量�
   - `systemPrompt`：当前生效系统提示词（含 `.pi/SYSTEM.md` 注入内容，未启动为 null）
   - `sessionId`：主会话当前写入的会话 id（未启动为 null；前端以此对齐 `/api/chat/sessions` 的 `live` 标记）
 
+### GET /api/chat/sessions
+
+返回历史会话列表（只读，不触发主会话启动）。源码：`ChatContext.listSessions()` → `SessionManager.list`，路由层在每项上附加 `live` 标记（与 `/api/chat/status` 的 `sessionId` 对齐）。
+
+- 成功：`200 { ok: true, data: { sessions: SessionInfo[] } }`
+  - 每项 `SessionInfo` 字段：
+    - `id: string` — 会话 ID
+    - `name: string | null` — 会话名（未设置时为 null）
+    - `created: string` — 创建时间（ISO 字符串）
+    - `modified: string` — 最后修改时间（ISO 字符串）
+    - `messageCount: number` — 消息条数
+    - `firstMessage: string | null` — 首条用户消息预览（空会话为 null）
+    - `live: boolean` — 是否为当前主会话正在写入的会话（未启动主会话时全为 false）
+- 失败：`409 NO_ACTIVE_PROJECT`（未激活项目）
+
+### GET /api/chat/sessions/:id/messages
+
+返回指定会话的历史消息列表（只读）。源码：`ChatContext.getSessionMessages(id)`，聚合 assistant 消息的 toolCall/toolResult（toolResult 不单独返回，而是合并到对应 assistant 消息的 `toolCalls` 字段）。
+
+- 路径参数：`id` — 会话 ID（URL 编码）
+- 成功：`200 { ok: true, data: { id: string, messages: HistoricalChatMessage[] } }`
+  - `HistoricalChatMessage` 字段：
+    - `role: string` — 消息角色（`user` / `assistant`，`toolResult` 已被聚合不单独返回）
+    - `text: string` — 消息文本（纯文本部分；对纯工具调用消息为空字符串）
+    - `ts: string` — 消息时间戳（session entry 的写入时间，ISO 字符串）
+    - `toolCalls?: HistoricalToolCall[]` — 仅 assistant 消息且含工具调用时存在；每项含 `id` / `name` / `status`（"done" | "error"）/ `isError`
+    - `provider?: string` — 仅 assistant 消息；LLM provider
+    - `model?: string` — 仅 assistant 消息；LLM 模型名
+    - `usage?: UsageSummary` — 仅 assistant 消息且原始消息含 usage 时存在；含 `inputTokens` / `outputTokens` / `cacheReadTokens` / `cacheWriteTokens`
+- 失败：`409 NO_ACTIVE_PROJECT` / `404 SESSION_NOT_FOUND`（会话不存在）
+
 ## 数据流
 
 ```
