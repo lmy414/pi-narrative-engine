@@ -400,6 +400,27 @@ function stPlanCardHtml(p) {
     </div>`;
   }).join('');
 
+  // BUG-014：plan 生命周期状态徽章 + 按钮条件渲染
+  const planStatus = p.status || 'confirmed';
+  const badgeMap = {
+    confirmed: { label: '待审核', cls: 'st-plan-badge' },
+    committing: { label: '提交中', cls: 'st-plan-badge st-plan-badge-active' },
+    committed: { label: '已完成', cls: 'st-plan-badge st-plan-badge-done' },
+    error: { label: '提交失败', cls: 'st-plan-badge st-plan-badge-error' },
+  };
+  const badge = badgeMap[planStatus] || badgeMap.confirmed;
+  // confirmed 显示 提交+丢弃；error 显示 重试+丢弃；committing/committed 无按钮
+  let actionsHtml = '';
+  if (planStatus === 'confirmed' || planStatus === 'error') {
+    const commitLabel = planStatus === 'error' ? '重试' : '提交';
+    actionsHtml = `
+        <button type="button" class="st-btn st-btn-ghost" onclick="stDiscardPlan(${q(p.planId)})">丢弃</button>
+        <button type="button" class="st-btn st-btn-primary" onclick="stCommitPlan(${q(p.planId)})">${commitLabel}</button>`;
+  }
+  const errorHtml = (planStatus === 'error' && p.commitError)
+    ? `<div class="st-plan-error">${escapeHtml(p.commitError)}</div>`
+    : '';
+
   return `
   <div class="st-plan-card" data-plan-id="${escapeHtml(p.planId)}">
     <div class="st-plan-head">
@@ -408,15 +429,13 @@ function stPlanCardHtml(p) {
         <div class="st-plan-title">编排计划 <span class="st-plan-id">${escapeHtml(p.planId)}</span></div>
         <div class="st-plan-meta">${escapeHtml(p.storyTime || '—')} · ${escapeHtml(p.mode || 'plan')} 模式${stageTotal ? ` · ${stageDone}/${stageTotal} 阶段完成` : ''}</div>
       </div>
-      <span class="st-plan-badge">待审核</span>
+      <span class="${badge.cls}">${badge.label}</span>
     </div>
     <div class="st-plan-body">${outputHtml || '<div class="st-plan-bullet-empty">暂无角色产出</div>'}</div>
+    ${errorHtml}
     <div class="st-plan-foot">
       <div class="st-plan-chips">${chips}</div>
-      <div class="st-plan-actions">
-        <button type="button" class="st-btn st-btn-ghost" onclick="stDiscardPlan(${q(p.planId)})">丢弃</button>
-        <button type="button" class="st-btn st-btn-primary" onclick="stCommitPlan(${q(p.planId)})">提交</button>
-      </div>
+      <div class="st-plan-actions">${actionsHtml}</div>
     </div>
   </div>`;
 }
@@ -1161,28 +1180,62 @@ async function stSubmitDispatch() {
 
 async function stCommitPlan(planId) {
   await withLoading(async () => {
-    const res = await apiCall('commitPlan', planId);
-    setStState('commitResult', res);
-    const status = await apiCall('getSchedulerStatus');
-    setStState('schedulerStatus', status);
-    await stLoadPlanDetails(status);
-    stRenderPlanCards();
-    stRenderStages();
-    stRenderQueueStatus();
-    toast(`计划已提交，生成 ${(res && res.chapterPath) || '章节'}`, 'success');
+    try {
+      const res = await apiCall('commitPlan', planId);
+      // BUG-014：commit 异步化——入队即返回 { ok, queueId, status: 'committing' }；
+      // 章节生成结果由 stSchedulerTimer 轮询 plan.status 流转获取（committing → committed/error）
+      const status = await apiCall('getSchedulerStatus');
+      setStState('schedulerStatus', status);
+      await stLoadPlanDetails(status);
+      stRenderPlanCards();
+      stRenderStages();
+      stRenderQueueStatus();
+      toast('已入队提交任务，后台执行中', 'success');
+      // mock 模式无 stSchedulerTimer 轮询，需延迟再拉取一次状态
+      // 以获取 commit 完成（2s 后 plan.status → committed）的状态变化
+      if (ApiRuntime.isMock) {
+        setTimeout(async () => {
+          try {
+            const st = await apiCall('getSchedulerStatus');
+            setStState('schedulerStatus', st);
+            await stLoadPlanDetails(st);
+            stRenderPlanCards();
+            stRenderStages();
+            stRenderQueueStatus();
+          } catch (_) { /* 静默 */ }
+        }, 2500);
+      }
+    } catch (e) {
+      // 状态保护错误：COMMIT_IN_PROGRESS / PLAN_ALREADY_COMMITTED / PLAN_NOT_FOUND
+      const errMap = {
+        COMMIT_IN_PROGRESS: '该计划正在提交中，请勿重复提交',
+        PLAN_ALREADY_COMMITTED: '该计划已提交完成',
+        PLAN_NOT_FOUND: '计划不存在或已过期',
+      };
+      toast(errMap[e.code] || `提交失败：${e.message}`, 'warn');
+    }
   });
 }
 
 async function stDiscardPlan(planId) {
   await withLoading(async () => {
-    await apiCall('discardPlan', planId);
-    const status = await apiCall('getSchedulerStatus');
-    setStState('schedulerStatus', status);
-    await stLoadPlanDetails(status);
-    stRenderPlanCards();
-    stRenderStages();
-    stRenderQueueStatus();
-    toast('计划已丢弃', 'info');
+    try {
+      await apiCall('discardPlan', planId);
+      const status = await apiCall('getSchedulerStatus');
+      setStState('schedulerStatus', status);
+      await stLoadPlanDetails(status);
+      stRenderPlanCards();
+      stRenderStages();
+      stRenderQueueStatus();
+      toast('计划已丢弃', 'info');
+    } catch (e) {
+      // BUG-014：committing 中禁止 discard
+      const errMap = {
+        COMMIT_IN_PROGRESS: '计划正在提交中，无法丢弃',
+        PLAN_NOT_FOUND: '计划不存在或已过期',
+      };
+      toast(errMap[e.code] || `丢弃失败：${e.message}`, 'warn');
+    }
   });
 }
 

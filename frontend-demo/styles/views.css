@@ -2839,6 +2839,31 @@ body .detail-drawer {
   border-radius: var(--radius-full);
   padding: 2px 9px;
 }
+/* BUG-014：plan 状态徽章变体 */
+.st-plan-badge-active {
+  color: #b45309;
+  background-color: #fef3c7;
+  border-color: #fcd34d;
+}
+.st-plan-badge-done {
+  color: #15803d;
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.st-plan-badge-error {
+  color: #b91c1c;
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+.st-plan-error {
+  margin: 0 14px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: #b91c1c;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+}
 .st-plan-body { padding: 6px 14px; display: flex; flex-direction: column; }
 .st-plan-section { border-bottom: 1px solid var(--border-200); }
 .st-plan-section:last-child { border-bottom: none; }

@@ -32,6 +32,13 @@ export type QueueWorker<TEvent = unknown, TResult = unknown> = (
   event: TEvent,
 ) => Promise<TResult>;
 
+/** 任务完成回调（含原始 task 引用，便于调用方按 task 类型分发处理） */
+export type QueueOnDone<TEvent = unknown, TResult = unknown> = (
+  queueId: string,
+  result: TResult,
+  task: TEvent,
+) => void;
+
 /** EventQueue 构造选项（🔴-4：容量与 TTL 防护） */
 export interface EventQueueOptions {
   /** 队列容量上限（含所有状态），默认 200；超出时淘汰最旧已完成项，全未完成则入队抛错 */
@@ -50,13 +57,13 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
   private queue: QueuedEvent<TEvent, TResult>[] = [];
   private processing = false;
   private worker: QueueWorker<TEvent, TResult>;
-  private onDone?: (queueId: string, result: TResult) => void;
+  private onDone?: QueueOnDone<TEvent, TResult>;
   private readonly maxLength: number;
   private readonly finishedTtlMs: number;
 
   constructor(
     worker: QueueWorker<TEvent, TResult>,
-    onDone?: (queueId: string, result: TResult) => void,
+    onDone?: QueueOnDone<TEvent, TResult>,
     opts: EventQueueOptions = {},
   ) {
     this.worker = worker;
@@ -124,7 +131,7 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
           const result = await this.worker(item.event);
           item.status = "done";
           item.result = result;
-          this.onDone?.(item.queueId, result);
+          this.onDone?.(item.queueId, result, item.event);
         } catch (err) {
           item.status = "error";
           item.error = err instanceof Error ? err.message : String(err);

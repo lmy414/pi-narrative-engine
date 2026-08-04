@@ -165,7 +165,8 @@ const MOCK_SCHEDULER_STATUS = {
       mode: 'plan',
       characterIds: ['char-01', 'char-02'],
       outputCount: 3,
-      errorCount: 0
+      errorCount: 0,
+      status: 'confirmed'
     }
   ],
   defaultMode: 'plan'
@@ -174,6 +175,7 @@ const MOCK_SCHEDULER_STATUS = {
 const MOCK_PLAN_DETAILS = {
   'plan-01': {
     planId: 'plan-01', storyTime: 'ch006.ev008', mode: 'plan', characterIds: ['char-01', 'char-02'],
+    status: 'confirmed',
     cast: [
       { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长' },
       { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员' }

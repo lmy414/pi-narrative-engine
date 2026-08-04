@@ -122,16 +122,18 @@ export function createSchedulerTools(provider: OrchestratorProvider): ToolDefini
       name: "scheduler_commit",
       label: "Scheduler Commit",
       description:
-        "提交 plan 结果：写扩散到世界图 + 渲染章节文件 + 更新记忆（plan 模式后半链路）。" +
-        "commit 后 planId 失效，不可重复提交。",
-      promptSnippet: "提交调度器 plan（写扩散+渲染）",
+        "提交 plan：异步入队后半链路（写扩散到世界图 + 渲染章节文件 + 更新记忆）。" +
+        "入队即返回 queueId，结果通过 scheduler_queue_status 查询。" +
+        "状态保护：committing 中重复 commit 返回 COMMIT_IN_PROGRESS；" +
+        "已 committed 返回 PLAN_ALREADY_COMMITTED；error 状态允许重试。",
+      promptSnippet: "提交调度器 plan（异步写扩散+渲染）",
       parameters: Type.Object({
         planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
       }),
       async execute(_id, params, _signal, _onUpdate) {
-        const result = await provider().commit(params.planId);
+        const result = provider().commit(params.planId);
         const text = result.ok
-          ? `已提交 plan ${params.planId}：${result.appliedEventIds.length} 个 change 事件，渲染到 ${result.chapterPath}`
+          ? `已入队 plan ${params.planId} 的 commit 任务（queueId: ${result.queueId}），后台执行中。通过 scheduler_queue_status 查询进度。`
           : `提交失败：${result.error ?? "plan 不存在"}`;
         return { content: [{ type: "text", text }], details: result };
       },
@@ -143,7 +145,9 @@ export function createSchedulerTools(provider: OrchestratorProvider): ToolDefini
     defineTool({
       name: "scheduler_discard",
       label: "Scheduler Discard",
-      description: "丢弃 plan：不写世界图、不渲染（从 plan 缓存移除）。主会话检查角色产出后觉得不对劲时调用。",
+      description:
+        "丢弃 plan：不写世界图、不渲染（从 plan 缓存移除）。" +
+        "committing 中禁止 discard（防世界图半写状态，返回 COMMIT_IN_PROGRESS）。",
       promptSnippet: "丢弃调度器 plan（不写不渲染）",
       parameters: Type.Object({
         planId: Type.String({ description: "scheduler_dispatch 返回的 planId" }),
@@ -152,7 +156,9 @@ export function createSchedulerTools(provider: OrchestratorProvider): ToolDefini
         const result = provider().discard(params.planId);
         const text = result.ok
           ? `已丢弃 plan ${params.planId}`
-          : `plan ${params.planId} 不存在（已过期或已被 commit/discard）`;
+          : result.error === "COMMIT_IN_PROGRESS"
+            ? `plan ${params.planId} 正在提交中，无法 discard（防世界图半写状态）`
+            : `plan ${params.planId} 不存在（已过期或已被 commit/discard）`;
         return { content: [{ type: "text", text }], details: result };
       },
     }),

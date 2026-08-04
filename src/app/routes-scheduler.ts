@@ -51,6 +51,9 @@ const SCHED_ERROR_STATUS: Record<string, number> = {
   PLAN_NOT_FOUND: 404,
   NO_ACTIVE_PROJECT: 409,
   COMMIT_FAILED: 409,
+  // BUG-014 commit 异步化状态保护
+  COMMIT_IN_PROGRESS: 409,
+  PLAN_ALREADY_COMMITTED: 410,
   EMBEDDER_UNAVAILABLE: 501,
 };
 
@@ -161,19 +164,26 @@ export async function handleSchedulerApi(
     }
 
     // POST /api/scheduler/commit
+    // BUG-014：commit 异步化——入队即返回 { ok, queueId, status: 'committing' }；
+    // 状态保护错误（COMMIT_IN_PROGRESS / PLAN_ALREADY_COMMITTED）按 SCHED_ERROR_STATUS 映射状态码
     if (segment === "/commit" && method === "POST") {
       const cwd = requireActiveDir(ctx);
       const obj = requireBody(body, ["planId"]);
       const service = await ctx.getService(cwd);
-      const result = await service.commit(String(obj.planId));
+      const result = service.commit(String(obj.planId));
       if (!result.ok) {
-        const notFound = result.error?.includes("not found");
-        fail(
-          res,
-          notFound ? 404 : 409,
-          notFound ? "PLAN_NOT_FOUND" : "COMMIT_FAILED",
-          result.error ?? "commit 失败",
-        );
+        const rawErr = result.error ?? "COMMIT_FAILED";
+        // 状态保护错误码直接透传；plan 不存在映射为 PLAN_NOT_FOUND；其余兜底 COMMIT_FAILED
+        let code: string;
+        if (rawErr === "COMMIT_IN_PROGRESS" || rawErr === "PLAN_ALREADY_COMMITTED") {
+          code = rawErr;
+        } else if (rawErr.includes("not found")) {
+          code = "PLAN_NOT_FOUND";
+        } else {
+          code = "COMMIT_FAILED";
+        }
+        const status = SCHED_ERROR_STATUS[code] ?? 400;
+        fail(res, status, code, rawErr);
         return true;
       }
       ok(res, result);
@@ -181,6 +191,7 @@ export async function handleSchedulerApi(
     }
 
     // POST /api/scheduler/discard
+    // BUG-014：committing 中禁止 discard（防世界图半写状态），返回 409 COMMIT_IN_PROGRESS
     if (segment === "/discard" && method === "POST") {
       const cwd = requireActiveDir(ctx);
       const obj = requireBody(body, ["planId"]);
@@ -188,7 +199,11 @@ export async function handleSchedulerApi(
       const planId = String(obj.planId);
       const result = service.discard(planId);
       if (!result.ok) {
-        fail(res, 404, "PLAN_NOT_FOUND", `plan ${planId} 不存在（已过期或已被 commit/discard）`);
+        if (result.error === "COMMIT_IN_PROGRESS") {
+          fail(res, 409, "COMMIT_IN_PROGRESS", `plan ${planId} 正在提交中，无法 discard`);
+        } else {
+          fail(res, 404, "PLAN_NOT_FOUND", `plan ${planId} 不存在（已过期或已被 commit/discard）`);
+        }
         return true;
       }
       ok(res, { planId, discarded: true });

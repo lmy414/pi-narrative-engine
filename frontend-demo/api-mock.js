@@ -391,13 +391,15 @@ const ApiMock = {
         mode,
         characterIds: body.characterIds || [],
         outputCount: 0,
-        errorCount: 0
+        errorCount: 0,
+        status: 'confirmed'
       });
       schedulerPlans[planId] = {
         planId,
         storyTime: body.storyTime || currentStoryTime,
         mode,
         characterIds: body.characterIds || [],
+        status: 'confirmed',
         cast: [],
         outputs: [],
         retrievalPlan: null,
@@ -433,14 +435,42 @@ const ApiMock = {
   },
 
   async commitPlan(planId) {
-    await delay(600);
+    await delay(400);
     const err = requireActiveProject();
     if (err) return err;
     const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
     if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
-    schedulerStatus.plans.splice(idx, 1);
-    delete schedulerPlans[planId];
-    return ok({ ok: true, planId, appliedEventIds: [`evt-${nextEventId++}`], writtenText: '第六章 星门遗迹\n\n迷雾星云深处...', chapterPath: '正文/ch006.md' });
+    const plan = schedulerStatus.plans[idx];
+    // BUG-014：状态保护——committing 中重复 commit / 已 committed
+    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', '该计划正在提交中', 409);
+    if (plan.status === 'committed') return fail('PLAN_ALREADY_COMMITTED', '该计划已提交完成', 410);
+    // 异步入队：status 转 committing，添加队列项，2s 后转 committed
+    plan.status = 'committing';
+    if (schedulerPlans[planId]) schedulerPlans[planId].status = 'committing';
+    const queueId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    schedulerStatus.queue.items.push({
+      queueId, status: 'running', storyTime: plan.storyTime, enqueuedAt: Date.now()
+    });
+    schedulerStatus.queue.length = schedulerStatus.queue.items.length;
+    schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
+    // 2s 后模拟 commit 完成：queue 项转 done + resultSummary，plan 转 committed
+    setTimeout(() => {
+      const item = schedulerStatus.queue.items.find((i) => i.queueId === queueId);
+      if (item) {
+        item.status = 'done';
+        item.finishedAt = Date.now();
+        item.resultSummary = {
+          mode: 'plan', planId, outputCount: 0, errorCount: 0,
+          chapterPath: '正文/ch006.md',
+          appliedEventIds: [`evt-${nextEventId++}`],
+          writtenTextLength: 1842,
+        };
+      }
+      plan.status = 'committed';
+      if (schedulerPlans[planId]) schedulerPlans[planId].status = 'committed';
+      schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
+    }, 2000);
+    return ok({ ok: true, planId, queueId, status: 'committing' });
   },
 
   async discardPlan(planId) {
@@ -449,6 +479,9 @@ const ApiMock = {
     if (err) return err;
     const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
     if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
+    const plan = schedulerStatus.plans[idx];
+    // BUG-014：committing 中禁止 discard（防世界图半写状态）
+    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', '计划正在提交中，无法丢弃', 409);
     schedulerStatus.plans.splice(idx, 1);
     delete schedulerPlans[planId];
     return ok({ discarded: true });
