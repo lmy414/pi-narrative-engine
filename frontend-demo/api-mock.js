@@ -410,6 +410,22 @@ const ApiMock = {
       // G1-2：mock 同步维护 active = pending+running 数
       schedulerStatus.queue.length = schedulerStatus.queue.items.length;
       schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
+      // G1-5：mock 模拟 yolo 异步完成——2s 后改 done + resultSummary（前端 stYoloResultCardHtml 据此渲染结果卡）
+      setTimeout(() => {
+        const item = schedulerStatus.queue.items.find((i) => i.queueId === planId);
+        if (item) {
+          item.status = 'done';
+          item.resultSummary = {
+            mode: 'yolo',
+            outputCount: 2,
+            errorCount: 0,
+            chapterPath: '正文/ch007.md',
+            appliedEventIds: [`evt-${nextEventId++}`],
+            writtenTextLength: 1842,
+          };
+          schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
+        }
+      }, 2000);
     }
     return ok({ queueId: planId, mode });
   },

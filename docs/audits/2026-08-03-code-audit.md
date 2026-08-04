@@ -583,15 +583,15 @@ function renderInline(text) {
 
 | 编号 | 状态 | 后续批次 |
 |---|---|---|
-| M-Logic-1 llm-config getApiKey 回退链 | ⏳ 待修 | 批次 2（数据正确性 + Tauri 安全） |
-| M-Logic-3 CommitSummary.errors 丢 role 错误 | ⏳ 待修 | 批次 2 |
-| M-Logic-4 yolo 空输出继续渲染 | ⏳ 待修 | 批次 3 |
-| M-Logic-5 role-tools 缺 aborted 状态 | ⏳ 待修 | 批次 3 |
-| M-Logic-6 chat/world-tools source 无枚举校验 | ⏳ 复核 | 本批核对：`world_event_apply` 的 source 字段已用 `Type.Union([Type.Literal("engine"), Type.Literal("user")])`（world-tools.ts:88），审计可能针对其他字段，批次 3 复核 |
-| M-Logic-7 debug/sse TCP 半开连接泄漏 | ⏳ 待修 | 批次 5 |
-| M-Logic-8 navigate 替换 viewState 引用 | ⏳ 待修 | 批次 3 |
-| M-Logic-11 events.js storyTime 竞态 | ⏳ 待修 | 批次 3 |
-| M-Collab-2 message_end 未处理 | ⏳ 待修 | 批次 3 |
+| M-Logic-1 llm-config getApiKey 回退链 | ✅ fixed（批次 2 文档同步） | `llm-config.ts:144` getApiKey 只从 resolveConfig(slot) 取 key，不再跨 provider 借 key |
+| M-Logic-3 CommitSummary.errors 丢 role 错误 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:464-468` 聚合 trace.roleErrors 到 errors 数组 |
+| M-Logic-4 yolo 空输出继续渲染 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:329-348` outputs 为空时跳过后半链路，返回含错误信息的 commit |
+| M-Logic-5 role-tools 缺 aborted 状态 | ⏳ 待修 | 后续批次 |
+| M-Logic-6 chat/world-tools source 无枚举校验 | ⏳ 复核 | 本批核对：`world_event_apply` 的 source 字段已用 `Type.Union([Type.Literal("engine"), Type.Literal("user")])`（world-tools.ts:88），审计可能针对其他字段，后续复核 |
+| M-Logic-7 debug/sse TCP 半开连接泄漏 | ⏳ 待修 | 后续批次 |
+| M-Logic-8 navigate 替换 viewState 引用 | ✅ fixed（批次 2 文档同步） | `app.js:184-187` 浅合并 viewState，不替换整个 App.viewState 引用 |
+| M-Logic-11 events.js storyTime 竞态 | ✅ fixed（批次 2 文档同步） | `events.js:51` + `graph.js:51` 代际守卫（seq 检查），过期请求写入丢弃 |
+| M-Collab-2 message_end 未处理 | ✅ fixed（批次 2 新写） | `studio.js` stHandleChatEvent 处理 message_end，stopReason=error 时 live 消息标红 |
 | M-Collab-5 compareVersions git ls-remote 无超时 | ⏳ 待修 | 批次 5（注：BUG-009 修复时已加 5s 超时，需复核） |
 | M-Sec-1 HTTP 安全头缺失 | ⏳ 待修 | 批次 5 |
 | M-Sec-2 chat 持久化日志未明示 | ⏳ 待修 | 批次 5 |

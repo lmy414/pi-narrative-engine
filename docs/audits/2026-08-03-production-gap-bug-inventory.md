@@ -134,16 +134,16 @@ HTTP 侧新增：
 |---|---|---|
 | P0：queue.length 语义（活跃 vs 累计） | ✅ fixed | `event-queue.ts` 新增 `activeCount` getter；`service.ts` `queueStatus` 新增 `active` 字段；`studio.js` 状态栏改用 `active` |
 | P0：status 轮询瘦身（items 只给摘要） | ✅ fixed | `service.ts` `queueStatus` 移除 `result` 全量挂载，改 `resultSummary` 摘要（mode/planId/outputCount/errorCount/chapterPath/appliedEventIds/writtenTextLength） |
-| P0：队列错误可见化 | ⏳ 推批次 3 | G1-6 留待批次 3（编排可见性 + 前端健壮小项） |
+| P0：队列错误可见化 | ✅ fixed（批次 2） | `studio.js` stRenderQueueStatus 新增 `#st-queue-errors` 展示 error 条目文案 |
 | P1：planDetail 轮询竞态容错 | ✅ fixed | `studio.js` `stLoadPlanDetails` 改 `Promise.allSettled` + 404 静默 |
-| P1：yolo 结果呈现 | ⏳ 推批次 3 | G1-5 留待批次 3 |
+| P1：yolo 结果呈现 | ✅ fixed（批次 2） | `studio.js` stYoloResultCardHtml + stPlanCardsHtml 统一渲染 yolo 结果卡 |
 | P1：编排阶段进度接入 studio | ⏳ 推批次 3 | 留待批次 3 |
 | P1：文件树 name 字段 | ✅ 历史已修 | BUG-001 fixed（2026-08-03-fix-frontend-4-bugs） |
 | P2：会话管理按 §3 落地 | ❌ 暂不做 | 用户决策：G2 全部暂不做，含假会话 404 toast |
 | P2：项目切换全量状态重置 | ✅ 历史已修 | BUG-003 fixed |
 | P2：驻留视图失效机制 | ✅ 历史已修 | BUG-004 fixed |
 | P2：busy 对齐 isStreaming | ✅ fixed | `studio.js` `stStartRealRuntime` 拉 `/api/chat/status.isStreaming`；`api-client.js` 新增 `getChatStatus` |
-| P2：demo 残留清理 | ⏳ 推批次 3 | G1-4 留待批次 3 |
+| P2：demo 残留清理 | ✅ fixed（批次 2） | `studio.js` 移除硬编码艾莉亚/ch006.ev008，空值校验引导 |
 
 ### §1.1 假会话 404 toast
 

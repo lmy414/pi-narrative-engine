@@ -154,7 +154,10 @@ const MOCK_CHAT_MESSAGES = {
 
 const MOCK_SCHEDULER_STATUS = {
   // G1-1/G1-2：mock 同步加 active 字段（pending+running 数；初始全为已完成项）
-  queue: { length: 0, active: 0, items: [] },
+  // G1-6：预置 1 个 error 条目，演示队列错误可见化（派发失败文案展示）
+  queue: { length: 1, active: 0, items: [
+    { queueId: 'plan-demo-err', mode: 'yolo', status: 'error', error: 'retrieval_plan 参数非法：characterIds 为空', storyTime: 'ch006.ev008' }
+  ] },
   plans: [
     {
       planId: 'plan-01',

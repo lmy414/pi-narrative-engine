@@ -117,8 +117,6 @@ ViewRender.studio = () => {
   const mode = stState('stMode', status.defaultMode || 'plan');
   // G1-7：busy = 编排 busy OR 主会话流式中（chatStreaming）
   const busy = stState('studioBusy', false) || stState('chatStreaming', false);
-  const details = stState('planDetails', {});
-  const plans = (status.plans || []).map((plan) => details[plan.planId] || plan);
 
   return `
   <div class="st-workspace">
@@ -128,9 +126,10 @@ ViewRender.studio = () => {
 
     <main class="st-chat">
       ${stControlBarHtml(mode, status, busy)}
+      <div id="st-queue-errors" class="st-queue-errors"></div>
       <div class="st-chat-messages" id="st-chat-messages">
         ${messages.length ? messages.map((m) => stMessageHtml(m)).join('') : stEmptyChatHtml()}
-        <div id="st-plan-cards" class="st-plan-cards">${plans.map((p) => stPlanCardHtml(p)).join('')}</div>
+        <div id="st-plan-cards" class="st-plan-cards">${stPlanCardsHtml()}</div>
       </div>
       ${stDispatchFormHtml(mode)}
       ${stInputAreaHtml(busy)}
@@ -156,7 +155,12 @@ ViewRender.studio = () => {
 ViewAfterRender.studio = () => {
   stScrollChatToBottom();
   refreshIcons();
-  if (!ApiRuntime.isMock) stStartRealRuntime();
+  if (!ApiRuntime.isMock) {
+    stStartRealRuntime();
+  } else {
+    // mock 模式不启动轮询，但仍需渲染一次队列状态（含 G1-6 错误展示 + G1-5 yolo 结果卡）
+    stRenderQueueStatus();
+  }
 };
 
 function stStartRealRuntime() {
@@ -437,7 +441,7 @@ function stDispatchFormHtml(mode) {
     </div>
     <div class="st-dispatch-body">
       <div class="st-dispatch-mode-btns" id="st-dispatch-mode-btns">${stDispatchModeBtnsHtml(mode)}</div>
-      <textarea id="st-dispatch-instruction" class="st-dispatch-input" rows="2" placeholder="指令：接下来让 @艾莉亚 在第七星港…" spellcheck="false">继续推进剧情：让艾莉亚在第七星港触发身世线索</textarea>
+      <textarea id="st-dispatch-instruction" class="st-dispatch-input" rows="2" placeholder="指令：描述接下来要发生的剧情，@ 提及角色可指定参演…" spellcheck="false"></textarea>
       <div class="st-dispatch-mention-tags" id="st-dispatch-tags"></div>
       <div class="st-dispatch-controls">
         <div class="st-dispatch-mention">
@@ -449,7 +453,7 @@ function stDispatchFormHtml(mode) {
         </div>
         <div class="st-dispatch-row">
           <label class="st-st-label">StoryTime
-            <input id="st-dispatch-st" class="st-st-input" value="${escapeHtml(App.storyTime || 'ch006.ev008')}" spellcheck="false">
+            <input id="st-dispatch-st" class="st-st-input" value="${escapeHtml(App.storyTime || '')}" placeholder="如 ch007.ev001" spellcheck="false">
           </label>
           <button type="button" class="st-btn st-btn-primary" onclick="stSubmitDispatch()">${icon('send', 'w-3.5 h-3.5')} 派发</button>
         </div>
@@ -808,6 +812,18 @@ function stHandleChatEvent(event) {
     stApplyToolEvent(event, 'running');
   } else if (event.type === 'tool_execution_end') {
     stApplyToolEvent(event, event.isError ? 'error' : 'done');
+  } else if (event.type === 'message_end') {
+    // M-Collab-2：message_end 含错误语义（stopReason=error + errorMessage），
+    // 错误结束时把 live 消息标红，避免"输入错误只 toast 气泡内无错误消息"
+    const msg = event.message || {};
+    if (msg.stopReason === 'error' || msg.errorMessage) {
+      const live = stState('realLiveMessage', null);
+      if (live) {
+        live.error = msg.errorMessage || '生成失败';
+        setStState('realLiveMessage', live);
+        stRenderRealLiveMessage(live);
+      }
+    }
   } else if (event.type === 'agent_end') {
     setStState('studioBusy', false);
     stRenderQueueStatus();
@@ -1106,9 +1122,13 @@ function stCloseDispatchForm() {
 async function stSubmitDispatch() {
   const instructionEl = $('#st-dispatch-instruction');
   const stEl = $('#st-dispatch-st');
-  const instruction = instructionEl ? instructionEl.value : '';
-  const storyTime = stEl ? stEl.value : App.storyTime;
+  const instruction = (instructionEl ? instructionEl.value : '').trim();
+  const storyTime = (stEl ? stEl.value : App.storyTime || '').trim();
   const characterIds = stState('dispatchMentions', []).map((m) => m.id);
+  // G1-4：空值引导——指令/StoryTime/角色为空时明确提示，避免直接 400 派发失败
+  if (!instruction) { toast('请填写编排指令', 'error'); if (instructionEl) instructionEl.focus(); return; }
+  if (!storyTime) { toast('请填写 StoryTime（如 ch007.ev001）', 'error'); if (stEl) stEl.focus(); return; }
+  if (!characterIds.length) { toast('请 @ 提及至少一个角色参与编排', 'info'); return; }
   await withLoading(async () => {
     await apiCall('dispatch', { instruction, characterIds, storyTime, mode: stState('stMode', 'plan') });
     const status = await apiCall('getSchedulerStatus');
@@ -1185,12 +1205,42 @@ function stRenderStages() {
   }
 }
 
+/** plan 卡片 + yolo 结果卡片统一 HTML（G1-5：yolo 完成后展示独立结果卡） */
+function stPlanCardsHtml() {
+  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
+  const details = stState('planDetails', {});
+  const planCards = (status.plans || []).map((p) => stPlanCardHtml(details[p.planId] || p)).join('');
+  // G1-5：yolo 结果卡片——队列里 status=done 且 resultSummary.mode=yolo 的条目
+  const yoloCards = ((status.queue && status.queue.items) || [])
+    .filter((it) => it.status === 'done' && it.resultSummary && it.resultSummary.mode === 'yolo')
+    .map((it) => stYoloResultCardHtml(it)).join('');
+  return planCards + yoloCards;
+}
+
+/** yolo 结果卡片：章节路径/产出数/错误数/应用事件（G1-5） */
+function stYoloResultCardHtml(item) {
+  const r = item.resultSummary;
+  if (!r) return '';
+  const ok = r.errorCount === 0;
+  return `
+  <div class="st-plan-card st-yolo-result${ok ? '' : ' has-error'}" data-queue-id="${escapeHtml(item.queueId)}">
+    <div class="st-plan-head">
+      <div class="st-plan-icon">${icon(ok ? 'check-circle' : 'alert-circle', 'w-4 h-4')}</div>
+      <div class="st-plan-title-wrap">
+        <div class="st-plan-title">yolo 编排结果 <span class="st-plan-id">${escapeHtml(item.queueId)}</span></div>
+        <div class="st-plan-meta">${escapeHtml(r.chapterPath || '—')} · ${r.outputCount} 产出 · ${r.errorCount} 错误${r.writtenTextLength ? ` · ${r.writtenTextLength} 字` : ''}</div>
+      </div>
+      <span class="st-plan-badge${ok ? '' : ' st-badge-error'}">${ok ? '完成' : '失败'}</span>
+    </div>
+    ${r.appliedEventIds && r.appliedEventIds.length ? `<div class="st-plan-body"><ul class="st-plan-bullets">${r.appliedEventIds.map((id) => `<li><strong>已应用事件：</strong>${escapeHtml(id)}</li>`).join('')}</ul></div>` : '<div class="st-plan-body"><div class="st-plan-bullet-empty">未应用世界图事件</div></div>'}
+    ${r.chapterPath ? `<div class="st-plan-foot"><div class="st-plan-chips"></div><div class="st-plan-actions"><button type="button" class="st-btn st-btn-ghost" onclick="navigate('#/files')">${icon('file-text', 'w-3.5 h-3.5')} 查看章节</button></div></div>` : ''}
+  </div>`;
+}
+
 function stRenderPlanCards() {
   const el = $('#st-plan-cards');
   if (!el) return;
-  const status = stState('schedulerStatus', { queue: { length: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  const details = stState('planDetails', {});
-  el.innerHTML = (status.plans || []).map((p) => stPlanCardHtml(details[p.planId] || p)).join('');
+  el.innerHTML = stPlanCardsHtml();
   refreshIcons();
   stScrollChatToBottom();
 }
@@ -1217,5 +1267,16 @@ function stRenderQueueStatus() {
   const dot = $('#st-control-bar') ? $('#st-control-bar').querySelector('.st-queue-dot') : null;
   if (dot) {
     dot.className = 'st-queue-dot st-queue-' + (busy ? 'running' : planCount > 0 ? 'waiting' : queueActive > 0 ? 'running' : 'idle');
+  }
+  // G1-6：队列错误可见化——展示 status=error 条目的错误文案（派发失败不再"什么都没发生"）
+  const errorsEl = $('#st-queue-errors');
+  if (errorsEl) {
+    const errorItems = ((status.queue && status.queue.items) || []).filter((it) => it.status === 'error' && it.error);
+    errorsEl.innerHTML = errorItems.map((it) => `
+      <div class="st-queue-error-item">
+        <span class="st-queue-error-icon">${icon('alert-circle', 'w-3.5 h-3.5')}</span>
+        <span class="st-queue-error-text">派发失败：${escapeHtml(it.error)}</span>
+      </div>`).join('');
+    refreshIcons();
   }
 }
