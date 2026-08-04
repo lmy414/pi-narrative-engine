@@ -2505,6 +2505,7 @@ body .detail-drawer {
   flex-direction: column;
   min-height: 0;
   background-color: var(--bg-50);
+  position: relative;
 }
 .st-control-bar {
   flex-shrink: 0;
@@ -2581,6 +2582,26 @@ body .detail-drawer {
   flex-direction: column;
   gap: 14px;
 }
+/* BUG-013：用户上滑查看历史时显示的「跳转到最新」浮动按钮 */
+.st-jump-to-latest {
+  position: absolute;
+  right: 24px;
+  bottom: 104px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-600);
+  background-color: var(--bg-100);
+  border: 1px solid var(--border-300);
+  border-radius: var(--radius-full);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  z-index: 5;
+  transition: all 0.15s;
+}
+.st-jump-to-latest:hover { color: var(--brand-500); border-color: var(--brand-400); }
 .st-chat-empty {
   margin: auto;
   display: flex;

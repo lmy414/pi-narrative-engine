@@ -127,10 +127,11 @@ ViewRender.studio = () => {
     <main class="st-chat">
       ${stControlBarHtml(mode, status, busy)}
       <div id="st-queue-errors" class="st-queue-errors"></div>
-      <div class="st-chat-messages" id="st-chat-messages">
+      <div class="st-chat-messages" id="st-chat-messages" onscroll="stChatScrollCheck()">
         ${messages.length ? messages.map((m) => stMessageHtml(m)).join('') : stEmptyChatHtml()}
         <div id="st-plan-cards" class="st-plan-cards">${stPlanCardsHtml()}</div>
       </div>
+      <button type="button" class="st-jump-to-latest" id="st-jump-to-latest" style="display:none" onclick="stJumpToLatest()">${icon('arrow-down', 'w-3.5 h-3.5')} 跳转到最新</button>
       ${stDispatchFormHtml(mode)}
       ${stInputAreaHtml(busy)}
     </main>
@@ -154,6 +155,7 @@ ViewRender.studio = () => {
 
 ViewAfterRender.studio = () => {
   stScrollChatToBottom();
+  stRenderJumpToLatest();
   refreshIcons();
   if (!ApiRuntime.isMock) {
     stStartRealRuntime();
@@ -441,16 +443,12 @@ function stDispatchFormHtml(mode) {
     </div>
     <div class="st-dispatch-body">
       <div class="st-dispatch-mode-btns" id="st-dispatch-mode-btns">${stDispatchModeBtnsHtml(mode)}</div>
-      <textarea id="st-dispatch-instruction" class="st-dispatch-input" rows="2" placeholder="指令：描述接下来要发生的剧情，@ 提及角色可指定参演…" spellcheck="false"></textarea>
+      <div class="st-mention-relative">
+        <textarea id="st-dispatch-instruction" class="st-dispatch-input" rows="2" placeholder="指令：描述接下来要发生的剧情，@ 提及角色可指定参演…" oninput="stDispatchInstructionInput(this.value)" onkeydown="stDispatchInstructionKeydown(event)" spellcheck="false"></textarea>
+        <div class="st-mention-panel" id="st-dispatch-mention-panel"></div>
+      </div>
       <div class="st-dispatch-mention-tags" id="st-dispatch-tags"></div>
       <div class="st-dispatch-controls">
-        <div class="st-dispatch-mention">
-          <span class="st-mention-label">@ 提及</span>
-          <div class="st-mention-relative">
-            <input id="st-dispatch-mention" class="st-mention-input" placeholder="输入 @ 提及角色 / 地点 / 物品…" autocomplete="off" spellcheck="false" oninput="stDispatchMentionInput(this.value)" onkeydown="stMentionKeydown(event,'dispatch')">
-            <div class="st-mention-panel" id="st-dispatch-mention-panel"></div>
-          </div>
-        </div>
         <div class="st-dispatch-row">
           <label class="st-st-label">StoryTime
             <input id="st-dispatch-st" class="st-st-input" value="${escapeHtml(App.storyTime || '')}" placeholder="如 ch007.ev001" spellcheck="false">
@@ -666,8 +664,9 @@ function stSelectMention(id, source) {
     if (!mentions.some((m) => m.id === id)) mentions.push(opt);
     setStState('dispatchMentions', mentions);
     stRenderDispatchTags();
-    const input = $('#st-dispatch-mention');
-    if (input) { input.value = ''; input.focus(); }
+    // BUG-012：inline @ 选中后将 @name 插入指令 textarea（与聊天框一致），characterIds 仍由 dispatchMentions 提供
+    const ta = $('#st-dispatch-instruction');
+    if (ta) { stInsertMentionText(ta, opt.name); ta.focus(); }
   } else {
     const ta = $('#st-chat-textarea');
     if (ta) stInsertMentionText(ta, opt.name);
@@ -719,7 +718,8 @@ function stChatKeydown(event) {
   }
 }
 
-function stDispatchMentionInput(value) {
+// BUG-012：派发指令 textarea 改为 inline @（与聊天框一致），原独立 mention 输入框已移除
+function stDispatchInstructionInput(value) {
   const atIdx = value.lastIndexOf('@');
   if (atIdx >= 0) {
     const after = value.slice(atIdx + 1);
@@ -730,6 +730,12 @@ function stDispatchMentionInput(value) {
     }
   }
   stCloseMentionPanel('dispatch');
+}
+
+function stDispatchInstructionKeydown(event) {
+  if (stMentionPanelOpen('dispatch')) {
+    stMentionKeydown(event, 'dispatch');
+  }
 }
 
 // ==================== 会话交互 ====================
@@ -745,6 +751,7 @@ async function stSwitchSession(id) {
     setStState('studioMessages', []);
     handleApiError(e);
   }
+  setStState('chatAutoScroll', true);
   renderView();
 }
 
@@ -756,6 +763,7 @@ function stNewSession() {
   setStState('studioSessions', [session].concat(stState('studioSessions', [])));
   setStState('currentSessionId', id);
   setStState('studioMessages', []);
+  setStState('chatAutoScroll', true);
   renderView();
 }
 
@@ -766,6 +774,7 @@ async function stSendChat() {
   if (!ta) return;
   const text = ta.value.trim();
   if (!text || stState('studioBusy', false)) return;
+  setStState('chatAutoScroll', true);
   ta.value = '';
   stCloseMentionPanel('chat');
   const msg = { role: 'user', text, ts: new Date().toISOString() };
@@ -1018,8 +1027,15 @@ function stFinalizeOrchestration(orch) {
     setStState('stream', stream);
   }
   if (orch.live) {
-    const msgs = stState('studioMessages', []).concat([{ ...orch.live }]);
-    setStState('studioMessages', msgs);
+    // BUG-015：live 消息无文本且无工具调用时不保留空气泡——移除 DOM 且不入库
+    const hasContent = (orch.live.text && orch.live.text.trim()) || (orch.live.toolCalls && orch.live.toolCalls.length);
+    if (!hasContent) {
+      const liveEl = $('#st-live-msg');
+      if (liveEl) liveEl.remove();
+    } else {
+      const msgs = stState('studioMessages', []).concat([{ ...orch.live }]);
+      setStState('studioMessages', msgs);
+    }
   }
   orch.live = null;
   if (orch.timer) { clearTimeout(orch.timer); orch.timer = null; }
@@ -1120,6 +1136,7 @@ function stCloseDispatchForm() {
 }
 
 async function stSubmitDispatch() {
+  setStState('chatAutoScroll', true);
   const instructionEl = $('#st-dispatch-instruction');
   const stEl = $('#st-dispatch-st');
   const instruction = (instructionEl ? instructionEl.value : '').trim();
@@ -1183,9 +1200,36 @@ function stToolAction(name) {
 
 // ==================== DOM 工具 ====================
 
-function stScrollChatToBottom() {
+// BUG-013：用户上滑查看历史时不强制拉回底部；仅 chatAutoScroll 开启时自动跟随，
+// 并在非底部时显示「跳转到最新」按钮
+function stIsChatNearBottom() {
+  const el = $('#st-chat-messages');
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+}
+
+function stChatScrollCheck() {
+  setStState('chatAutoScroll', stIsChatNearBottom());
+  stRenderJumpToLatest();
+}
+
+function stJumpToLatest() {
+  setStState('chatAutoScroll', true);
   const el = $('#st-chat-messages');
   if (el) el.scrollTop = el.scrollHeight;
+  stRenderJumpToLatest();
+}
+
+function stRenderJumpToLatest() {
+  const el = $('#st-jump-to-latest');
+  if (!el) return;
+  el.style.display = stState('chatAutoScroll', true) ? 'none' : '';
+}
+
+function stScrollChatToBottom() {
+  const el = $('#st-chat-messages');
+  if (!el) return;
+  if (stState('chatAutoScroll', true)) el.scrollTop = el.scrollHeight;
 }
 
 function stAppendMessageEl(html) {

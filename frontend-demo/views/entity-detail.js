@@ -84,10 +84,13 @@ function detailDeclText(decl) {
 
 // 可见性矩阵单元格状态（取该角色对该声明的生效记录，回退任意记录）
 function detailVisFor(declId, characterId) {
-  const recs = detailState.visibility[declId] || [];
-  return recs.find(v => v.characterId === characterId && v.validTo === 'Infinity')
-    || recs.find(v => v.characterId === characterId)
-    || null;
+  const recs = (detailState.visibility[declId] || []).filter(v => v.characterId === characterId);
+  const T = detailState.previewAt;
+  // BUG-011：预览历史时间点 T 时，只取 T 点生效的可见性记录（validFrom<=T<validTo）
+  const atT = T
+    ? recs.filter(v => DemoUtils.compareStoryTime(v.validFrom, T) <= 0 && (v.validTo === 'Infinity' || DemoUtils.compareStoryTime(v.validTo, T) > 0))
+    : recs;
+  return atT.find(v => v.validTo === 'Infinity') || atT[0] || null;
 }
 
 // ---------- 数据加载 ----------
@@ -281,8 +284,13 @@ function detailPropertiesPanel() {
 // ---- 声明 ----
 
 function detailDeclarationsPanel() {
-  const decls = ((detailState.data && detailState.data.declarations) || [])
-    .slice()
+  const T = detailState.previewAt;
+  let decls = (detailState.data && detailState.data.declarations) || [];
+  // BUG-011：预览历史时间点 T 时，只显示 T 点仍生效的声明（validFrom<=T<validTo）
+  if (T) {
+    decls = decls.filter(d => DemoUtils.compareStoryTime(d.validFrom, T) <= 0 && (d.validTo === 'Infinity' || DemoUtils.compareStoryTime(d.validTo, T) > 0));
+  }
+  decls = decls.slice()
     .sort((a, b) => DemoUtils.compareStoryTime(b.validFrom, a.validFrom));
   const cards = decls.map(d => {
     const closed = d.validTo !== 'Infinity';
@@ -312,7 +320,7 @@ function detailDeclarationsPanel() {
     </div>`;
   }).join('');
   return `
-    <div class="section-label">声明历史 · 时间倒序</div>
+    <div class="section-label">声明${T ? ' · 生效于 ' + escapeHtml(T) : '历史 · 时间倒序'}</div>
     ${cards || '<div class="detail-empty">暂无声明</div>'}`;
 }
 
@@ -320,7 +328,12 @@ function detailDeclarationsPanel() {
 
 function detailRelationsPanel() {
   const id = detailState.id;
-  const rels = (detailState.data && detailState.data.relations) || [];
+  const T = detailState.previewAt;
+  let rels = (detailState.data && detailState.data.relations) || [];
+  // BUG-011：预览历史时间点 T 时，只显示 T 点仍生效的关系（storyTime<=T 且未在 T 前闭合）
+  if (T) {
+    rels = rels.filter(r => DemoUtils.compareStoryTime(r.storyTime, T) <= 0 && (!r.closed || !r.closedAt || DemoUtils.compareStoryTime(r.closedAt, T) > 0));
+  }
   const out = rels.filter(r => r.sourceId === id);
   const inn = rels.filter(r => r.targetId === id);
 
@@ -358,7 +371,12 @@ function detailRelationsPanel() {
 // ---- 可见性 ----
 
 function detailVisibilityPanel() {
-  const decls = (detailState.data && detailState.data.declarations) || [];
+  const T = detailState.previewAt;
+  let decls = (detailState.data && detailState.data.declarations) || [];
+  // BUG-011：预览历史时间点 T 时，矩阵行只含 T 点生效的声明
+  if (T) {
+    decls = decls.filter(d => DemoUtils.compareStoryTime(d.validFrom, T) <= 0 && (d.validTo === 'Infinity' || DemoUtils.compareStoryTime(d.validTo, T) > 0));
+  }
   const chars = Object.values(App.viewState.entityIndex || {}).filter(e => e.entityType === 'character');
 
   const cell = (decl, ch) => {
@@ -393,8 +411,13 @@ function detailVisibilityPanel() {
 // ---- 事件 ----
 
 function detailEventsPanel() {
-  const events = ((detailState.data && detailState.data.events) || [])
-    .slice()
+  const T = detailState.previewAt;
+  let events = (detailState.data && detailState.data.events) || [];
+  // BUG-011：预览历史时间点 T 时，只显示 T 点及之前的事件
+  if (T) {
+    events = events.filter(ev => DemoUtils.compareStoryTime(ev.storyTime, T) <= 0);
+  }
+  events = events.slice()
     .sort((a, b) => DemoUtils.compareStoryTime(a.storyTime, b.storyTime));
   const rows = events.map(ev => {
     const src = ev.source === 'engine' ? { label: 'AI', cls: 'ai' } : { label: '手动', cls: 'manual' };

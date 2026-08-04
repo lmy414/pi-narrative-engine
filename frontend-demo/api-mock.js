@@ -26,7 +26,9 @@ function getEntityAtStoryTime(entityId, storyTime) {
   const snapshot = JSON.parse(JSON.stringify(entity));
   // 按 storyTime 过滤属性：只保留 validFrom <= storyTime 且 validTo > storyTime 的声明
   const relevant = MOCK_DECLARATIONS.filter(d => d.entityId === entityId && d.validFrom <= storyTime && (d.validTo === 'Infinity' || d.validTo > storyTime));
-  snapshot.properties = {};
+  // BUG-012：保留实体基础属性（name 等非声明驱动字段），再叠加声明驱动的时变属性，
+  // 否则 search 的 name.includes(term) 永远命中空串，@ 提及无法匹配实体
+  snapshot.properties = Object.assign({}, entity.properties);
   for (const d of relevant) snapshot.properties[d.property] = d.value;
   snapshot.alive = !(relevant.some(d => d.property === 'alive' && d.value === false));
   return snapshot;
