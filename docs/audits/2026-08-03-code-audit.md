@@ -545,3 +545,60 @@ function renderInline(text) {
 ---
 
 **报告结束。** 建议第一梯队 7 项立即处理，第二梯队 7 项本迭代处理。需要针对任何一项给出具体修复 patch，或对某模块做更深一轮审查，请告知。
+
+---
+
+## 附录：批次 1 修复状态（2026-08-04）
+
+> 第二阶段批次 1（分支 `20260804-orch-skeleton-security`）针对本审计高/中严重度项的修复状态。详细执行记录见 `docs/plans/2026-08-04-phase2-plan.md` 附录 A。
+
+### 🔴 高严重度
+
+| 编号 | 状态 | 证据 |
+|---|---|---|
+| 🔴-1 CORS `*` + 无鉴权 | ✅ tier1 已修 | 2026-08-03-fix-audit-tier1 已修并测过 |
+| 🔴-2 commit 一致性缺口 | ✅ fixed（master 已修，本批补文档） | `service.ts:132-150` catch 块从 err 取 appliedEventIds，部分写入时保留 plan；测试 `pipeline 部分写入失败：commit 回传实际 appliedEventIds（L-Test-1）` 覆盖 |
+| 🔴-3 子代理无超时 | ✅ fixed（master 已修，本批补文档） | `collect.ts:25-54` `timeoutMs=180_000` 默认值 + 超时 reject |
+| 🔴-4 EventQueue 无界 | ✅ fixed（master 已修，本批补文档） | `event-queue.ts:35-66` `maxLength=200` + `finishedTtlMs=1h` + `sweepFinished` 惰性清理；测试 `event-queue.test.ts` 5 项覆盖 |
+| 🔴-5 路径遍历 | ✅ fixed（master 已修，本批补文档） | `path-guard.ts` `assertPathInside` + 5 处入口调用：`orchestrator.ts:567 resolveChapterPath` / `chapter-tools.ts:37,68 chapter_read/write` / `import-card.ts:126 parseCardFile` / `import-tools.ts:20`；测试 `path-guard.test.ts` 覆盖 |
+| 🔴-6 Tauri CSP 关闭 | ✅ fixed（master 已修，本批补文档） | `tauri.conf.json:23` 完整 CSP（default-src 'self'; script-src 'self' 'unsafe-inline'; ...） |
+| 🔴-7 请求体/SSE | ✅ tier1 已修 | 2026-08-03-fix-audit-tier1 |
+| 🔴-8 onclick XSS | ✅ tier1 已修 | 2026-08-03-fix-audit-tier1 |
+| 🔴-9 WebGL 泄漏 | ✅ tier1 已修 | 2026-08-03-fix-audit-tier1 |
+| 🔴-10 renderInline javascript: | ✅ 已修 | visualizer-ui 删除 + vendor 本地化 |
+| 🔴-11 CDN SRI | ✅ 已修 | visualizer-ui 删除 + vendor 本地化 + .gitattributes |
+
+### M 中严重度（本批涉及）
+
+| 编号 | 状态 | 证据 |
+|---|---|---|
+| M-Logic-2 chapter_write ok=false 不抛错 | ✅ fixed（master 已修，本批补文档） | `chapter-tools.ts:73-77` 缺 targetEventId 抛错 |
+| M-Logic-9 2s 轮询无退避 | ✅ fixed（master 已修，本批补文档） | `studio.js:157-184` 动态间隔（busy 2s / idle 10s / 失败指数退避 2→30s） |
+| M-Logic-12 EventSource 无退避重连 | ✅ fixed（master 已修，本批补文档） | `api-client.js:218-264` 指数退避 1→30s + onError 仅首次通知 |
+| M-Collab-3 /api/scheduler/mode 全局影响 | ✅ fixed（master 已修，本批补文档） | `routes-scheduler.ts:225-228` 要求活跃项目上下文 |
+| M-Qual-1 collect details undefined 静默 resolve | ✅ fixed（master 已修，本批补文档） | `collect.ts:67` details 缺失时显式 reject |
+| M29 tauri prebuild 不触发 | ✅ fixed（master 已修，本批补文档） | `tauri.conf.json:9` `beforeBuildCommand: "node ../scripts/package-sidecar.mjs"` |
+
+### M 中严重度（本批未涉及，留待后续批次）
+
+| 编号 | 状态 | 后续批次 |
+|---|---|---|
+| M-Logic-1 llm-config getApiKey 回退链 | ⏳ 待修 | 批次 2（数据正确性 + Tauri 安全） |
+| M-Logic-3 CommitSummary.errors 丢 role 错误 | ⏳ 待修 | 批次 2 |
+| M-Logic-4 yolo 空输出继续渲染 | ⏳ 待修 | 批次 3 |
+| M-Logic-5 role-tools 缺 aborted 状态 | ⏳ 待修 | 批次 3 |
+| M-Logic-6 chat/world-tools source 无枚举校验 | ⏳ 复核 | 本批核对：`world_event_apply` 的 source 字段已用 `Type.Union([Type.Literal("engine"), Type.Literal("user")])`（world-tools.ts:88），审计可能针对其他字段，批次 3 复核 |
+| M-Logic-7 debug/sse TCP 半开连接泄漏 | ⏳ 待修 | 批次 5 |
+| M-Logic-8 navigate 替换 viewState 引用 | ⏳ 待修 | 批次 3 |
+| M-Logic-11 events.js storyTime 竞态 | ⏳ 待修 | 批次 3 |
+| M-Collab-2 message_end 未处理 | ⏳ 待修 | 批次 3 |
+| M-Collab-5 compareVersions git ls-remote 无超时 | ⏳ 待修 | 批次 5（注：BUG-009 修复时已加 5s 超时，需复核） |
+| M-Sec-1 HTTP 安全头缺失 | ⏳ 待修 | 批次 5 |
+| M-Sec-2 chat 持久化日志未明示 | ⏳ 待修 | 批次 5 |
+| M-Sec-3 novel-json 无 schema | ⏳ 待修 | 批次 5 |
+| M-Sec-4 auth.json 文件权限 | ✅ 已查证（§〇） | SDK 已设 0o600 |
+| M-Qual-5 串行角色注入多条 user message | ⏳ 待修 | 批次 5 |
+| M2/M6/M10/M13/M14 数据/工具层 | ⏳ 待修 | 批次 5 |
+| M17/M18/M19 admin 死代码 | ⏳ 待修 | 批次 6 |
+| M4b/M4c novel-importer | ⏳ 待修 | 批次 6 |
+| M20/M22/M24/M25/M27/M28 Tauri/构建残留 | ⏳ 待修 | 批次 6 |

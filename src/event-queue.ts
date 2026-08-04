@@ -149,8 +149,15 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
     return this.queue.slice();
   }
 
-  /** 队列长度（含所有状态） */
+  /** 队列长度（含所有状态，含已完成未清理项） */
   get length(): number {
     return this.queue.length;
+  }
+
+  /** 活跃任务数（pending + running）— 前端状态栏应使用此字段而非 length */
+  get activeCount(): number {
+    return this.queue.filter(
+      (q) => q.status === "pending" || q.status === "running",
+    ).length;
   }
 }

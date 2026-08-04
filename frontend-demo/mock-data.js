@@ -153,7 +153,8 @@ const MOCK_CHAT_MESSAGES = {
 };
 
 const MOCK_SCHEDULER_STATUS = {
-  queue: { length: 0, items: [] },
+  // G1-1/G1-2：mock 同步加 active 字段（pending+running 数；初始全为已完成项）
+  queue: { length: 0, active: 0, items: [] },
   plans: [
     {
       planId: 'plan-01',

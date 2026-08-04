@@ -350,6 +350,14 @@ const ApiMock = {
     return ok({ ...schedulerStatus, queue: { ...schedulerStatus.queue } });
   },
 
+  // G1-7：mock 模式下 chat status 永远不 streaming（mock 不走真实 LLM 流式）
+  async getChatStatus() {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    return ok({ isStreaming: false });
+  },
+
   async getSchedulerPlan(planId) {
     await delay();
     const err = requireActiveProject();
@@ -399,7 +407,9 @@ const ApiMock = {
       };
     } else {
       schedulerStatus.queue.items.push({ queueId: planId, mode, status: 'running' });
+      // G1-2：mock 同步维护 active = pending+running 数
       schedulerStatus.queue.length = schedulerStatus.queue.items.length;
+      schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
     }
     return ok({ queueId: planId, mode });
   },

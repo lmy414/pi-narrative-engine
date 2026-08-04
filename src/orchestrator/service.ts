@@ -36,17 +36,31 @@ export interface DispatchResult {
   result?: OrchestratorResult;
 }
 
-/** 队列状态查询返回 */
+/** 队列状态查询返回（G1-1：items 不再挂完整 result，按需走 getQueuedEvent） */
 export interface QueueStatusResult {
+  /** 队列总条目数（含已完成未清理项） */
   length: number;
+  /** 活跃任务数（pending + running）— 前端状态栏应使用此字段而非 length（G1-2） */
+  active: number;
   items: Array<{
     queueId: string;
     status: QueuedEvent["status"];
     storyTime?: string;
     enqueuedAt: number;
+    startedAt?: number;
     finishedAt?: number;
     error?: string;
-    result?: OrchestratorResult;
+    /** 结果摘要（不含完整 OrchestratorResult；前端按需调 getQueuedEvent 拉取完整 result） */
+    resultSummary?: {
+      mode: "plan" | "yolo";
+      planId?: string;
+      outputCount: number;
+      errorCount: number;
+      chapterPath?: string;
+      /** yolo 模式下 commit 摘要（plan 模式 commit 在 commit() 后才有） */
+      appliedEventIds?: string[];
+      writtenTextLength?: number;
+    };
   }>;
 }
 
@@ -173,20 +187,40 @@ export class OrchestratorService {
     };
   }
 
-  /** 队列状态查询 */
+  /** 队列状态查询（G1-1 瘦身：items 不挂完整 result，仅暴露 resultSummary 摘要） */
   queueStatus(): QueueStatusResult {
     const items = this.queue.getAll();
     return {
       length: items.length,
-      items: items.map((q) => ({
-        queueId: q.queueId,
-        status: q.status,
-        storyTime: (q.event as StructuredEvent | undefined)?.storyTime,
-        enqueuedAt: q.enqueuedAt,
-        ...(q.finishedAt !== undefined ? { finishedAt: q.finishedAt } : {}),
-        ...(q.error !== undefined ? { error: q.error } : {}),
-        ...(q.result !== undefined ? { result: q.result } : {}),
-      })),
+      active: this.queue.activeCount,
+      items: items.map((q) => {
+        const item: QueueStatusResult["items"][number] = {
+          queueId: q.queueId,
+          status: q.status,
+          storyTime: (q.event as StructuredEvent | undefined)?.storyTime,
+          enqueuedAt: q.enqueuedAt,
+          ...(q.startedAt !== undefined ? { startedAt: q.startedAt } : {}),
+          ...(q.finishedAt !== undefined ? { finishedAt: q.finishedAt } : {}),
+          ...(q.error !== undefined ? { error: q.error } : {}),
+        };
+        if (q.result) {
+          const r = q.result;
+          item.resultSummary = {
+            mode: r.mode,
+            planId: r.planId,
+            outputCount: r.outputs.length,
+            errorCount: r.errors.length,
+            chapterPath: r.chapterPath,
+            ...(r.commit
+              ? {
+                  appliedEventIds: r.commit.appliedEventIds,
+                  writtenTextLength: r.commit.writtenText.length,
+                }
+              : {}),
+          };
+        }
+        return item;
+      }),
     };
   }
 

@@ -7,7 +7,8 @@
  * - commit 幂等（重复 commit 报错）、discard 清理
  * - pipeline 抛错时 commit 返回失败并清理缓存
  * - yolo 模式：不缓存 plan（result.commit 已含落地摘要）
- * - queueStatus 暴露 result（A3）
+ * - queueStatus 暴露 resultSummary 摘要 + active 活跃数（A3 + G1-1/G1-2 瘦身）
+ * - 完整 result 按需走 getQueuedEvent（不再每 2s 全量序列化）
  */
 
 import { test } from "node:test";
@@ -191,12 +192,20 @@ test("yolo 模式：不缓存 plan（result 已含自动落地摘要）", async 
   const status = service.queueStatus();
   const done = status.items.find((i) => i.status === "done");
   assert.ok(done, "队列有 done 项");
-  assert.equal(done?.result?.mode, "yolo");
-  assert.equal(done?.result?.commit?.ok, true);
-  assert.equal(done?.result?.commit?.writtenText, "正文");
+  // G1-1 瘦身：queueStatus 仅暴露 resultSummary，完整 result 走 getQueuedEvent
+  assert.equal(done?.resultSummary?.mode, "yolo");
+  assert.equal(done?.resultSummary?.chapterPath, "chapters/ch001.md");
+  assert.deepEqual(done?.resultSummary?.appliedEventIds, ["evt_x"]);
+  assert.equal(done?.resultSummary?.writtenTextLength, 2); // "正文".length === 2
+  assert.equal(done?.result, undefined, "queueStatus 不再暴露完整 result");
+  // 按需拉取完整 result
+  const full = service.getQueuedEvent(done!.queueId);
+  assert.equal(full?.result?.mode, "yolo");
+  assert.equal(full?.result?.commit?.ok, true);
+  assert.equal(full?.result?.commit?.writtenText, "正文");
 });
 
-test("queueStatus 暴露完整编排结果（A3）", async () => {
+test("queueStatus 暴露摘要而非完整 result（A3 + G1-1 瘦身）", async () => {
   const { fake } = makeFakeOrchestrator();
   const service = new OrchestratorService(fake);
   service.dispatch(makeResult("plan").event);
@@ -204,11 +213,38 @@ test("queueStatus 暴露完整编排结果（A3）", async () => {
 
   const status = service.queueStatus();
   assert.equal(status.length, 1);
+  // G1-2：active 字段区分活跃 vs 累计
+  assert.equal(status.active, 0, "完成后 active=0（区分 length 累计）");
   const item = status.items[0];
   assert.equal(item.status, "done");
-  assert.equal(item.result?.mode, "plan");
-  assert.equal(item.result?.planId, "plan_test_1");
-  assert.equal(item.result?.event.storyTime, "ch001.ev001");
+  assert.equal(item.result, undefined, "不再暴露完整 result（瘦身）");
+  assert.equal(item.resultSummary?.mode, "plan");
+  assert.equal(item.resultSummary?.planId, "plan_test_1");
+  assert.equal(item.resultSummary?.outputCount, 0);
+  assert.equal(item.resultSummary?.errorCount, 0);
+  assert.equal(item.resultSummary?.chapterPath, "chapters/ch001.md");
+  // 完整 result（含 event.storyTime 等）按需走 getQueuedEvent
+  const full = service.getQueuedEvent(item.queueId);
+  assert.equal(full?.result?.event.storyTime, "ch001.ev001");
+});
+
+test("queueStatus.active 反映 pending/running 数（G1-2）", async () => {
+  let release!: () => void;
+  const blocker = new Promise<void>((r) => { release = r; });
+  const { fake } = makeFakeOrchestrator();
+  // 临时替换 run 让 worker 挂起
+  (fake as unknown as { run: unknown }).run = async () => { await blocker; return makeResult("plan"); };
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await new Promise((r) => setTimeout(r, 20));
+  const status = service.queueStatus();
+  assert.equal(status.active, 1, "running 中 active=1");
+  assert.equal(status.length, 1, "length 也为 1（同一项）");
+  release();
+  await waitWorker();
+  const doneStatus = service.queueStatus();
+  assert.equal(doneStatus.active, 0, "完成后 active=0");
+  assert.equal(doneStatus.length, 1, "length 仍为 1（已完成未清理）");
 });
 
 test("listPlans：待确认 plan 摘要，commit/discard 后移除", async () => {

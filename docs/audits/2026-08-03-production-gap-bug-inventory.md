@@ -123,3 +123,34 @@ HTTP 侧新增：
 - 事件链点击跳顶 → `eventSelectEvent` 改定向 DOM 更新（`events.js:395`）。
 - 聊天 agent_end 后内容被旧会话覆盖 → sessions 加 `live` 标记、status 加 `sessionId`，前端 `stResolveSessionId` 一律对齐 live 会话。
 - `collectSubmission` 工具失败导致 Node 24 未处理 rejection 崩溃 → 立即 rejection observer（`src/agents/collect.ts:39`）。
+
+## 6. 批次 1 修复状态（2026-08-04）
+
+> 第二阶段批次 1（分支 `20260804-orch-skeleton-security`）针对本清单 §1/§2/§4 的修复状态。详细执行记录见 `docs/plans/2026-08-04-phase2-plan.md` 附录 A。
+
+### §4 优先级建议对应修复
+
+| 优先级建议 | 状态 | 证据 |
+|---|---|---|
+| P0：queue.length 语义（活跃 vs 累计） | ✅ fixed | `event-queue.ts` 新增 `activeCount` getter；`service.ts` `queueStatus` 新增 `active` 字段；`studio.js` 状态栏改用 `active` |
+| P0：status 轮询瘦身（items 只给摘要） | ✅ fixed | `service.ts` `queueStatus` 移除 `result` 全量挂载，改 `resultSummary` 摘要（mode/planId/outputCount/errorCount/chapterPath/appliedEventIds/writtenTextLength） |
+| P0：队列错误可见化 | ⏳ 推批次 3 | G1-6 留待批次 3（编排可见性 + 前端健壮小项） |
+| P1：planDetail 轮询竞态容错 | ✅ fixed | `studio.js` `stLoadPlanDetails` 改 `Promise.allSettled` + 404 静默 |
+| P1：yolo 结果呈现 | ⏳ 推批次 3 | G1-5 留待批次 3 |
+| P1：编排阶段进度接入 studio | ⏳ 推批次 3 | 留待批次 3 |
+| P1：文件树 name 字段 | ✅ 历史已修 | BUG-001 fixed（2026-08-03-fix-frontend-4-bugs） |
+| P2：会话管理按 §3 落地 | ❌ 暂不做 | 用户决策：G2 全部暂不做，含假会话 404 toast |
+| P2：项目切换全量状态重置 | ✅ 历史已修 | BUG-003 fixed |
+| P2：驻留视图失效机制 | ✅ 历史已修 | BUG-004 fixed |
+| P2：busy 对齐 isStreaming | ✅ fixed | `studio.js` `stStartRealRuntime` 拉 `/api/chat/status.isStreaming`；`api-client.js` 新增 `getChatStatus` |
+| P2：demo 残留清理 | ⏳ 推批次 3 | G1-4 留待批次 3 |
+
+### §1.1 假会话 404 toast
+
+- **状态**：❌ 暂不修（用户决策）
+- **理由**：G2 整体暂不做，假会话 404 toast 与真会话功能一并解决
+
+### §1.2 host 懒启动 + 每次 host 启动新建会话碎片
+
+- **状态**：❌ 暂不做（用户决策）
+- **理由**：同上，依赖 G2-3 启动恢复最近会话

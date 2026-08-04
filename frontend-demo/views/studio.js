@@ -92,9 +92,17 @@ async function stLoadData() {
 }
 
 async function stLoadPlanDetails(status) {
+  // G1-3 修复：改用 Promise.allSettled + 404 静默。
+  // 旧实现用 Promise.all：plan 在状态轮询间被 commit/discard 后，下一轮拉取详情会
+  // 404，整组 reject 触发 toast 轰炸。现在每条独立 settle，rejected（404 等）静默
+  // 跳过——plan 列表本身在下次 status 轮询会更新，不需要在详情拉取层报错。
   const summaries = (status && status.plans) || [];
-  const details = await Promise.all(summaries.map((plan) => apiCall('getSchedulerPlan', plan.planId)));
-  setStState('planDetails', Object.fromEntries(details.map((plan) => [plan.planId, plan])));
+  const results = await Promise.allSettled(summaries.map((plan) => apiCall('getSchedulerPlan', plan.planId)));
+  const details = {};
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') details[summaries[i].planId] = r.value;
+  });
+  setStState('planDetails', details);
 }
 
 viewLoaders.studio = stLoadData;
@@ -105,9 +113,10 @@ ViewRender.studio = () => {
   const sessions = stState('studioSessions', []);
   const currentId = stState('currentSessionId', null);
   const messages = stState('studioMessages', []);
-  const status = stState('schedulerStatus', { queue: { length: 0, items: [] }, plans: [], defaultMode: 'plan' });
+  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
   const mode = stState('stMode', status.defaultMode || 'plan');
-  const busy = stState('studioBusy', false);
+  // G1-7：busy = 编排 busy OR 主会话流式中（chatStreaming）
+  const busy = stState('studioBusy', false) || stState('chatStreaming', false);
   const details = stState('planDetails', {});
   const plans = (status.plans || []).map((plan) => details[plan.planId] || plan);
 
@@ -166,12 +175,26 @@ function stStartRealRuntime() {
       consecutiveFailures = 0;
       setStState('schedulerStatus', status);
       await stLoadPlanDetails(status);
+      // G1-7 修复：编排队列空闲 ≠ 主会话空闲——主会话可能正在 LLM 流式输出
+      // （isStreaming=true，但 queue.active=0）。并行拉取 /api/chat/status，
+      // 用 isStreaming 兜底 busy，避免"切走回来撞 409 / 状态栏误报空闲"。
+      try {
+        const chatStatus = await apiCall('getChatStatus');
+        if (generation !== stRuntimeGeneration) return;
+        setStState('chatStreaming', !!(chatStatus && chatStatus.isStreaming));
+      } catch (_) {
+        // chat status 拉取失败不影响 scheduler 轮询主路径
+        if (generation === stRuntimeGeneration) setStState('chatStreaming', false);
+      }
       if (generation !== stRuntimeGeneration) return;
       stRenderPlanCards();
       stRenderStages();
       stRenderQueueStatus();
+      // busy = 编排队列活跃 OR 主会话流式中
       const items = (status.queue && status.queue.items) || [];
-      const busy = items.some((item) => item.status === 'running' || item.status === 'pending');
+      const queueBusy = items.some((item) => item.status === 'running' || item.status === 'pending');
+      const chatBusy = !!stState('chatStreaming', false);
+      const busy = queueBusy || chatBusy;
       intervalMs = busy ? 2000 : 10000;
     } catch (error) {
       consecutiveFailures += 1;
@@ -276,10 +299,12 @@ function stTextHtml(text) {
 // ==================== 中栏：控制条 / 消息 / 输入区 ====================
 
 function stControlBarHtml(mode, status, busy) {
-  const queueLen = status.queue && status.queue.length ? status.queue.length : 0;
+  // G1-2：用 active（pending+running）替代 length（累计含已完成未清理项）
+  const queueActive = status.queue && status.queue.active != null ? status.queue.active : (status.queue && status.queue.length ? status.queue.length : 0);
   const planCount = (status.plans || []).length;
-  const statusText = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueLen > 0 ? `${queueLen} 个任务执行中` : '空闲';
-  const dotClass = busy ? 'running' : planCount > 0 ? 'waiting' : queueLen > 0 ? 'running' : 'idle';
+  // G1-7：busy 也包含主会话流式中（chatStreaming）— 顶层传入
+  const statusText = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueActive > 0 ? `${queueActive} 个任务执行中` : '空闲';
+  const dotClass = busy ? 'running' : planCount > 0 ? 'waiting' : queueActive > 0 ? 'running' : 'idle';
   return `
   <div class="st-control-bar" id="st-control-bar">
     <div class="st-mode-toggle" id="st-mode-toggle">${stModeToggleHtml(mode)}</div>
@@ -1182,13 +1207,15 @@ function stRenderModeControls() {
 function stRenderQueueStatus() {
   const el = $('#st-queue-text');
   if (!el) return;
-  const status = stState('schedulerStatus', { queue: { length: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  const busy = stState('studioBusy', false);
-  const queueLen = status.queue && status.queue.length ? status.queue.length : 0;
+  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
+  // G1-7：busy 含主会话流式中
+  const busy = stState('studioBusy', false) || stState('chatStreaming', false);
+  // G1-2：用 active（pending+running）替代 length
+  const queueActive = status.queue && status.queue.active != null ? status.queue.active : (status.queue && status.queue.length ? status.queue.length : 0);
   const planCount = (status.plans || []).length;
-  el.textContent = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueLen > 0 ? `${queueLen} 个任务执行中` : '空闲';
+  el.textContent = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueActive > 0 ? `${queueActive} 个任务执行中` : '空闲';
   const dot = $('#st-control-bar') ? $('#st-control-bar').querySelector('.st-queue-dot') : null;
   if (dot) {
-    dot.className = 'st-queue-dot st-queue-' + (busy ? 'running' : planCount > 0 ? 'waiting' : queueLen > 0 ? 'running' : 'idle');
+    dot.className = 'st-queue-dot st-queue-' + (busy ? 'running' : planCount > 0 ? 'waiting' : queueActive > 0 ? 'running' : 'idle');
   }
 }

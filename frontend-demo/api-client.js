@@ -167,6 +167,8 @@
     getChatSessions: function () { return get('/chat/sessions'); },
     getChatMessages: function (sessionId) { return get('/chat/sessions/' + part(sessionId) + '/messages'); },
     sendChatMessage: function (text) { return post('/chat/message', { text: text }); },
+    // G1-7：拉取主会话流式状态（isStreaming），用于编排空闲但主会话仍在 LLM 输出时兜底 busy
+    getChatStatus: function () { return get('/chat/status'); },
     getSchedulerStatus: function () { return get('/scheduler/status'); },
     getSchedulerPlan: function (planId) { return get('/scheduler/plans/' + part(planId)); },
     setSchedulerMode: function (mode) { return put('/scheduler/mode', { mode: mode }); },
