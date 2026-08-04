@@ -3004,8 +3004,9 @@ body .detail-drawer {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap; /* BUG-010：窄视口下 dispatch-row 空间不足时换行，避免按钮溢出 main 被 sidebar 覆盖 */
 }
-.st-dispatch-mention { display: flex; align-items: center; gap: 8px; }
+.st-dispatch-mention { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 180px; }
 .st-mention-label { font-size: 12px; color: var(--text-500); white-space: nowrap; }
 .st-mention-relative { position: relative; }
 .st-mention-input {
@@ -3022,7 +3023,7 @@ body .detail-drawer {
   border-color: var(--brand-400);
   box-shadow: 0 0 0 2px var(--brand-100);
 }
-.st-dispatch-row { display: flex; align-items: flex-end; gap: 10px; }
+.st-dispatch-row { display: flex; align-items: flex-end; gap: 10px; flex-shrink: 0; } /* BUG-010：不被挤压，空间不足时由父级 wrap 换行 */
 .st-st-label {
   display: flex;
   flex-direction: column;

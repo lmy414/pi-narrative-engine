@@ -28,7 +28,7 @@
 | BUG-007 | 2026-08-03-fix-frontend-4-bugs | P3 | studio | 无 --embed 启动时 chat/scheduler 端点 501 EMBEDDER_UNAVAILABLE（环境性，待带 --embed 复测） | fixed | 2026-08-03-fix-favicon-embed |
 | BUG-008 | 2026-08-03-fix-audit-tier1 | P1 | studio | 计划「提交」按钮点击后无任何视觉反馈（withLoading 的 loading 覆盖层无对应 CSS，为死代码），commit 为 LLM 重操作可能数秒~数十秒无反应，用户误以为按钮失效 | fixed | 2026-08-03-fix-bug8-9 |
 | BUG-009 | 2026-08-03-fix-audit-tier1 | P2 | 设置页 #/settings | 设置面板打开响应慢（settingsLoad 串行拉 8 个端点，其中 /api/admin/version 走 git ls-remote 网络请求实测 4.5s~14.4s，doctor spawn git；全部串行阻塞首屏渲染） | fixed | 2026-08-03-fix-bug8-9 |
-| BUG-010 | 2026-08-04-orch-skeleton | P1 | studio | 派发表单"派发"提交按钮点击被右侧 sidebar 拦截（z-index/positioning 重叠，browser_use 报 Click target intercepted），用户无法通过 UI 提交派发 | open | — |
+| BUG-010 | 2026-08-04-orch-skeleton | P1 | studio | 派发表单"派发"提交按钮点击被右侧 sidebar 拦截（z-index/positioning 重叠，browser_use 报 Click target intercepted），用户无法通过 UI 提交派发 | fixed | 2026-08-04-batch3-frontend-robust |
 
 > BUG-001 / BUG-002 历史溯源：首次见于 `2026-08-03-production-gap-bug-inventory.md` §2（用户实测上报），2026-08-03-fix-frontend-4-bugs 修复并实测确认。
 > BUG-003 / BUG-004 历史溯源：同上文档 §2 Bug 3/4，修复轮以 2 临时项目补测通过（switch 清理 / 驻留自动刷新）。

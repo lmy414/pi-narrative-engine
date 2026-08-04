@@ -586,15 +586,15 @@ function renderInline(text) {
 | M-Logic-1 llm-config getApiKey 回退链 | ✅ fixed（批次 2 文档同步） | `llm-config.ts:144` getApiKey 只从 resolveConfig(slot) 取 key，不再跨 provider 借 key |
 | M-Logic-3 CommitSummary.errors 丢 role 错误 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:464-468` 聚合 trace.roleErrors 到 errors 数组 |
 | M-Logic-4 yolo 空输出继续渲染 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:329-348` outputs 为空时跳过后半链路，返回含错误信息的 commit |
-| M-Logic-5 role-tools 缺 aborted 状态 | ⏳ 待修 | 后续批次 |
+| M-Logic-5 role-tools 缺 aborted 状态 | ✅ fixed（批次 3 文档同步） | `role-tools.ts:60` + `render-tools.ts:42` 处理 `stopReason === "aborted"` |
 | M-Logic-6 chat/world-tools source 无枚举校验 | ⏳ 复核 | 本批核对：`world_event_apply` 的 source 字段已用 `Type.Union([Type.Literal("engine"), Type.Literal("user")])`（world-tools.ts:88），审计可能针对其他字段，后续复核 |
-| M-Logic-7 debug/sse TCP 半开连接泄漏 | ⏳ 待修 | 后续批次 |
+| M-Logic-7 debug/sse TCP 半开连接泄漏 | ✅ fixed（批次 3 文档同步） | `debug/sse.ts` markDead + TCP 半开探测（writableLength 持续非零超 60s 判死连接清理） |
 | M-Logic-8 navigate 替换 viewState 引用 | ✅ fixed（批次 2 文档同步） | `app.js:184-187` 浅合并 viewState，不替换整个 App.viewState 引用 |
 | M-Logic-11 events.js storyTime 竞态 | ✅ fixed（批次 2 文档同步） | `events.js:51` + `graph.js:51` 代际守卫（seq 检查），过期请求写入丢弃 |
 | M-Collab-2 message_end 未处理 | ✅ fixed（批次 2 新写） | `studio.js` stHandleChatEvent 处理 message_end，stopReason=error 时 live 消息标红 |
-| M-Collab-5 compareVersions git ls-remote 无超时 | ⏳ 待修 | 批次 5（注：BUG-009 修复时已加 5s 超时，需复核） |
-| M-Sec-1 HTTP 安全头缺失 | ⏳ 待修 | 批次 5 |
-| M-Sec-2 chat 持久化日志未明示 | ⏳ 待修 | 批次 5 |
+| M-Collab-5 compareVersions git ls-remote 无超时 | ✅ fixed（批次 3 复核确认） | `updater.ts:67` `timeoutMs ?? 5000` 默认 5s 超时 + kill 子进程（BUG-009 修复时已加，本批复核确认） |
+| M-Sec-1 HTTP 安全头缺失 | ⏳ 待修 | 后续批次 |
+| M-Sec-2 chat 持久化日志未明示 | ✅ fixed（批次 3 复核确认） | `routes-chat.ts:91-96` M-Sec-2 修复：不落盘用户输入原文，仅记录 chars 长度等元信息 |
 | M-Sec-3 novel-json 无 schema | ⏳ 待修 | 批次 5 |
 | M-Sec-4 auth.json 文件权限 | ✅ 已查证（§〇） | SDK 已设 0o600 |
 | M-Qual-5 串行角色注入多条 user message | ⏳ 待修 | 批次 5 |
