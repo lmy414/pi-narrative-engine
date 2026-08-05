@@ -49,11 +49,12 @@
   - 实际：#st-chat-textarea exists, disabled=false, value=""
   - 结果：✅ PASS
 
-- [x] TC-005 切换会话不重新建立 SSE 连接（功能·关键）⏭️ N/A
+- [x] TC-005 切换会话不重新建立 SSE 连接（功能·关键）⏭️ N/A → 真实 LLM 复测 ✅
   - 步骤：切换会话前后检查 SSE 连接
   - 预期：SSE 连接保持不断开；事件流按 sessionId 路由
   - 实际：mock 模式不建立 SSE 连接（studio.js 中 ApiRuntime.isMock 为 true 时走 stRunOrchestration 本地模拟，不调 stEnsureChatSubscription）。SSE 多路复用逻辑由后端单测覆盖（tests/chat-routes.test.ts SSE 多路复用测试通过）
-  - 结果：⏭️ N/A（mock 模式不适用，后端单测已覆盖）
+  - **补充（真实 LLM 调用测试，2026-08-05）**：改用后端 API 直连 + 真实 DeepSeek 调用复测——建立 SSE 连接后 POST /api/chat/message 进入 streaming，期间 POST /api/chat/sessions/:id/activate 切换会话，SSE 连接保持（`sseClosed: false`），后台生成持续推送 54 个 `pi` 事件至原 sessionId，完成后收到 `background_complete`。确认切换会话不重建/不断开 SSE，事件按 sessionId 路由。
+  - 结果：✅ PASS（真实环境补测通过，非 mock 模式 SSE 连接保持 + 事件按 sessionId 路由）
 
 ### 页面：studio · 按会话维护 busy 状态
 
@@ -148,7 +149,7 @@
 > 本轮测试未发现代码缺陷。所有功能性、交互性、控制台洁净、回归用例均通过。
 
 ## 小结
-- 通过 15 项 / 失败 0 项 / 跳过 1 项（TC-005 mock 模式不适用 SSE，后端单测已覆盖）
+- 通过 15 项 / 失败 0 项 / 跳过 0 项（TC-005 原 mock N/A，经真实 LLM 调用补测改为 PASS，见 TC-005 小节）
 - 缺陷分布：P0 0 / P1 0 / P2 0 / P3 0
 - 总体评价：多 session 并存 + 后台生成不中断 + busy 状态按 sessionId 维护 + background_complete/error 事件处理 + agent_end 清除 busy 全部按设计工作。会话切换不阻塞、streaming/error 状态正确显示、事件路由按 sessionId 分流、其他视图无回归。mock 编排集成流程正常。可以进入提交流程。
 
