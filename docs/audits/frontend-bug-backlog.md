@@ -34,6 +34,7 @@
 | BUG-013 | 2026-08-04-user-reported | P1 | studio → 聊天区 | 聊天区无条件自动滚到底部（stScrollChatToBottom 在 8 处被调用：初始渲染/实时消息/工具事件/编排完成/流式打字/消息追加/计划卡片渲染），用户滚动查看历史时被强制拉回底部。建议改为：移除无条件自动滚动，增加「跳转到最新」按钮 | fixed | 2026-08-04-batch4-frontend-bugs |
 | BUG-014 | 2026-08-04-user-reported | P1 | studio → 提交(commit) | 「提交」按钮点击后「处理中」阻塞时间过长。**后端准确流程**：plan 模式分两阶段——(1)dispatch 阶段(异步)：入队即返回，后台 worker 串行跑 planner LLM + 角色代理 LLM×N，完成后缓存 plan；(2)commit 阶段(同步)：runPostRolePipeline 串行跑 reasoning LLM + renderer LLM，共 2 次 LLM 调用。用户截图场景为 plan 已展示角色演绎结果(前半链路已完成)，点击提交触发后半链路 2 次 LLM 串行调用，每次数秒~数十秒。前端 withLoading 全程同步阻塞无阶段反馈。**用户建议修复方向：commit 改为异步**——将 runPostRolePipeline 也入 EventQueue，commit 入队即返回(与 dispatch 行为一致)，前端轮询 queue status 获取结果，plan 卡片显示推理中/渲染中进度 | fixed | 2026-08-04-bug014-async-commit |
 | BUG-015 | 2026-08-04-user-reported | P2 | studio → 聊天/编排面板 | 聊天/编排面板出现空白气泡（截图显示多条 AI 助手消息气泡内容为空）。根因：mock 模式下 stRunOrchestration 的编排脚本中 `stream` 步骤文本为固定字符串，但 stEnsureLiveMessage 创建了气泡 DOM 后 stStartStreaming 填充文本，若流式未完成就被 finish 覆盖或 stStreamStep 未执行完整，则出现空文本气泡；另外 stEnsureLiveMessage 创建 live DOM 时 text 为空串，若后续 stream 步骤未触发或被中断，该气泡保持空内容 | fixed | 2026-08-04-batch4-frontend-bugs |
+| BUG-016 | 2026-08-05-sessions | P1 | studio → 新建议程 | 点击"新建议程"按钮后列表未新增会话项、聊天区未清空；但后续发送消息无 404，疑似 createChatSession 请求成功但前端状态未更新或渲染未触发 | open | |
 
 > BUG-001 / BUG-002 历史溯源：首次见于 `2026-08-03-production-gap-bug-inventory.md` §2（用户实测上报），2026-08-03-fix-frontend-4-bugs 修复并实测确认。
 > BUG-003 / BUG-004 历史溯源：同上文档 §2 Bug 3/4，修复轮以 2 临时项目补测通过（switch 清理 / 驻留自动刷新）。
