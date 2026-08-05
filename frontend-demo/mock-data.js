@@ -152,46 +152,6 @@ const MOCK_CHAT_MESSAGES = {
   ]
 };
 
-const MOCK_SCHEDULER_STATUS = {
-  // G1-1/G1-2：mock 同步加 active 字段（pending+running 数；初始全为已完成项）
-  // G1-6：预置 1 个 error 条目，演示队列错误可见化（派发失败文案展示）
-  queue: { length: 1, active: 0, items: [
-    { queueId: 'plan-demo-err', mode: 'yolo', status: 'error', error: 'retrieval_plan 参数非法：characterIds 为空', storyTime: 'ch006.ev008' }
-  ] },
-  plans: [
-    {
-      planId: 'plan-01',
-      storyTime: 'ch006.ev008',
-      mode: 'plan',
-      characterIds: ['char-01', 'char-02'],
-      outputCount: 3,
-      errorCount: 0,
-      status: 'confirmed'
-    }
-  ],
-  defaultMode: 'plan'
-};
-
-const MOCK_PLAN_DETAILS = {
-  'plan-01': {
-    planId: 'plan-01', storyTime: 'ch006.ev008', mode: 'plan', characterIds: ['char-01', 'char-02'],
-    status: 'confirmed',
-    cast: [
-      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长' },
-      { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员' }
-    ],
-    outputs: [
-      { actor: '林远航', action: '质问商人水晶的来历', thought: '这件遗物与父亲有关', emotion: '警觉', state_changes: [], knowledge_gained: ['共鸣水晶来自旧族'] },
-      { actor: '艾莉亚', action: '观察水晶上的旧族纹章', thought: '纹章与自己的身世有关', emotion: '震动', state_changes: [], knowledge_gained: ['商人掌握旧族线索'] }
-    ],
-    retrievalPlan: { query: '第七星港 艾莉亚 共鸣水晶' }, errors: [],
-    stages: [
-      { stage: 'planner', agent: '策划代理', status: 'done', durationMs: 4200, provider: 'pi', model: 'default' },
-      { stage: 'role', agent: '角色代理', status: 'done', durationMs: 2800, provider: 'pi', model: 'default' }
-    ]
-  }
-};
-
 const MOCK_DEBUG_EVENTS = [
   { id: 'debug-01', ts: 1785640500000, traceId: 'trace-01', stage: 'orchestrator', status: 'start', input: { instruction: '推进第六章' } },
   { id: 'debug-02', ts: 1785640501000, traceId: 'trace-01', stage: 'planner', status: 'start', input: { storyTime: 'ch006.ev008' }, parentId: 'debug-01' },
@@ -285,8 +245,6 @@ let openFiles = [];
 let fileContents = {};
 let chatSessions = JSON.parse(JSON.stringify(MOCK_CHAT_SESSIONS));
 let chatMessages = JSON.parse(JSON.stringify(MOCK_CHAT_MESSAGES));
-let schedulerStatus = JSON.parse(JSON.stringify(MOCK_SCHEDULER_STATUS));
-let schedulerPlans = JSON.parse(JSON.stringify(MOCK_PLAN_DETAILS));
 let debugEvents = JSON.parse(JSON.stringify(MOCK_DEBUG_EVENTS));
 // 应用配置运行态：优先从 localStorage 恢复（刷新后保留主题等偏好），损坏/缺失时回退 mock 默认值
 let appConfig = (() => {

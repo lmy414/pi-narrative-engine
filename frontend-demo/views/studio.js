@@ -1,8 +1,7 @@
 /**
- * frontend-demo/views/studio.js — 创作编排视图（高保真重构，Task 7）
+ * frontend-demo/views/studio.js — 创作编排视图
  *
- * 设计基准：narrative-engine-design/pages/orchestration.html
- * （三栏工作台：分组会话列表 / 聊天区 + Tool Call 卡片 + Plan 卡片 / Agent 状态栏 + 派发面板）
+ * 三栏工作台：分组会话列表 / 聊天区 + Tool Call 卡片 / 输入区
  *
  * 覆盖约定（模式同 views/graph.js / views/events.js）：
  *   - ViewRender.studio / ViewAfterRender.studio（views.js 中旧 ViewRender.studio 赋值会被本文件后加载覆盖）
@@ -10,27 +9,23 @@
  *
  * 状态读写约定（viewState('studio') 命名空间 + 平面双写，参考 events.js）：
  *   - stState(key, fallback) / setStState(key, value)
- *   - 数据键用 studioSessions / studioMessages / schedulerStatus / currentSessionId 等，
+ *   - 数据键用 studioSessions / studioMessages / currentSessionId 等，
  *     避免与命名空间 routeId 'studio' 同名（参考 events.js eventList 的教训，防止双写把命名空间覆盖成数组）
  *
  * 数据获取与写操作走 apiMock 闭环（api-mock.js 实际暴露方法）：
- *   getChatSessions / getChatMessages / getSchedulerStatus / getSchedulerPlan /
- *   sendChatMessage / setSchedulerMode / dispatch / commitPlan / discardPlan / search
+ *   getChatSessions / getChatMessages / sendChatMessage / getChatStatus /
+ *   activateChatSession / search
  * 复用 demo-utils.js：DemoUtils.groupSessionsByTime
  *
- * 流式文本使用固定步长模拟；计划产出和阶段始终来自 plan detail。
+ * 流式文本使用固定步长模拟；真实模式走 SSE 订阅。
  *
  * 注入安全：onclick 内联参数一律单引号 + escapeHtml（禁止裸 JSON.stringify 双引号注入）
+ *
+ * 变更记录（2026-08-05）：移除「新建议程」按钮、派发表单、Plan 卡片、scheduler 状态轮询、
+ * @提及功能、变更摘要/章节预览/执行状态栏。后端 scheduler 端点保留不动。统一到对话框内输入意图。
  */
 
 // ==================== 常量 ====================
-
-const ST_STAGE_DEFS = [
-  { stage: 'planner', name: '规划', agent: '策划代理', icon: 'list' },
-  { stage: 'role', name: '角色', agent: '角色代理', icon: 'users' }
-];
-
-const ST_STAGE_STATUS_LABEL = { done: '完成', error: '失败' };
 
 // 可控模拟节奏（ms）：浏览器中驱动编排脚本与流式输出；测试可整体调小/手动单步
 const ST_SIM_TICK_MS = 620;     // 编排脚本相邻事件间隔
@@ -38,8 +33,35 @@ const ST_STREAM_CHUNK = 2;      // 每次流式追加字符数
 const ST_STREAM_TICK_MS = 28;   // 流式相邻 tick 间隔
 
 let stChatClose = null;
-let stSchedulerTimer = null;
+let stChatStatusTimer = null;
 let stRuntimeGeneration = 0;
+
+/**
+ * 多会话状态表：{ [sessionId]: 'idle' | 'streaming' | 'error' }
+ *
+ * 后端 /api/chat/status 返回 sessions[] 与 backgroundStreaming[]，本表按 sessionId 维护
+ * 各会话状态，用于会话列表项 spinner 显示与切换不阻塞。
+ * 活跃会话额外叠加 studioBusy（防重入）——stIsStreamingBusy 两者取或。
+ */
+function stSessionStatusMap() {
+  const m = stState('sessionStatus', null);
+  if (m && typeof m === 'object') return m;
+  const fresh = {};
+  setStState('sessionStatus', fresh);
+  return fresh;
+}
+
+function stSetSessionStatus(sessionId, status) {
+  if (!sessionId) return;
+  const map = stSessionStatusMap();
+  map[sessionId] = status;
+  setStState('sessionStatus', { ...map });
+}
+
+function stGetSessionStatus(sessionId) {
+  const map = stState('sessionStatus', {});
+  return map[sessionId] || 'idle';
+}
 
 // ==================== 状态访问器 ====================
 
@@ -71,6 +93,13 @@ async function stLoadData() {
   const sessions = sessionData.sessions || [];
   setStState('studioSessions', sessions || []);
 
+  // 从会话列表同步 sessionStatus（后端 sessions[] 含 status 字段）
+  const statusMap = {};
+  for (const s of sessions) {
+    if (s && s.id) statusMap[s.id] = s.status || 'idle';
+  }
+  setStState('sessionStatus', statusMap);
+
   const currentId = stResolveSessionId(sessions, stState('currentSessionId', null));
   setStState('currentSessionId', currentId);
 
@@ -80,29 +109,6 @@ async function stLoadData() {
   } else {
     setStState('studioMessages', []);
   }
-
-  const status = await apiCall('getSchedulerStatus');
-  setStState('schedulerStatus', status);
-  await stLoadPlanDetails(status);
-
-  if (stState('stMode', null) === null) {
-    setStState('stMode', (status && status.defaultMode) || 'plan');
-  }
-
-}
-
-async function stLoadPlanDetails(status) {
-  // G1-3 修复：改用 Promise.allSettled + 404 静默。
-  // 旧实现用 Promise.all：plan 在状态轮询间被 commit/discard 后，下一轮拉取详情会
-  // 404，整组 reject 触发 toast 轰炸。现在每条独立 settle，rejected（404 等）静默
-  // 跳过——plan 列表本身在下次 status 轮询会更新，不需要在详情拉取层报错。
-  const summaries = (status && status.plans) || [];
-  const results = await Promise.allSettled(summaries.map((plan) => apiCall('getSchedulerPlan', plan.planId)));
-  const details = {};
-  results.forEach((r, i) => {
-    if (r.status === 'fulfilled') details[summaries[i].planId] = r.value;
-  });
-  setStState('planDetails', details);
 }
 
 viewLoaders.studio = stLoadData;
@@ -113,9 +119,6 @@ ViewRender.studio = () => {
   const sessions = stState('studioSessions', []);
   const currentId = stState('currentSessionId', null);
   const messages = stState('studioMessages', []);
-  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  const mode = stState('stMode', status.defaultMode || 'plan');
-  // G1-7：busy = 编排 busy OR 主会话流式中（chatStreaming）
   const busy = stState('studioBusy', false) || stState('chatStreaming', false);
 
   return `
@@ -125,31 +128,12 @@ ViewRender.studio = () => {
     </aside>
 
     <main class="st-chat">
-      ${stControlBarHtml(mode, status, busy)}
-      <div id="st-queue-errors" class="st-queue-errors"></div>
       <div class="st-chat-messages" id="st-chat-messages" onscroll="stChatScrollCheck()">
         ${messages.length ? messages.map((m) => stMessageHtml(m)).join('') : stEmptyChatHtml()}
-        <div id="st-plan-cards" class="st-plan-cards">${stPlanCardsHtml()}</div>
       </div>
       <button type="button" class="st-jump-to-latest" id="st-jump-to-latest" style="display:none" onclick="stJumpToLatest()">${icon('arrow-down', 'w-3.5 h-3.5')} 跳转到最新</button>
-      ${stDispatchFormHtml(mode)}
       ${stInputAreaHtml(busy)}
     </main>
-
-    <aside class="st-sidebar">
-      <div class="st-side-section">
-        <div class="st-side-title">${icon('activity', 'w-3.5 h-3.5')} 执行状态</div>
-        <div class="st-stage-list" id="st-stage-list">${stStagesHtml()}</div>
-      </div>
-      <div class="st-side-section">
-        <div class="st-side-title">${icon('git-commit', 'w-3.5 h-3.5')} 世界图变更摘要</div>
-        <div class="st-change-list">${stChangesHtml()}</div>
-      </div>
-      <div class="st-side-section">
-        <div class="st-side-title">${icon('file-text', 'w-3.5 h-3.5')} 生成章节</div>
-        ${stChapterCardHtml()}
-      </div>
-    </aside>
   </div>`;
 };
 
@@ -159,57 +143,49 @@ ViewAfterRender.studio = () => {
   refreshIcons();
   if (!ApiRuntime.isMock) {
     stStartRealRuntime();
-  } else {
-    // mock 模式不启动轮询，但仍需渲染一次队列状态（含 G1-6 错误展示 + G1-5 yolo 结果卡）
-    stRenderQueueStatus();
   }
 };
 
 function stStartRealRuntime() {
   stEnsureChatSubscription();
-  if (stSchedulerTimer) return;
+  if (stChatStatusTimer) return;
   const generation = stRuntimeGeneration;
-  // M-Logic-9 修复：动态轮询间隔——有活跃任务 2s 热轮询，空闲退避到 10s；
-  // 连续失败指数退避（2s→4s→…→30s 上限），后端宕机时不再固定 2s 打挂。
+  // 轮询 /api/chat/status 同步多会话状态表（兜底 SSE 漏推送/重启场景）。
   // 用 setTimeout 链而非 setInterval（间隔随状态变化）。
+  // 连续失败指数退避（2s→4s→…→30s 上限），后端宕机时不再固定 2s 打挂。
   let intervalMs = 2000;
   let consecutiveFailures = 0;
   const poll = async () => {
     try {
-      const status = await apiCall('getSchedulerStatus');
+      const chatStatus = await apiCall('getChatStatus');
       if (generation !== stRuntimeGeneration) return;
       consecutiveFailures = 0;
-      setStState('schedulerStatus', status);
-      await stLoadPlanDetails(status);
-      // G1-7 修复：编排队列空闲 ≠ 主会话空闲——主会话可能正在 LLM 流式输出
-      // （isStreaming=true，但 queue.active=0）。并行拉取 /api/chat/status，
-      // 用 isStreaming 兜底 busy，避免"切走回来撞 409 / 状态栏误报空闲"。
-      try {
-        const chatStatus = await apiCall('getChatStatus');
-        if (generation !== stRuntimeGeneration) return;
-        setStState('chatStreaming', !!(chatStatus && chatStatus.isStreaming));
-      } catch (_) {
-        // chat status 拉取失败不影响 scheduler 轮询主路径
-        if (generation === stRuntimeGeneration) setStState('chatStreaming', false);
+      // 同步 sessionStatus map（按后端 sessions[] 与 backgroundStreaming[]）
+      if (chatStatus && Array.isArray(chatStatus.sessions)) {
+        const map = {};
+        for (const s of chatStatus.sessions) {
+          if (s && s.sessionId) map[s.sessionId] = s.status || 'idle';
+        }
+        setStState('sessionStatus', map);
       }
+      // 保留 chatStreaming 兼容旧逻辑（活跃会话 streaming）
+      setStState('chatStreaming', !!(chatStatus && chatStatus.isStreaming));
       if (generation !== stRuntimeGeneration) return;
-      stRenderPlanCards();
-      stRenderStages();
-      stRenderQueueStatus();
-      // busy = 编排队列活跃 OR 主会话流式中
-      const items = (status.queue && status.queue.items) || [];
-      const queueBusy = items.some((item) => item.status === 'running' || item.status === 'pending');
-      const chatBusy = !!stState('chatStreaming', false);
-      const busy = queueBusy || chatBusy;
-      intervalMs = busy ? 2000 : 10000;
+      // 流式中热轮询 2s，空闲退避到 10s
+      const hasStreaming = stState('chatStreaming', false) ||
+        Object.values(stState('sessionStatus', {})).some((v) => v === 'streaming');
+      intervalMs = hasStreaming ? 2000 : 10000;
     } catch (error) {
       consecutiveFailures += 1;
       intervalMs = Math.min(2000 * Math.pow(2, consecutiveFailures), 30000);
-      if (generation === stRuntimeGeneration) handleApiError(error);
+      if (generation === stRuntimeGeneration) {
+        setStState('chatStreaming', false);
+        handleApiError(error);
+      }
     }
-    if (generation === stRuntimeGeneration) stSchedulerTimer = setTimeout(poll, intervalMs);
+    if (generation === stRuntimeGeneration) stChatStatusTimer = setTimeout(poll, intervalMs);
   };
-  stSchedulerTimer = setTimeout(poll, intervalMs);
+  stChatStatusTimer = setTimeout(poll, intervalMs);
 }
 
 function stEnsureChatSubscription() {
@@ -220,9 +196,9 @@ function stEnsureChatSubscription() {
 function stCloseRealRuntime() {
   stRuntimeGeneration += 1;
   if (stChatClose) stChatClose();
-  if (stSchedulerTimer) clearTimeout(stSchedulerTimer);
+  if (stChatStatusTimer) clearTimeout(stChatStatusTimer);
   stChatClose = null;
-  stSchedulerTimer = null;
+  stChatStatusTimer = null;
 }
 
 function cleanupStudioView() {
@@ -252,24 +228,21 @@ function stSessionsHtml(sessions, currentId, nowIso) {
     </div>`;
   }).join('');
 
-  // G2-2：streaming 时禁用"新建议程"按钮
-  const busy = stIsStreamingBusy();
-  const newBtnAttrs = busy ? 'disabled aria-disabled="true" title="请等待生成完成"' : '';
-  const newBtnClass = 'st-new-session' + (busy ? ' disabled' : '');
-
   return `
   <div class="st-sessions-head">
     <h2 class="st-sessions-title">会话</h2>
-    <button type="button" class="${newBtnClass}" ${newBtnAttrs} onclick="stNewSession()">${icon('plus', 'w-3.5 h-3.5')} 新建议程</button>
   </div>
   <div class="st-sessions-list">${items || '<div class="st-sessions-empty">暂无会话</div>'}</div>`;
 }
 
 function stSessionItemHtml(s, active) {
-  // G2-2：streaming 时会话项禁用切换（加 disabled 类 + 不绑 onclick）
-  const busy = stIsStreamingBusy();
-  const itemClass = 'st-session-item' + (active ? ' active' : '') + (busy ? ' disabled' : '');
-  const clickAttr = busy ? 'aria-disabled="true" title="请等待生成完成"' : `onclick="stSwitchSession(${q(s.id)})"`;
+  // 按会话状态显示 spinner，不再统一禁用切换（多 session 并存：切换不影响后台生成）
+  const status = stGetSessionStatus(s.id);
+  const streaming = status === 'streaming';
+  const error = status === 'error';
+  const itemClass = 'st-session-item' + (active ? ' active' : '') + (streaming ? ' streaming' : '') + (error ? ' errored' : '');
+  const clickAttr = `onclick="stSwitchSession(${q(s.id)})" title="${error ? '生成失败，点击查看' : (streaming ? '生成中，点击切回查看' : '')}"`;
+  const spinnerHtml = streaming ? `<span class="st-session-spinner">${icon('loader', 'w-3 h-3 spin')}</span>` : '';
   return `
   <div class="${itemClass}" ${clickAttr}>
     <span class="st-session-icon">${icon('message-square', 'w-3.5 h-3.5')}</span>
@@ -277,6 +250,7 @@ function stSessionItemHtml(s, active) {
       <div class="st-session-name">${escapeHtml(s.name)}${s.live ? '<span class="st-live-dot"></span>' : ''}</div>
       <div class="st-session-first">${escapeHtml(s.firstMessage || '')}</div>
     </div>
+    ${spinnerHtml}
     <span class="st-session-time">${escapeHtml(stSessionTime(s.modified || s.created))}</span>
   </div>`;
 }
@@ -320,39 +294,14 @@ function stBubbleContentHtml(text, hasTools) {
   return `<span class="st-bubble-empty">…</span>`;
 }
 
-// ==================== 中栏：控制条 / 消息 / 输入区 ====================
-
-function stControlBarHtml(mode, status, busy) {
-  // G1-2：用 active（pending+running）替代 length（累计含已完成未清理项）
-  const queueActive = status.queue && status.queue.active != null ? status.queue.active : (status.queue && status.queue.length ? status.queue.length : 0);
-  const planCount = (status.plans || []).length;
-  // G1-7：busy 也包含主会话流式中（chatStreaming）— 顶层传入
-  const statusText = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueActive > 0 ? `${queueActive} 个任务执行中` : '空闲';
-  const dotClass = busy ? 'running' : planCount > 0 ? 'waiting' : queueActive > 0 ? 'running' : 'idle';
-  return `
-  <div class="st-control-bar" id="st-control-bar">
-    <div class="st-mode-toggle" id="st-mode-toggle">${stModeToggleHtml(mode)}</div>
-    <div class="st-queue-status">
-      <span class="st-queue-dot st-queue-${dotClass}"></span>
-      <span class="st-queue-text" id="st-queue-text">${escapeHtml(statusText)}</span>
-    </div>
-    <div class="st-control-spacer"></div>
-    <button type="button" class="st-btn-open-dispatch" onclick="stOpenDispatchForm()">${icon('send', 'w-3.5 h-3.5')} 发起编排</button>
-  </div>`;
-}
-
-function stModeToggleHtml(mode) {
-  return `
-    <button type="button" class="st-mode-btn${mode === 'plan' ? ' active' : ''}" onclick="stSetMode('plan')">plan</button>
-    <button type="button" class="st-mode-btn${mode === 'yolo' ? ' active' : ''}" onclick="stSetMode('yolo')">yolo</button>`;
-}
+// ==================== 中栏：消息 / 输入区 ====================
 
 function stEmptyChatHtml() {
   return `
   <div class="st-chat-empty">
     <div class="st-chat-empty-icon">${icon('message-square', 'w-6 h-6')}</div>
     <div class="st-chat-empty-text">开始你的第一段剧情</div>
-    <div class="st-chat-empty-hint">输入消息与 AI 协作编排，输入 @ 可提及世界图实体</div>
+    <div class="st-chat-empty-hint">输入消息与 AI 协作推进剧情</div>
   </div>`;
 }
 
@@ -397,125 +346,6 @@ function stToolCardHtml(tc) {
   </div>`;
 }
 
-// ==================== Plan 卡片 ====================
-
-function stPlanCardHtml(p) {
-  const collapsed = stState('planCollapsed', {}) || {};
-  const stageDone = (p.stages || []).filter((s) => s.status === 'done').length;
-  const stageTotal = (p.stages || []).length;
-  const castNames = Object.fromEntries((p.cast || []).map((item) => [item.characterId, item.name]));
-  const chips = (p.characterIds || []).map((id) => `<span class="st-plan-chip">${escapeHtml(castNames[id] || id)}</span>`).join('');
-  const outputHtml = (p.outputs || []).map((output, index) => {
-    const key = p.planId + ':output-' + index;
-    const isCollapsed = !!collapsed[key];
-    return `
-    <div class="st-plan-section${isCollapsed ? ' collapsed' : ''}" data-sec-key="${escapeHtml(key)}">
-      <div class="st-plan-section-head" onclick="stTogglePlanSection(${q(p.planId)},'output-${index}')">
-        <span class="st-plan-section-icon">${icon('user-round', 'w-4 h-4')}</span>
-        <span class="st-plan-section-title">${escapeHtml(output.actor || '角色产出')}</span>
-        <span class="st-plan-section-chevron">${icon(isCollapsed ? 'chevron-right' : 'chevron-down', 'w-4 h-4')}</span>
-      </div>
-      ${isCollapsed ? '' : stPlanOutputBody(output)}
-    </div>`;
-  }).join('');
-
-  // BUG-014：plan 生命周期状态徽章 + 按钮条件渲染
-  const planStatus = p.status || 'confirmed';
-  const badgeMap = {
-    confirmed: { label: '待审核', cls: 'st-plan-badge' },
-    committing: { label: '提交中', cls: 'st-plan-badge st-plan-badge-active' },
-    committed: { label: '已完成', cls: 'st-plan-badge st-plan-badge-done' },
-    error: { label: '提交失败', cls: 'st-plan-badge st-plan-badge-error' },
-  };
-  const badge = badgeMap[planStatus] || badgeMap.confirmed;
-  // confirmed 显示 提交+丢弃；error 显示 重试+丢弃；committing/committed 无按钮
-  let actionsHtml = '';
-  if (planStatus === 'confirmed' || planStatus === 'error') {
-    const commitLabel = planStatus === 'error' ? '重试' : '提交';
-    actionsHtml = `
-        <button type="button" class="st-btn st-btn-ghost" onclick="stDiscardPlan(${q(p.planId)})">丢弃</button>
-        <button type="button" class="st-btn st-btn-primary" onclick="stCommitPlan(${q(p.planId)})">${commitLabel}</button>`;
-  }
-  const errorHtml = (planStatus === 'error' && p.commitError)
-    ? `<div class="st-plan-error">${escapeHtml(p.commitError)}</div>`
-    : '';
-
-  return `
-  <div class="st-plan-card" data-plan-id="${escapeHtml(p.planId)}">
-    <div class="st-plan-head">
-      <div class="st-plan-icon">${icon('list-todo', 'w-4 h-4')}</div>
-      <div class="st-plan-title-wrap">
-        <div class="st-plan-title">编排计划 <span class="st-plan-id">${escapeHtml(p.planId)}</span></div>
-        <div class="st-plan-meta">${escapeHtml(p.storyTime || '—')} · ${escapeHtml(p.mode || 'plan')} 模式${stageTotal ? ` · ${stageDone}/${stageTotal} 阶段完成` : ''}</div>
-      </div>
-      <span class="${badge.cls}">${badge.label}</span>
-    </div>
-    <div class="st-plan-body">${outputHtml || '<div class="st-plan-bullet-empty">暂无角色产出</div>'}</div>
-    ${errorHtml}
-    <div class="st-plan-foot">
-      <div class="st-plan-chips">${chips}</div>
-      <div class="st-plan-actions">${actionsHtml}</div>
-    </div>
-  </div>`;
-}
-
-function stPlanOutputBody(output) {
-  const rows = [
-    ['行动', output.action], ['想法', output.thought], ['情绪', output.emotion],
-    ['状态变化', output.state_changes], ['获得信息', output.knowledge_gained]
-  ];
-  return `
-  <ul class="st-plan-bullets">
-    ${rows.filter(([, value]) => value !== undefined && value !== null && value !== '').map(([label, value]) => `<li><strong>${escapeHtml(label)}：</strong>${escapeHtml(Array.isArray(value) ? value.join('、') : String(value))}</li>`).join('') || '<li class="st-plan-bullet-empty">暂无内容</li>'}
-  </ul>`;
-}
-
-// ==================== 派发面板 ====================
-
-function stDispatchFormHtml(mode) {
-  return `
-  <div class="st-dispatch-form" id="st-dispatch-form" style="display:none">
-    <div class="st-dispatch-head">
-      <span class="st-dispatch-title">发起编排</span>
-      <button type="button" class="st-icon-btn" title="收起" onclick="stCloseDispatchForm()">${icon('x', 'w-4 h-4')}</button>
-    </div>
-    <div class="st-dispatch-body">
-      <div class="st-dispatch-mode-btns" id="st-dispatch-mode-btns">${stDispatchModeBtnsHtml(mode)}</div>
-      <div class="st-mention-relative">
-        <textarea id="st-dispatch-instruction" class="st-dispatch-input" rows="2" placeholder="指令：描述接下来要发生的剧情，@ 提及角色可指定参演…" oninput="stDispatchInstructionInput(this.value)" onkeydown="stDispatchInstructionKeydown(event)" spellcheck="false"></textarea>
-        <div class="st-mention-panel" id="st-dispatch-mention-panel"></div>
-      </div>
-      <div class="st-dispatch-mention-tags" id="st-dispatch-tags"></div>
-      <div class="st-dispatch-controls">
-        <div class="st-dispatch-row">
-          <label class="st-st-label">StoryTime
-            <input id="st-dispatch-st" class="st-st-input" value="${escapeHtml(App.storyTime || '')}" placeholder="如 ch007.ev001" spellcheck="false">
-          </label>
-          <button type="button" class="st-btn st-btn-primary" onclick="stSubmitDispatch()">${icon('send', 'w-3.5 h-3.5')} 派发</button>
-        </div>
-      </div>
-    </div>
-  </div>`;
-}
-
-function stDispatchModeBtnsHtml(mode) {
-  return `
-    <button type="button" class="st-dispatch-mode-btn${mode === 'plan' ? ' active' : ''}" onclick="stSetMode('plan')">${icon('list-todo', 'w-3.5 h-3.5')} plan 计划模式</button>
-    <button type="button" class="st-dispatch-mode-btn${mode === 'yolo' ? ' active' : ''}" onclick="stSetMode('yolo')">${icon('zap', 'w-3.5 h-3.5')} yolo 直出模式</button>`;
-}
-
-function stRenderDispatchTags() {
-  const el = $('#st-dispatch-tags');
-  if (!el) return;
-  const mentions = stState('dispatchMentions', []);
-  el.innerHTML = mentions.map((m) => `
-    <span class="st-mention-tag">
-      <span class="st-mention-tag-name">@${escapeHtml(m.name)}</span>
-      <button type="button" class="st-mention-tag-x" title="移除" onclick="stRemoveMention(${q(m.id)})">${icon('x', 'w-3 h-3')}</button>
-    </span>`).join('');
-  refreshIcons();
-}
-
 // ==================== 聊天输入区 ====================
 
 function stInputAreaHtml(busy) {
@@ -527,270 +357,28 @@ function stInputAreaHtml(busy) {
       <button type="button" class="st-tool-btn" title="斜体" onclick="stToolAction('italic')">${icon('italic', 'w-3.5 h-3.5')}</button>
       <button type="button" class="st-tool-btn" title="列表" onclick="stToolAction('list')">${icon('list', 'w-3.5 h-3.5')}</button>
       <div class="st-tool-spacer"></div>
-      <span class="st-input-hint">Enter 发送 · Shift+Enter 换行 · @ 提及实体</span>
+      <span class="st-input-hint">Enter 发送 · Shift+Enter 换行</span>
     </div>
     <div class="st-input-main">
-      <div class="st-input-relative">
-        <textarea id="st-chat-textarea" class="st-chat-textarea" rows="2" placeholder="输入消息，输入 @ 提及实体…" oninput="stChatInput(this.value)" onkeydown="stChatKeydown(event)" spellcheck="false"></textarea>
-        <div class="st-mention-panel" id="st-chat-mention-panel"></div>
-      </div>
+      <textarea id="st-chat-textarea" class="st-chat-textarea" rows="2" placeholder="输入消息…" onkeydown="stChatKeydown(event)" spellcheck="false"></textarea>
       <button type="button" class="st-send-btn" onclick="stSendChat()" ${busy ? 'disabled' : ''}>${icon('send', 'w-4 h-4')}</button>
     </div>
   </div>`;
 }
 
-// ==================== 右栏：执行状态 / 变更 / 章节 ====================
-
-function stStagesHtml() {
-  const details = stState('planDetails', {});
-  const firstPlan = Object.values(details)[0];
-  const stages = firstPlan ? (firstPlan.stages || []) : [];
-  return stages.length ? stages.map((s) => stStageItemHtml(s)).join('') : '<div class="st-plan-bullet-empty">暂无计划阶段</div>';
-}
-
-function stStageItemHtml(s) {
-  const def = ST_STAGE_DEFS.find((item) => item.stage === s.stage) || {};
-  const status = s.status || 'error';
-  const label = ST_STAGE_STATUS_LABEL[status] || status;
-  const duration = Number.isFinite(s.durationMs) ? `${s.durationMs}ms` : '';
-  return `
-  <div class="st-stage-item st-stage-${status}" data-stage="${escapeHtml(s.stage)}">
-    <span class="st-stage-icon">${icon(def.icon || 'circle', 'w-4 h-4')}</span>
-    <div class="st-stage-main">
-      <div class="st-stage-name">${escapeHtml(def.name || s.stage)}<span class="st-stage-agent">${escapeHtml(s.agent || '')}</span></div>
-      <div class="st-stage-bar"><span class="st-stage-fill" style="width:100%"></span></div>
-      ${s.error ? `<div class="st-tool-result-error">${escapeHtml(s.error)}</div>` : ''}
-    </div>
-    <div class="st-stage-right">
-      <span class="st-stage-status">${label}</span>
-      <span class="st-stage-duration">${escapeHtml(duration)}</span>
-    </div>
-  </div>`;
-}
-
-function stChangesHtml() {
-  const result = stState('commitResult', null);
-  if (!result) return '<div class="st-plan-bullet-empty">提交计划后显示变更摘要</div>';
-  return (result.appliedEventIds || []).map((eventId) => `
-    <div class="st-change-item">
-      <span class="st-change-icon st-change-event">${icon('sparkles', 'w-3.5 h-3.5')}</span>
-      <span class="st-change-text">已应用事件：${escapeHtml(eventId)}</span>
-    </div>`).join('') || '<div class="st-plan-bullet-empty">未应用世界图事件</div>';
-}
-
-function stChapterCardHtml() {
-  const result = stState('commitResult', null);
-  if (!result || !result.chapterPath) return '<div class="st-plan-bullet-empty">提交计划后显示生成章节</div>';
-  const title = String(result.chapterPath).split('/').pop() || result.chapterPath;
-  const chars = String(result.writtenText || '').replace(/\s/g, '').length;
-  return `
-  <div class="st-chapter-card">
-    <div class="st-chapter-info">
-      <div class="st-chapter-title">${escapeHtml(title)}</div>
-      <div class="st-chapter-meta">${chars} 字 · ${escapeHtml(result.chapterPath)}</div>
-    </div>
-    <button type="button" class="st-icon-btn" title="查看章节" onclick="navigate('#/files')">${icon('arrow-right', 'w-4 h-4')}</button>
-  </div>`;
-}
-
-// ==================== @ 提及面板 ====================
-
-function stMentionOptions() {
-  return stState('mentionOptions', []);
-}
-
-function stMentionFiltered(filter) {
-  return stMentionOptions();
-}
-
-function stMentionPanelHtml(filter, selected) {
-  const items = stMentionFiltered(filter);
-  if (!items.length) return '<div class="st-mention-empty">没有匹配的实体</div>';
-  return items.map((o, i) => `
-    <div class="st-mention-item${i === selected ? ' active' : ''}" onclick="stSelectMention(${q(o.id)},${q(stState('mentionSource', 'chat'))})" onmouseenter="stMentionHover(${i})">
-      <span class="st-mention-avatar">${escapeHtml(o.letter)}</span>
-      <div class="st-mention-info">
-        <div class="st-mention-name">${escapeHtml(o.name)}<span class="st-mention-type st-mt-${escapeHtml(o.type)}">${escapeHtml(o.typeLabel)}</span></div>
-        <div class="st-mention-desc">${escapeHtml(o.desc)}</div>
-      </div>
-    </div>`).join('');
-}
-
-function stMentionPanelOpen(source) {
-  const el = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
-  return !!(el && el.style.display !== 'none');
-}
-
-async function stShowMentionPanel(source, filter) {
-  const requestId = (stState('mentionRequestId', 0) || 0) + 1;
-  setStState('mentionRequestId', requestId);
-  setStState('mentionSource', source);
-  setStState('mentionSel', 0);
-  const el = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
-  if (!el) return;
-  el.innerHTML = '<div class="st-mention-empty">搜索中…</div>';
-  el.style.display = 'block';
-  try {
-    const data = await apiCall('search', filter, App.storyTime);
-    if (requestId !== stState('mentionRequestId', 0)) return;
-    const labels = { character: '角色', location: '地点', item: '物品', concept: '概念' };
-    setStState('mentionOptions', (data.results || []).filter((item) => item.type === 'entity').map((item) => ({
-      id: item.id, name: item.name || item.id, type: item.entityType, typeLabel: labels[item.entityType] || item.entityType || '',
-      desc: item.summary || '', letter: String(item.name || item.id).charAt(0)
-    })));
-  } catch (error) {
-    setStState('mentionOptions', []);
-    handleApiError(error);
-  }
-  el.innerHTML = stMentionPanelHtml(filter, 0);
-}
-
-function stCloseMentionPanel(source) {
-  const el = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
-  if (el) el.style.display = 'none';
-}
-
-function stMentionHover(idx) {
-  setStState('mentionSel', idx);
-  const source = stState('mentionSource', 'chat');
-  const panel = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
-  if (panel) {
-    const items = panel.querySelectorAll('.st-mention-item');
-    items.forEach((el, i) => el.classList.toggle('active', i === idx));
-  }
-}
-
-function stMentionMove(dir) {
-  const filter = stState('mentionFilter', '');
-  const count = stMentionFiltered(filter).length;
-  if (!count) return;
-  let sel = (stState('mentionSel', 0) + dir + count) % count;
-  setStState('mentionSel', sel);
-  const source = stState('mentionSource', 'chat');
-  const panel = $(source === 'dispatch' ? '#st-dispatch-mention-panel' : '#st-chat-mention-panel');
-  if (panel) {
-    const items = panel.querySelectorAll('.st-mention-item');
-    items.forEach((el, i) => el.classList.toggle('active', i === sel));
-    const activeEl = items[sel];
-    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-  }
-}
-
-function stMentionPickActive(source) {
-  const filter = stState('mentionFilter', '');
-  const items = stMentionFiltered(filter);
-  const sel = stState('mentionSel', 0);
-  const opt = items[sel];
-  if (opt) stSelectMention(opt.id, source);
-  else stCloseMentionPanel(source);
-}
-
-function stMentionKeydown(event, source) {
-  setStState('mentionSource', source);
-  if (!stMentionPanelOpen(source)) return;
-  if (event.key === 'ArrowDown') { event.preventDefault(); stMentionMove(1); }
-  else if (event.key === 'ArrowUp') { event.preventDefault(); stMentionMove(-1); }
-  else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); stMentionPickActive(source); }
-  else if (event.key === 'Escape') { event.preventDefault(); stCloseMentionPanel(source); }
-}
-
-function stSelectMention(id, source) {
-  const opt = stMentionOptions().find((o) => o.id === id);
-  if (!opt) return;
-  if (source === 'dispatch') {
-    const mentions = stState('dispatchMentions', []).slice();
-    if (!mentions.some((m) => m.id === id)) mentions.push(opt);
-    setStState('dispatchMentions', mentions);
-    stRenderDispatchTags();
-    // BUG-012：inline @ 选中后将 @name 插入指令 textarea（与聊天框一致），characterIds 仍由 dispatchMentions 提供
-    const ta = $('#st-dispatch-instruction');
-    if (ta) { stInsertMentionText(ta, opt.name); ta.focus(); }
-  } else {
-    const ta = $('#st-chat-textarea');
-    if (ta) stInsertMentionText(ta, opt.name);
-  }
-  stCloseMentionPanel(source);
-}
-
-function stRemoveMention(id) {
-  const mentions = stState('dispatchMentions', []).filter((m) => m.id !== id);
-  setStState('dispatchMentions', mentions);
-  stRenderDispatchTags();
-}
-
-function stInsertMentionText(ta, name) {
-  const v = ta.value;
-  const atIdx = v.lastIndexOf('@');
-  const insert = '@' + name + ' ';
-  if (atIdx >= 0 && (atIdx === v.length - 1 || !/\s/.test(v.slice(atIdx + 1)))) {
-    ta.value = v.slice(0, atIdx) + insert;
-  } else {
-    ta.value = v + insert;
-  }
-  const pos = ta.value.length;
-  ta.focus();
-  ta.setSelectionRange(pos, pos);
-}
-
-function stChatInput(value) {
-  const atIdx = value.lastIndexOf('@');
-  if (atIdx >= 0) {
-    const after = value.slice(atIdx + 1);
-    if (!/\s/.test(after)) {
-      setStState('mentionFilter', after);
-      stShowMentionPanel('chat', after);
-      return;
-    }
-  }
-  stCloseMentionPanel('chat');
-}
-
-function stChatKeydown(event) {
-  if (stMentionPanelOpen('chat')) {
-    stMentionKeydown(event, 'chat');
-    return;
-  }
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    stSendChat();
-  }
-}
-
-// BUG-012：派发指令 textarea 改为 inline @（与聊天框一致），原独立 mention 输入框已移除
-function stDispatchInstructionInput(value) {
-  const atIdx = value.lastIndexOf('@');
-  if (atIdx >= 0) {
-    const after = value.slice(atIdx + 1);
-    if (!/\s/.test(after)) {
-      setStState('mentionFilter', after);
-      stShowMentionPanel('dispatch', after);
-      return;
-    }
-  }
-  stCloseMentionPanel('dispatch');
-}
-
-function stDispatchInstructionKeydown(event) {
-  if (stMentionPanelOpen('dispatch')) {
-    stMentionKeydown(event, 'dispatch');
-  }
-}
-
 // ==================== 会话交互 ====================
 
 async function stSwitchSession(id) {
-  // G2-2：streaming 中禁用切换（后端 switchSession 会 dispose 旧 session，中断生成）
-  if (stIsStreamingBusy()) {
-    stNotifyStreamingBusy('切换会话');
-    return;
-  }
-  // G2-2：防重入——切换期间设 studioBusy，会话项自动 disabled
+  // 多 session 并存：切换不阻塞后台生成，仅切换活跃指针
+  // 防重入——切换期间设 studioBusy（仅用于输入框禁用，不影响其他会话项可点击）
+  if (stState('studioBusy', false)) return;
   setStState('studioBusy', true);
   stAbortLiveSimulation();
   setStState('currentSessionId', id);
+  setStState('realLiveMessage', null);
   renderView();
   try {
-    // G2-2：真实切换——调 activateChatSession 让后端 switchSession，live 转移到目标会话
+    // 真实切换——调 activateChatSession 让后端切换活跃会话指针（不 dispose 旧 host）
     await apiCall('activateChatSession', id);
     const data = await apiCall('getChatMessages', id);
     setStState('studioMessages', data.messages || []);
@@ -804,36 +392,23 @@ async function stSwitchSession(id) {
   }
 }
 
-async function stNewSession() {
-  // G2-2：streaming 中禁用新建（后端 newSession 会 dispose 旧 session，中断生成）
-  if (stIsStreamingBusy()) {
-    stNotifyStreamingBusy('新建会话');
-    return;
+/**
+ * 判断指定会话是否处于 streaming 状态。
+ * - 不传 sessionId：检查活跃会话（studioBusy 或 sessionStatus[active]=streaming）
+ * - 传 sessionId：检查该会话 sessionStatus
+ */
+function stIsStreamingBusy(sessionId) {
+  if (sessionId) {
+    return stGetSessionStatus(sessionId) === 'streaming';
   }
-  // G2-2：防重入——createChatSession 期间设 studioBusy，按钮自动 disabled
-  setStState('studioBusy', true);
-  renderView();
-  try {
-    const data = await apiCall('createChatSession');
-    const session = data.session;
-    setStState('studioSessions', [session].concat(stState('studioSessions', [])));
-    setStState('currentSessionId', session.id);
-    setStState('studioMessages', []);
-    setStState('chatAutoScroll', true);
-  } catch (e) {
-    handleApiError(e);
-  } finally {
-    setStState('studioBusy', false);
-    renderView();
-  }
+  // 活跃会话：保留对旧 studioBusy/chatStreaming 的兼容（避免一次性删干净导致回归）
+  if (stState('studioBusy', false)) return true;
+  const currentId = stState('currentSessionId', null);
+  if (currentId && stGetSessionStatus(currentId) === 'streaming') return true;
+  return stState('chatStreaming', false);
 }
 
-/** G2-2：判断当前是否处于 streaming 状态（studioBusy 或 chatStreaming） */
-function stIsStreamingBusy() {
-  return stState('studioBusy', false) || stState('chatStreaming', false);
-}
-
-/** G2-2：streaming 中操作被拒绝时的提示 */
+/** streaming 中操作被拒绝时的提示（保留供其他位置调用，切换路径不再使用） */
 function stNotifyStreamingBusy(action) {
   if (typeof toast === 'function') {
     toast(`${action}需要等待当前生成完成`, 'warn');
@@ -846,10 +421,10 @@ async function stSendChat() {
   const ta = $('#st-chat-textarea');
   if (!ta) return;
   const text = ta.value.trim();
-  if (!text || stState('studioBusy', false)) return;
+  const currentId = stState('currentSessionId', null);
+  if (!text || stIsStreamingBusy(currentId)) return;
   setStState('chatAutoScroll', true);
   ta.value = '';
-  stCloseMentionPanel('chat');
   const msg = { role: 'user', text, ts: new Date().toISOString() };
   setStState('studioMessages', stState('studioMessages', []).concat([msg]));
   stAppendMessageEl(stMessageHtml(msg));
@@ -866,17 +441,74 @@ async function stSendChat() {
   stEnsureChatSubscription();
   setStState('studioBusy', true);
   setStState('realLiveMessage', null);
-  stRenderQueueStatus();
+  if (currentId) stSetSessionStatus(currentId, 'streaming');
   try {
     await apiCall('sendChatMessage', text);
   } catch (e) {
     setStState('studioBusy', false);
-    stRenderQueueStatus();
+    if (currentId) stSetSessionStatus(currentId, 'error');
     handleApiError(e);
   }
 }
 
-function stHandleChatEvent(event) {
+/**
+ * 处理 SSE 多路复用事件。
+ *
+ * 后端 ChatContext.subscribe 推送两种事件：
+ * - { type: 'pi', sessionId, event }   PI session 原始事件（带 sessionId 路由）
+ * - { type: 'background_complete', sessionId }    后台会话生成完成
+ * - { type: 'background_error', sessionId, error } 后台会话生成失败
+ *
+ * 当前会话事件照常渲染（解包 event 后按原逻辑处理）；
+ * 非当前会话事件只更新 sessionStatus map（不渲染消息）。
+ */
+function stHandleChatEvent(envelope) {
+  if (!envelope || typeof envelope !== 'object') return;
+  const currentId = stState('currentSessionId', null);
+
+  // 多路复用封装：{ type: 'pi', sessionId, event }
+  if (envelope.type === 'pi' && envelope.sessionId) {
+    const sid = envelope.sessionId;
+    const innerEvent = envelope.event;
+    if (!innerEvent || typeof innerEvent !== 'object') return;
+    // 非当前会话的 PI 事件：仅更新状态（agent_end 时把会话标 idle，避免后台 spinner 卡住）
+    if (sid !== currentId) {
+      if (innerEvent.type === 'agent_end') {
+        stSetSessionStatus(sid, 'idle');
+      }
+      return;
+    }
+    // 当前会话：按原逻辑处理
+    stHandlePiEvent(innerEvent);
+    return;
+  }
+
+  // 后台完成：状态置 idle + toast 通知
+  if (envelope.type === 'background_complete' && envelope.sessionId) {
+    const sid = envelope.sessionId;
+    stSetSessionStatus(sid, 'idle');
+    if (sid !== currentId) {
+      stNotifyBackgroundComplete(sid);
+    }
+    return;
+  }
+
+  // 后台错误：状态置 error + toast 通知
+  if (envelope.type === 'background_error' && envelope.sessionId) {
+    const sid = envelope.sessionId;
+    stSetSessionStatus(sid, 'error');
+    if (sid !== currentId) {
+      stNotifyBackgroundError(sid, envelope.error || '生成失败');
+    }
+    return;
+  }
+
+  // 兼容旧版直推（mock 模式或未封装事件）：作为当前会话事件处理
+  stHandlePiEvent(envelope);
+}
+
+/** 处理当前会话的 PI 事件（原 stHandleChatEvent 主体） */
+function stHandlePiEvent(event) {
   if (!event || typeof event !== 'object') return;
   if (event.type === 'message_start' && event.message && event.message.role === 'assistant') {
     const previous = stState('realLiveMessage', null);
@@ -908,8 +540,41 @@ function stHandleChatEvent(event) {
     }
   } else if (event.type === 'agent_end') {
     setStState('studioBusy', false);
-    stRenderQueueStatus();
+    const currentId = stState('currentSessionId', null);
+    if (currentId) stSetSessionStatus(currentId, 'idle');
     void stRefreshChatHistory();
+  }
+}
+
+/** 后台生成完成 toast 通知 */
+function stNotifyBackgroundComplete(sessionId) {
+  if (typeof toast !== 'function') return;
+  const sessions = stState('studioSessions', []);
+  const target = sessions.find((s) => s.id === sessionId);
+  const name = (target && (target.name || target.firstMessage)) || sessionId.slice(0, 8);
+  toast(`会话「${name}」生成完成`, 'success');
+  // 刷新会话列表（让 spinner 消失）
+  void stRefreshSessionsOnly();
+}
+
+/** 后台生成失败 toast 通知 */
+function stNotifyBackgroundError(sessionId, error) {
+  if (typeof toast !== 'function') return;
+  const sessions = stState('studioSessions', []);
+  const target = sessions.find((s) => s.id === sessionId);
+  const name = (target && (target.name || target.firstMessage)) || sessionId.slice(0, 8);
+  toast(`会话「${name}」生成失败：${error}`, 'error');
+  void stRefreshSessionsOnly();
+}
+
+/** 仅刷新会话列表（不重拉消息，避免覆盖正在查看的历史） */
+async function stRefreshSessionsOnly() {
+  try {
+    const sessionData = await apiCall('getChatSessions');
+    setStState('studioSessions', sessionData.sessions || []);
+    if (routeId() === 'studio') await renderView();
+  } catch {
+    // 静默失败：toast 通知失败不应阻塞 UI
   }
 }
 
@@ -965,8 +630,8 @@ function stRenderRealLiveMessage(live) {
   const html = stLiveMessageHtml(live);
   if (existing) existing.outerHTML = html;
   else {
-    const plans = $('#st-plan-cards');
-    if (plans) plans.insertAdjacentHTML('beforebegin', html);
+    const msgsEl = $('#st-chat-messages');
+    if (msgsEl) msgsEl.insertAdjacentHTML('beforeend', html);
   }
   refreshIcons();
   stScrollChatToBottom();
@@ -990,6 +655,13 @@ async function stRefreshChatHistory() {
     const sessionData = await apiCall('getChatSessions');
     const sessions = sessionData.sessions || [];
     setStState('studioSessions', sessions);
+    // 同步 sessionStatus（保留 SSE 已设置的 streaming 标记，列表刷新不覆盖）
+    const existing = stState('sessionStatus', {});
+    const map = {};
+    for (const s of sessions) {
+      if (s && s.id) map[s.id] = existing[s.id] || s.status || 'idle';
+    }
+    setStState('sessionStatus', map);
     const currentId = stResolveSessionId(sessions, stState('currentSessionId', null));
     setStState('currentSessionId', currentId);
     if (currentId) {
@@ -1003,7 +675,7 @@ async function stRefreshChatHistory() {
   }
 }
 
-/** 确定性聊天脚本；plan 阶段不在客户端模拟。 */
+/** 确定性聊天脚本；模拟 AI 回复（工具调用 + 流式文本）。 */
 function stOrchestrationScript() {
   return [
     { action: 'tool', tool: { id: 'live-tool-search', name: '检索世界图', status: 'done', isError: false } },
@@ -1017,7 +689,6 @@ function stOrchestrationScript() {
 function stRunOrchestration(instruction) {
   setStState('studioBusy', true);
   setStState('orch', { items: stOrchestrationScript(), idx: 0, live: null, instruction: instruction || '' });
-  stRenderQueueStatus();
   stScheduleOrchStep();
 }
 
@@ -1065,7 +736,7 @@ function stApplyOrchEvent(ev, orch) {
 
 function stEnsureLiveMessage(live) {
   if ($('#st-live-msg')) return;
-  const container = $('#st-plan-cards');
+  const msgsEl = $('#st-chat-messages');
   const html = `
   <div class="st-msg st-msg-ai" id="st-live-msg">
     <div class="st-msg-avatar st-avatar-ai">AI</div>
@@ -1078,11 +749,7 @@ function stEnsureLiveMessage(live) {
       <div class="st-tool-list" id="st-live-tools"></div>
     </div>
   </div>`;
-  if (container) container.insertAdjacentHTML('beforebegin', html);
-  else {
-    const msgsEl = $('#st-chat-messages');
-    if (msgsEl) msgsEl.insertAdjacentHTML('beforeend', html);
-  }
+  if (msgsEl) msgsEl.insertAdjacentHTML('beforeend', html);
   refreshIcons();
   stScrollChatToBottom();
 }
@@ -1115,29 +782,6 @@ function stFinalizeOrchestration(orch) {
   if (orch.timer) { clearTimeout(orch.timer); orch.timer = null; }
   setStState('orch', orch);
   setStState('studioBusy', false);
-  stRenderQueueStatus();
-  stDispatchAfterOrchestration(orch.instruction);
-}
-
-/** 编排收尾后的派发闭环：plan 模式进入待审计划，yolo 模式直接入队执行 */
-async function stDispatchAfterOrchestration(instruction) {
-  const mode = stState('stMode', 'plan');
-  try {
-    await apiCall('dispatch', {
-      instruction: instruction || '继续推进剧情',
-      characterIds: [],
-      storyTime: App.storyTime,
-      mode
-    });
-    const status = await apiCall('getSchedulerStatus');
-    setStState('schedulerStatus', status);
-    await stLoadPlanDetails(status);
-    stRenderPlanCards();
-    stRenderStages();
-    stRenderQueueStatus();
-  } catch (e) {
-    handleApiError(e);
-  }
 }
 
 function stAbortLiveSimulation() {
@@ -1185,123 +829,6 @@ function stStreamStep() {
   setStState('stream', st);
 }
 
-// ==================== 模式 / 派发 / 计划操作 ====================
-
-async function stSetMode(mode) {
-  if (mode !== 'plan' && mode !== 'yolo') return;
-  setStState('stMode', mode);
-  try {
-    await apiCall('setSchedulerMode', mode);
-  } catch (e) {
-    handleApiError(e);
-  }
-  stRenderModeControls();
-  stRenderQueueStatus();
-}
-
-function stOpenDispatchForm() {
-  const el = $('#st-dispatch-form');
-  if (el) el.style.display = 'block';
-}
-
-function stCloseDispatchForm() {
-  const el = $('#st-dispatch-form');
-  if (el) el.style.display = 'none';
-}
-
-async function stSubmitDispatch() {
-  setStState('chatAutoScroll', true);
-  const instructionEl = $('#st-dispatch-instruction');
-  const stEl = $('#st-dispatch-st');
-  const instruction = (instructionEl ? instructionEl.value : '').trim();
-  const storyTime = (stEl ? stEl.value : App.storyTime || '').trim();
-  const characterIds = stState('dispatchMentions', []).map((m) => m.id);
-  // G1-4：空值引导——指令/StoryTime/角色为空时明确提示，避免直接 400 派发失败
-  if (!instruction) { toast('请填写编排指令', 'error'); if (instructionEl) instructionEl.focus(); return; }
-  if (!storyTime) { toast('请填写 StoryTime（如 ch007.ev001）', 'error'); if (stEl) stEl.focus(); return; }
-  if (!characterIds.length) { toast('请 @ 提及至少一个角色参与编排', 'info'); return; }
-  await withLoading(async () => {
-    await apiCall('dispatch', { instruction, characterIds, storyTime, mode: stState('stMode', 'plan') });
-    const status = await apiCall('getSchedulerStatus');
-    setStState('schedulerStatus', status);
-    await stLoadPlanDetails(status);
-    setStState('dispatchMentions', []);
-    stRenderPlanCards();
-    stRenderQueueStatus();
-    stCloseDispatchForm();
-    toast('编排已派发', 'success');
-  });
-}
-
-async function stCommitPlan(planId) {
-  await withLoading(async () => {
-    try {
-      const res = await apiCall('commitPlan', planId);
-      // BUG-014：commit 异步化——入队即返回 { ok, queueId, status: 'committing' }；
-      // 章节生成结果由 stSchedulerTimer 轮询 plan.status 流转获取（committing → committed/error）
-      const status = await apiCall('getSchedulerStatus');
-      setStState('schedulerStatus', status);
-      await stLoadPlanDetails(status);
-      stRenderPlanCards();
-      stRenderStages();
-      stRenderQueueStatus();
-      toast('已入队提交任务，后台执行中', 'success');
-      // mock 模式无 stSchedulerTimer 轮询，需延迟再拉取一次状态
-      // 以获取 commit 完成（2s 后 plan.status → committed）的状态变化
-      if (ApiRuntime.isMock) {
-        setTimeout(async () => {
-          try {
-            const st = await apiCall('getSchedulerStatus');
-            setStState('schedulerStatus', st);
-            await stLoadPlanDetails(st);
-            stRenderPlanCards();
-            stRenderStages();
-            stRenderQueueStatus();
-          } catch (_) { /* 静默 */ }
-        }, 2500);
-      }
-    } catch (e) {
-      // 状态保护错误：COMMIT_IN_PROGRESS / PLAN_ALREADY_COMMITTED / PLAN_NOT_FOUND
-      const errMap = {
-        COMMIT_IN_PROGRESS: '该计划正在提交中，请勿重复提交',
-        PLAN_ALREADY_COMMITTED: '该计划已提交完成',
-        PLAN_NOT_FOUND: '计划不存在或已过期',
-      };
-      toast(errMap[e.code] || `提交失败：${e.message}`, 'warn');
-    }
-  });
-}
-
-async function stDiscardPlan(planId) {
-  await withLoading(async () => {
-    try {
-      await apiCall('discardPlan', planId);
-      const status = await apiCall('getSchedulerStatus');
-      setStState('schedulerStatus', status);
-      await stLoadPlanDetails(status);
-      stRenderPlanCards();
-      stRenderStages();
-      stRenderQueueStatus();
-      toast('计划已丢弃', 'info');
-    } catch (e) {
-      // BUG-014：committing 中禁止 discard
-      const errMap = {
-        COMMIT_IN_PROGRESS: '计划正在提交中，无法丢弃',
-        PLAN_NOT_FOUND: '计划不存在或已过期',
-      };
-      toast(errMap[e.code] || `丢弃失败：${e.message}`, 'warn');
-    }
-  });
-}
-
-function stTogglePlanSection(planId, sectionId) {
-  const collapsed = Object.assign({}, stState('planCollapsed', {}) || {});
-  const key = planId + ':' + sectionId;
-  collapsed[key] = !collapsed[key];
-  setStState('planCollapsed', collapsed);
-  stRenderPlanCards();
-}
-
 function stToolAction(name) {
   toast(`「${name}」为演示占位功能`, 'info');
 }
@@ -1341,94 +868,16 @@ function stScrollChatToBottom() {
 }
 
 function stAppendMessageEl(html) {
-  const container = $('#st-plan-cards');
-  const target = container ? container : $('#st-chat-messages');
+  const target = $('#st-chat-messages');
   if (!target) return;
-  target.insertAdjacentHTML('beforebegin', html);
+  target.insertAdjacentHTML('beforeend', html);
   refreshIcons();
   stScrollChatToBottom();
 }
 
-function stRenderStages() {
-  const el = $('#st-stage-list');
-  if (el) {
-    el.innerHTML = stStagesHtml();
-    refreshIcons();
-  }
-}
-
-/** plan 卡片 + yolo 结果卡片统一 HTML（G1-5：yolo 完成后展示独立结果卡） */
-function stPlanCardsHtml() {
-  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  const details = stState('planDetails', {});
-  const planCards = (status.plans || []).map((p) => stPlanCardHtml(details[p.planId] || p)).join('');
-  // G1-5：yolo 结果卡片——队列里 status=done 且 resultSummary.mode=yolo 的条目
-  const yoloCards = ((status.queue && status.queue.items) || [])
-    .filter((it) => it.status === 'done' && it.resultSummary && it.resultSummary.mode === 'yolo')
-    .map((it) => stYoloResultCardHtml(it)).join('');
-  return planCards + yoloCards;
-}
-
-/** yolo 结果卡片：章节路径/产出数/错误数/应用事件（G1-5） */
-function stYoloResultCardHtml(item) {
-  const r = item.resultSummary;
-  if (!r) return '';
-  const ok = r.errorCount === 0;
-  return `
-  <div class="st-plan-card st-yolo-result${ok ? '' : ' has-error'}" data-queue-id="${escapeHtml(item.queueId)}">
-    <div class="st-plan-head">
-      <div class="st-plan-icon">${icon(ok ? 'check-circle' : 'alert-circle', 'w-4 h-4')}</div>
-      <div class="st-plan-title-wrap">
-        <div class="st-plan-title">yolo 编排结果 <span class="st-plan-id">${escapeHtml(item.queueId)}</span></div>
-        <div class="st-plan-meta">${escapeHtml(r.chapterPath || '—')} · ${r.outputCount} 产出 · ${r.errorCount} 错误${r.writtenTextLength ? ` · ${r.writtenTextLength} 字` : ''}</div>
-      </div>
-      <span class="st-plan-badge${ok ? '' : ' st-badge-error'}">${ok ? '完成' : '失败'}</span>
-    </div>
-    ${r.appliedEventIds && r.appliedEventIds.length ? `<div class="st-plan-body"><ul class="st-plan-bullets">${r.appliedEventIds.map((id) => `<li><strong>已应用事件：</strong>${escapeHtml(id)}</li>`).join('')}</ul></div>` : '<div class="st-plan-body"><div class="st-plan-bullet-empty">未应用世界图事件</div></div>'}
-    ${r.chapterPath ? `<div class="st-plan-foot"><div class="st-plan-chips"></div><div class="st-plan-actions"><button type="button" class="st-btn st-btn-ghost" onclick="navigate('#/files')">${icon('file-text', 'w-3.5 h-3.5')} 查看章节</button></div></div>` : ''}
-  </div>`;
-}
-
-function stRenderPlanCards() {
-  const el = $('#st-plan-cards');
-  if (!el) return;
-  el.innerHTML = stPlanCardsHtml();
-  refreshIcons();
-  stScrollChatToBottom();
-}
-
-function stRenderModeControls() {
-  const mode = stState('stMode', 'plan');
-  const toggle = $('#st-mode-toggle');
-  if (toggle) toggle.innerHTML = stModeToggleHtml(mode);
-  const dbtns = $('#st-dispatch-mode-btns');
-  if (dbtns) dbtns.innerHTML = stDispatchModeBtnsHtml(mode);
-  refreshIcons();
-}
-
-function stRenderQueueStatus() {
-  const el = $('#st-queue-text');
-  if (!el) return;
-  const status = stState('schedulerStatus', { queue: { length: 0, active: 0, items: [] }, plans: [], defaultMode: 'plan' });
-  // G1-7：busy 含主会话流式中
-  const busy = stState('studioBusy', false) || stState('chatStreaming', false);
-  // G1-2：用 active（pending+running）替代 length
-  const queueActive = status.queue && status.queue.active != null ? status.queue.active : (status.queue && status.queue.length ? status.queue.length : 0);
-  const planCount = (status.plans || []).length;
-  el.textContent = busy ? '编排中…' : planCount > 0 ? `等待确认 · ${planCount} 个计划待审核` : queueActive > 0 ? `${queueActive} 个任务执行中` : '空闲';
-  const dot = $('#st-control-bar') ? $('#st-control-bar').querySelector('.st-queue-dot') : null;
-  if (dot) {
-    dot.className = 'st-queue-dot st-queue-' + (busy ? 'running' : planCount > 0 ? 'waiting' : queueActive > 0 ? 'running' : 'idle');
-  }
-  // G1-6：队列错误可见化——展示 status=error 条目的错误文案（派发失败不再"什么都没发生"）
-  const errorsEl = $('#st-queue-errors');
-  if (errorsEl) {
-    const errorItems = ((status.queue && status.queue.items) || []).filter((it) => it.status === 'error' && it.error);
-    errorsEl.innerHTML = errorItems.map((it) => `
-      <div class="st-queue-error-item">
-        <span class="st-queue-error-icon">${icon('alert-circle', 'w-3.5 h-3.5')}</span>
-        <span class="st-queue-error-text">派发失败：${escapeHtml(it.error)}</span>
-      </div>`).join('');
-    refreshIcons();
+function stChatKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    stSendChat();
   }
 }

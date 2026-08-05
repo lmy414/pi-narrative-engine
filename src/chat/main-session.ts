@@ -42,6 +42,11 @@ export interface MainSessionHostOptions {
   model?: Model<any>;
   /** 运行时 API Key 覆盖（setRuntimeApiKey，不持久化；可选） */
   runtimeApiKey?: { provider: string; apiKey: string };
+  /**
+   * 指定会话路径启动（多 session 并存场景：SessionPool 为每个会话创建独立 host）。
+   * 缺省时走 SessionManager.continueRecent（恢复最近会话，与 PI 本体 `pi -c` 一致）。
+   */
+  sessionPath?: string;
 }
 
 /**
@@ -91,7 +96,12 @@ export class MainSessionHost {
     // G2-3：启动恢复最近会话（与 PI 本体 `pi -c` 一致）。
     // continueRecent 同步：有最近 .jsonl 则 open 旧文件（新消息 append），无则 create 新建。
     // 不走 runtime.switchSession（那是交互期 slash 命令路径），避免首次启动触发 teardown。
-    const sessionManager = SessionManager.continueRecent(this.opts.cwd, this.opts.sessionDir);
+    //
+    // 多 session 并存场景（sessionPath 指定）：直接 open 目标会话文件，
+    // 不走 continueRecent（避免每个 host 都打开最近会话造成冲突）。
+    const sessionManager = this.opts.sessionPath
+      ? SessionManager.open(this.opts.sessionPath, this.opts.sessionDir)
+      : SessionManager.continueRecent(this.opts.cwd, this.opts.sessionDir);
     this.runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: this.opts.cwd,
       agentDir: this.opts.agentDir,

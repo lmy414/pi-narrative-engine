@@ -83,7 +83,6 @@ test("maps GET query and write methods to same-origin endpoints", async () => {
   const { client, calls } = loadClient();
   await client.getGraph("ch001.ev002", "1");
   await client.writeFile("正文/第一章.md", "你好", "mtime-1");
-  await client.setSchedulerMode("yolo");
   await client.clearLlmSlot("planner");
 
   assert.equal(calls[0].url, "/api/graph?storyTime=ch001.ev002&includeClosed=1");
@@ -94,9 +93,8 @@ test("maps GET query and write methods to same-origin endpoints", async () => {
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     path: "正文/第一章.md", content: "你好", baseMtime: "mtime-1",
   });
-  assert.equal(calls[2].options.method, "PUT");
-  assert.equal(calls[3].options.method, "DELETE");
-  assert.equal(calls[3].url, "/api/admin/llm/slot/planner");
+  assert.equal(calls[2].options.method, "DELETE");
+  assert.equal(calls[2].url, "/api/admin/llm/slot/planner");
 });
 
 test("returns a non-2xx error envelope and records its HTTP status", async () => {

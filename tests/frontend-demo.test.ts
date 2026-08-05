@@ -285,20 +285,6 @@ test("ApiMock: list and config endpoints preserve real data wrappers", async () 
   assert.equal(typeof env.data.values, "object");
 });
 
-test("ApiMock: plan detail exposes outputs and completed planner/role stages", async () => {
-  const api = createMockApi();
-  const status = await api.getSchedulerStatus();
-  const summary = status.data.plans[0];
-  const detail = await api.getSchedulerPlan(summary.planId);
-
-  assert.equal("stages" in summary, false);
-  assert.ok(Array.isArray(detail.data.outputs));
-  assert.deepEqual(
-    plain(detail.data.stages.map((stage: any) => [stage.stage, stage.status])),
-    [["planner", "done"], ["role", "done"]],
-  );
-});
-
 test("ApiMock: chat and debug fixtures use target field sets", async () => {
   const api = createMockApi();
   const messages = (await api.getChatMessages("session-03")).data.messages;

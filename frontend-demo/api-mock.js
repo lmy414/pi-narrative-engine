@@ -26,8 +26,8 @@ function getEntityAtStoryTime(entityId, storyTime) {
   const snapshot = JSON.parse(JSON.stringify(entity));
   // 按 storyTime 过滤属性：只保留 validFrom <= storyTime 且 validTo > storyTime 的声明
   const relevant = MOCK_DECLARATIONS.filter(d => d.entityId === entityId && d.validFrom <= storyTime && (d.validTo === 'Infinity' || d.validTo > storyTime));
-  // BUG-012：保留实体基础属性（name 等非声明驱动字段），再叠加声明驱动的时变属性，
-  // 否则 search 的 name.includes(term) 永远命中空串，@ 提及无法匹配实体
+  // 保留实体基础属性（name 等非声明驱动字段），再叠加声明驱动的时变属性，
+  // 否则 search 的 name.includes(term) 永远命中空串
   snapshot.properties = Object.assign({}, entity.properties);
   for (const d of relevant) snapshot.properties[d.property] = d.value;
   snapshot.alive = !(relevant.some(d => d.property === 'alive' && d.value === false));
@@ -326,7 +326,8 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ sessions: chatSessions.map(s => ({ ...s })) });
+    // 返回 sessions[] 含 status 字段（与后端多 session 状态对齐）
+    return ok({ sessions: chatSessions.map(s => ({ ...s, status: s.status || 'idle' })) });
   },
 
   async getChatMessages(sessionId) {
@@ -337,22 +338,7 @@ const ApiMock = {
     return ok({ id: sessionId, messages: chatMessages[sessionId].map(m => ({ ...m })) });
   },
 
-  // G2-2：新建空会话（mock 生成新 sessionId，push 到 chatSessions，live 转移）
-  async createChatSession() {
-    await delay();
-    const err = requireActiveProject();
-    if (err) return err;
-    const id = 'session-' + Date.now();
-    const now = new Date().toISOString();
-    const session = { id, name: null, created: now, modified: now, messageCount: 0, firstMessage: '', live: true };
-    // 旧 live 会话取消 live 标记
-    chatSessions.forEach(s => { delete s.live; });
-    chatSessions.unshift(session);
-    chatMessages[id] = [];
-    return ok({ session });
-  },
-
-  // G2-2：切换到指定会话（mock 转移 live 标记）
+  // 切换到指定会话（mock 转移 live 标记；多 session 并存，不中断其他会话生成）
   async activateChatSession(sessionId) {
     await delay();
     const err = requireActiveProject();
@@ -372,147 +358,29 @@ const ApiMock = {
     return ok({ received: true });
   },
 
-  // 编排
-  async getSchedulerStatus() {
-    await delay();
-    const err = requireActiveProject();
-    if (err) return err;
-    return ok({ ...schedulerStatus, queue: { ...schedulerStatus.queue } });
-  },
-
-  // G1-7：mock 模式下 chat status 永远不 streaming（mock 不走真实 LLM 流式）
+  // mock 模式下 chat status 永远不 streaming（mock 不走真实 LLM 流式）
+  // 返回与后端多 session 状态相同结构：active/isStreaming/sessionId/sessions[]/backgroundStreaming[]
   async getChatStatus() {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ isStreaming: false });
-  },
-
-  async getSchedulerPlan(planId) {
-    await delay();
-    const err = requireActiveProject();
-    if (err) return err;
-    const plan = schedulerPlans[planId];
-    if (!plan) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
-    return ok(JSON.parse(JSON.stringify(plan)));
-  },
-
-  async setSchedulerMode(mode) {
-    await delay();
-    const err = requireActiveProject();
-    if (err) return err;
-    if (!['plan', 'yolo'].includes(mode)) return fail('VALIDATION_ERROR', '模式无效');
-    schedulerStatus.defaultMode = mode;
-    return ok({ mode });
-  },
-
-  async dispatch(body) {
-    await delay(400);
-    const err = requireActiveProject();
-    if (err) return err;
-    const mode = body.mode || schedulerStatus.defaultMode;
-    const planId = `plan-${Date.now()}`;
-    if (mode === 'plan') {
-      schedulerStatus.plans.push({
-        planId,
-        storyTime: body.storyTime || currentStoryTime,
-        mode,
-        characterIds: body.characterIds || [],
-        outputCount: 0,
-        errorCount: 0,
-        status: 'confirmed'
-      });
-      schedulerPlans[planId] = {
-        planId,
-        storyTime: body.storyTime || currentStoryTime,
-        mode,
-        characterIds: body.characterIds || [],
-        status: 'confirmed',
-        cast: [],
-        outputs: [],
-        retrievalPlan: null,
-        errors: [],
-        stages: [
-          { stage: 'planner', agent: '策划代理', status: 'done', durationMs: 3200 },
-          { stage: 'role', agent: '角色代理', status: 'done', durationMs: 2800 }
-        ]
-      };
-    } else {
-      schedulerStatus.queue.items.push({ queueId: planId, mode, status: 'running' });
-      // G1-2：mock 同步维护 active = pending+running 数
-      schedulerStatus.queue.length = schedulerStatus.queue.items.length;
-      schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
-      // G1-5：mock 模拟 yolo 异步完成——2s 后改 done + resultSummary（前端 stYoloResultCardHtml 据此渲染结果卡）
-      setTimeout(() => {
-        const item = schedulerStatus.queue.items.find((i) => i.queueId === planId);
-        if (item) {
-          item.status = 'done';
-          item.resultSummary = {
-            mode: 'yolo',
-            outputCount: 2,
-            errorCount: 0,
-            chapterPath: '正文/ch007.md',
-            appliedEventIds: [`evt-${nextEventId++}`],
-            writtenTextLength: 1842,
-          };
-          schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
-        }
-      }, 2000);
-    }
-    return ok({ queueId: planId, mode });
-  },
-
-  async commitPlan(planId) {
-    await delay(400);
-    const err = requireActiveProject();
-    if (err) return err;
-    const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
-    if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
-    const plan = schedulerStatus.plans[idx];
-    // BUG-014：状态保护——committing 中重复 commit / 已 committed
-    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', '该计划正在提交中', 409);
-    if (plan.status === 'committed') return fail('PLAN_ALREADY_COMMITTED', '该计划已提交完成', 410);
-    // 异步入队：status 转 committing，添加队列项，2s 后转 committed
-    plan.status = 'committing';
-    if (schedulerPlans[planId]) schedulerPlans[planId].status = 'committing';
-    const queueId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    schedulerStatus.queue.items.push({
-      queueId, status: 'running', storyTime: plan.storyTime, enqueuedAt: Date.now()
+    const live = chatSessions.find(s => s.live);
+    const sessionId = live ? live.id : null;
+    const sessions = chatSessions.map(s => ({
+      sessionId: s.id,
+      status: s.status || 'idle',
+      isActive: !!s.live,
+    }));
+    return ok({
+      active: !!live,
+      cwd: live ? '/mock-project' : null,
+      isStreaming: false,
+      sessionId,
+      systemPrompt: null,
+      modelFallbackMessage: null,
+      backgroundStreaming: sessions.filter(s => s.status === 'streaming' && !s.isActive),
+      sessions,
     });
-    schedulerStatus.queue.length = schedulerStatus.queue.items.length;
-    schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
-    // 2s 后模拟 commit 完成：queue 项转 done + resultSummary，plan 转 committed
-    setTimeout(() => {
-      const item = schedulerStatus.queue.items.find((i) => i.queueId === queueId);
-      if (item) {
-        item.status = 'done';
-        item.finishedAt = Date.now();
-        item.resultSummary = {
-          mode: 'plan', planId, outputCount: 0, errorCount: 0,
-          chapterPath: '正文/ch006.md',
-          appliedEventIds: [`evt-${nextEventId++}`],
-          writtenTextLength: 1842,
-        };
-      }
-      plan.status = 'committed';
-      if (schedulerPlans[planId]) schedulerPlans[planId].status = 'committed';
-      schedulerStatus.queue.active = schedulerStatus.queue.items.filter((i) => i.status === 'running' || i.status === 'pending').length;
-    }, 2000);
-    return ok({ ok: true, planId, queueId, status: 'committing' });
-  },
-
-  async discardPlan(planId) {
-    await delay();
-    const err = requireActiveProject();
-    if (err) return err;
-    const idx = schedulerStatus.plans.findIndex(p => p.planId === planId);
-    if (idx === -1) return fail('PLAN_NOT_FOUND', '计划不存在', 404);
-    const plan = schedulerStatus.plans[idx];
-    // BUG-014：committing 中禁止 discard（防世界图半写状态）
-    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', '计划正在提交中，无法丢弃', 409);
-    schedulerStatus.plans.splice(idx, 1);
-    delete schedulerPlans[planId];
-    return ok({ discarded: true });
   },
 
   // 调试

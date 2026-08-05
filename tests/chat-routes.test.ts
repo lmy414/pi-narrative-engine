@@ -5,8 +5,8 @@
  * 断言（docs/api/chat.md 契约）：
  * - 非 /api/chat 路径不命中
  * - POST message：无活跃项目 409 / 缺 text 400 / isStreaming 409 / 成功 200
- * - GET status：会话状态（只读，不触发 ensureHost）
- * - GET events：SSE 推送 session 事件，断开取消订阅
+ * - GET status：多 session 状态（只读，不触发 ensureHost）
+ * - GET events：SSE 多路复用，订阅 ChatContext.subscribe，断开取消订阅
  * - 未知子路径 404
  */
 import { test } from "node:test";
@@ -28,6 +28,7 @@ import type { Embedder } from "../src/embedder.ts";
 import type { WorldGraph } from "underworld-graph";
 import type { Search } from "../src/search.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { SessionPool, type SessionHandle, type SessionStatus } from "../src/chat/session-pool.ts";
 
 // ----------------------------------------------------------------------------
 // stubs
@@ -96,10 +97,34 @@ function makeCtx(overrides: {
   activateSessionResult?: SessionInfo;
   createSessionError?: { code: string; message: string };
   activateSessionError?: { code: string; message: string };
+  /** sendChatMessage 结果（默认按 host.session.isStreaming 判断 CHAT_BUSY） */
+  sendChatMessageResult?: { preflightSucceeded: boolean; sessionId: string };
+  /** sendChatMessage 抛错（CHAT_BUSY/MODEL_NOT_READY 等） */
+  sendChatMessageError?: { code: string; message: string };
+  /** 自定义 sessionPool（不传时按 host 自动构造） */
+  pool?: SessionPool;
+  /** SSE 订阅回调收集（外部传入用于断言事件推送） */
+  subscribers?: Array<(event: unknown) => void>;
 }): { chatContext: ChatContext; registry: { getActive: () => ProjectHandle | null } } {
+  // 默认池：按 host 构造一个活跃 handle
+  const pool = overrides.pool ?? new SessionPool();
+  if (overrides.host && pool.size === 0) {
+    const handle: SessionHandle = {
+      id: overrides.host.session.sessionId,
+      host: overrides.host as unknown as MainSessionHost,
+      status: overrides.host.session.isStreaming ? "streaming" : "idle",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    pool.set(handle);
+    pool.setActive(handle.id);
+  }
+
+  const subscribers = overrides.subscribers ?? [];
   const chatContext = {
     ensureHost: async () => overrides.host ?? null,
     activeHost: overrides.host ?? null,
+    sessionPool: pool,
     listSessions: async () => [] as SessionInfo[],
     createSession: async () => {
       if (overrides.createSessionError) {
@@ -116,6 +141,21 @@ function makeCtx(overrides: {
         throw err;
       }
       return overrides.activateSessionResult ?? makeSessionInfo("activated-stub-id");
+    },
+    sendChatMessage: async (_text: string) => {
+      if (overrides.sendChatMessageError) {
+        const err = new Error(overrides.sendChatMessageError.message) as Error & { code: string };
+        err.code = overrides.sendChatMessageError.code;
+        throw err;
+      }
+      return overrides.sendChatMessageResult ?? { preflightSucceeded: true, sessionId: overrides.host?.session.sessionId ?? "stub-session-id" };
+    },
+    subscribe: (cb: (event: unknown) => void) => {
+      subscribers.push(cb);
+      return () => {
+        const idx = subscribers.indexOf(cb);
+        if (idx >= 0) subscribers.splice(idx, 1);
+      };
     },
     dispose: async () => {},
   } as unknown as ChatContext;
@@ -297,58 +337,80 @@ test("POST message：缺 text → 400 MISSING_FIELD", async () => {
 
 test("POST message：isStreaming → 409 CHAT_BUSY", async () => {
   const session = makeSession({ isStreaming: true });
-  const ctx = makeCtx({ host: makeHost(session) });
+  const ctx = makeCtx({
+    host: makeHost(session),
+    sendChatMessageError: { code: "CHAT_BUSY", message: "当前活跃会话正在生成" },
+  });
   const { hit, status, json } = await call(ctx, "POST", "/api/chat/message", { text: "hi" });
   assert.equal(hit, true);
   assert.equal(status, 409);
   assert.equal(json?.error?.code, "CHAT_BUSY");
-  assert.equal(session.promptCalls.length, 0, "忙碌时不应调用 prompt");
 });
 
 test("POST message：成功 → 200 received + preflight 语义", async () => {
   const session = makeSession();
-  const ctx = makeCtx({ host: makeHost(session) });
+  const ctx = makeCtx({
+    host: makeHost(session),
+    sendChatMessageResult: { preflightSucceeded: true, sessionId: session.sessionId },
+  });
   const { hit, status, json } = await call(ctx, "POST", "/api/chat/message", { text: "你好" });
   assert.equal(hit, true);
   assert.equal(status, 200);
-  assert.deepEqual(json, { ok: true, data: { received: true }, error: null });
-  assert.deepEqual(session.promptCalls, ["你好"]);
+  assert.deepEqual(json, { ok: true, data: { received: true, sessionId: session.sessionId }, error: null });
 });
 
-test("POST message：preflight 失败 → 400 MODEL_NOT_READY", async () => {
-  const session = makeSession({
-    prompt: async (_text, opts) => { opts?.preflightResult?.(false); },
+test("POST message：preflight 失败 → 503 MODEL_NOT_READY", async () => {
+  const session = makeSession();
+  const ctx = makeCtx({
+    host: makeHost(session),
+    sendChatMessageError: { code: "MODEL_NOT_READY", message: "主会话模型不可用" },
   });
-  const ctx = makeCtx({ host: makeHost(session) });
   const { hit, status, json } = await call(ctx, "POST", "/api/chat/message", { text: "hi" });
   assert.equal(hit, true);
-  assert.equal(status, 400);
+  assert.equal(status, 503);
   assert.equal(json?.error?.code, "MODEL_NOT_READY");
 });
 
 test("GET status：只读不触发 ensureHost（未启动时 active=false）", async () => {
-  const ctx = makeCtx({ host: null });
+  // 未启动：pool 为空，activeHandle 为 null
+  const ctx = makeCtx({ host: null, activeHandle: null });
   const { hit, status, json } = await call(ctx, "GET", "/api/chat/status");
   assert.equal(hit, true);
   assert.equal(status, 200);
   assert.equal(json?.ok, true);
-  const data = json?.data as { active: boolean; cwd: string | null; isStreaming: boolean; systemPrompt: string | null };
+  const data = json?.data as { active: boolean; cwd: string | null; isStreaming: boolean; systemPrompt: string | null; sessions: unknown[] };
   assert.equal(data.active, false);
   assert.equal(data.cwd, null);
   assert.equal(data.systemPrompt, null);
+  assert.ok(Array.isArray(data.sessions), "应返回 sessions 数组");
 });
 
-test("GET status：已启动时返回会话状态", async () => {
+test("GET status：已启动时返回会话状态（含多 session 字段）", async () => {
   const session = makeSession();
   const ctx = makeCtx({ host: makeHost(session) });
   const { hit, status, json } = await call(ctx, "GET", "/api/chat/status");
   assert.equal(hit, true);
   assert.equal(status, 200);
-  const data = json?.data as { active: boolean; cwd: string; isStreaming: boolean; systemPrompt: string };
+  const data = json?.data as {
+    active: boolean;
+    cwd: string;
+    isStreaming: boolean;
+    systemPrompt: string;
+    sessionId: string;
+    sessions: Array<{ sessionId: string; status: SessionStatus; isActive: boolean }>;
+    backgroundStreaming: unknown[];
+  };
   assert.equal(data.active, true);
   assert.equal(data.cwd, "/proj");
   assert.equal(data.isStreaming, false);
   assert.equal(data.systemPrompt, "system-prompt-stub");
+  assert.equal(data.sessionId, "stub-session-id");
+  assert.ok(Array.isArray(data.sessions), "应返回 sessions 数组");
+  assert.equal(data.sessions.length, 1, "池中应有 1 个 session");
+  assert.equal(data.sessions[0].sessionId, "stub-session-id");
+  assert.equal(data.sessions[0].status, "idle");
+  assert.equal(data.sessions[0].isActive, true);
+  assert.ok(Array.isArray(data.backgroundStreaming), "应返回 backgroundStreaming 数组");
 });
 
 test("GET /api/chat/unknown → 404 NOT_FOUND", async () => {
@@ -359,16 +421,10 @@ test("GET /api/chat/unknown → 404 NOT_FOUND", async () => {
   assert.equal(json?.error?.code, "NOT_FOUND");
 });
 
-test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅", async () => {
-  let listener: ((event: unknown) => void) | null = null;
-  let unsubscribed = false;
-  const session = makeSession({
-    subscribe: (cb) => {
-      listener = cb;
-      return () => { unsubscribed = true; };
-    },
-  });
-  const ctx = makeCtx({ host: makeHost(session) });
+test("GET events（SSE）：订阅 ChatContext 多路复用事件并推送，断开取消订阅", async () => {
+  const subscribers: Array<(event: unknown) => void> = [];
+  const session = makeSession();
+  const ctx = makeCtx({ host: makeHost(session), subscribers });
   const { req, res, writes, headers, emitClose } = mockReqRes();
   const hit = await handleChatApi(ctx, req, res, new URL("http://localhost/api/chat/events"), null);
 
@@ -376,42 +432,58 @@ test("GET events（SSE）：订阅 session 事件并推送，断开取消订阅"
   // 连接建立即冲刷头部 + 发送 :connected 注释（空事件期间客户端也能确认连接）
   assert.equal(headers["_flushed"], 1, "应调用 flushHeaders 立即冲刷响应头");
   assert.equal(writes[0], ":connected\n\n", "首条写入应为连接确认注释");
-  // 推送事件 → data 行
-  assert.ok(listener, "应已订阅 session");
-  listener!({ type: "message_update", message: { content: "x" } });
+  // 推送事件 → data 行（多路复用封装：{ type: 'pi', sessionId, event })
+  assert.equal(subscribers.length, 1, "应已订阅 ChatContext");
+  subscribers[0]({ type: "pi", sessionId: "s1", event: { type: "message_update", message: { content: "x" } } });
   const dataLines = writes.filter((w) => w.startsWith("data: "));
   assert.ok(dataLines.length === 1 && dataLines[0].includes("message_update"), "事件应以 SSE data 行推送");
 
   emitClose();
-  assert.equal(unsubscribed, true, "客户端断开应取消订阅");
+  assert.equal(subscribers.length, 0, "客户端断开应取消订阅");
 });
 
-test("GET events（SSE）：各类 session 事件原样透传（L-Test-4）", async () => {
-  let listener: ((event: unknown) => void) | null = null;
-  const session = makeSession({
-    subscribe: (cb) => {
-      listener = cb;
-      return () => {};
-    },
-  });
-  const ctx = makeCtx({ host: makeHost(session) });
+test("GET events（SSE）：background_complete 合成事件推送", async () => {
+  const subscribers: Array<(event: unknown) => void> = [];
+  const session = makeSession();
+  const ctx = makeCtx({ host: makeHost(session), subscribers });
   const { req, res, writes, emitClose } = mockReqRes();
   await handleChatApi(ctx, req, res, new URL("http://localhost/api/chat/events"), null);
 
-  assert.ok(listener, "应已订阅 session");
-  // 事件类型回归：start/end/工具执行/消息更新 均应原样 JSON 透传（前端按 type 分支处理）
+  assert.equal(subscribers.length, 1, "应已订阅 ChatContext");
+  subscribers[0]({ type: "background_complete", sessionId: "s1", timestamp: Date.now() });
+  const dataLines = writes.filter((w) => w.startsWith("data: "));
+  assert.equal(dataLines.length, 1, "应推送 1 条 background_complete 事件");
+  const parsed = JSON.parse(dataLines[0].slice("data: ".length, -2));
+  assert.equal(parsed.type, "background_complete");
+  assert.equal(parsed.sessionId, "s1");
+
+  emitClose();
+});
+
+test("GET events（SSE）：各类 PI 事件经多路复用通道推送（L-Test-4）", async () => {
+  const subscribers: Array<(event: unknown) => void> = [];
+  const session = makeSession();
+  const ctx = makeCtx({ host: makeHost(session), subscribers });
+  const { req, res, writes, emitClose } = mockReqRes();
+  await handleChatApi(ctx, req, res, new URL("http://localhost/api/chat/events"), null);
+
+  assert.equal(subscribers.length, 1, "应已订阅 ChatContext");
+  // 多路复用封装：{ type: 'pi', sessionId, event } 原样推送（前端按 event.type 分支处理）
   const samples = [
     { type: "session_start", sessionId: "s1" },
     { type: "session_end", sessionId: "s1" },
     { type: "tool_execution", tool: { name: "world_query" }, state: "running" },
     { type: "message_update", message: { content: "流式" }, done: false },
   ];
-  for (const sample of samples) listener!(sample);
+  for (const sample of samples) {
+    subscribers[0]({ type: "pi", sessionId: "s1", event: sample });
+  }
   const dataLines = writes.filter((w) => w.startsWith("data: "));
   assert.equal(dataLines.length, samples.length, "每个事件一条 data 行");
   for (let i = 0; i < samples.length; i++) {
     const parsed = JSON.parse(dataLines[i].slice("data: ".length, -2));
-    assert.equal(parsed.type, samples[i].type, `事件类型 ${samples[i].type} 原样透传`);
+    assert.equal(parsed.type, "pi", "外层 type 应为 pi");
+    assert.equal(parsed.event.type, samples[i].type, `内层事件类型 ${samples[i].type} 原样透传`);
   }
 
   emitClose();
@@ -725,16 +797,23 @@ test("POST /api/chat/sessions：无活跃项目 → 409 NO_ACTIVE_PROJECT", asyn
   assert.equal(json?.error?.code, "NO_ACTIVE_PROJECT");
 });
 
-test("POST /api/chat/sessions：streaming 中 → 409 CHAT_BUSY", async () => {
+test("POST /api/chat/sessions：streaming 中不再阻塞（多 session 并存，旧会话后台继续）", async () => {
+  // 多 session 并存设计：createSession 不再检查 isStreaming，新会话创建后旧会话保持存活
   const session = makeSession({ isStreaming: true });
+  const newInfo = makeSessionInfo("new-session-bg", {
+    messageCount: 0,
+    firstMessage: "(no messages)",
+  });
   const ctx = makeCtx({
     host: makeHost(session),
-    createSessionError: { code: "CHAT_BUSY", message: "当前会话正在生成" },
+    createSessionResult: newInfo,
   });
   const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions", {});
   assert.equal(hit, true);
-  assert.equal(status, 409);
-  assert.equal(json?.error?.code, "CHAT_BUSY");
+  assert.equal(status, 200, "streaming 中创建新会话应成功（不中断旧会话生成）");
+  const data = json?.data as { session: { id: string; live: boolean } };
+  assert.equal(data.session.id, "new-session-bg");
+  assert.equal(data.session.live, true);
 });
 
 test("POST /api/chat/sessions：成功 → 200 新会话 live=true", async () => {
@@ -764,16 +843,23 @@ test("POST /api/chat/sessions/:id/activate：会话不存在 → 404 SESSION_NOT
   assert.equal(json?.error?.code, "SESSION_NOT_FOUND");
 });
 
-test("POST /api/chat/sessions/:id/activate：streaming 中 → 409 CHAT_BUSY", async () => {
+test("POST /api/chat/sessions/:id/activate：streaming 中不阻塞（多 session 并存，旧会话后台继续）", async () => {
+  // 多 session 并存：activateSession 不再检查 streaming，切换不中断旧会话生成
   const session = makeSession({ isStreaming: true });
+  const activated = makeSessionInfo("activated-while-streaming", {
+    messageCount: 3,
+    firstMessage: "切换中",
+  });
   const ctx = makeCtx({
     host: makeHost(session),
-    activateSessionError: { code: "CHAT_BUSY", message: "当前会话正在生成" },
+    activateSessionResult: activated,
   });
-  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions/some-id/activate", {});
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions/activated-while-streaming/activate", {});
   assert.equal(hit, true);
-  assert.equal(status, 409);
-  assert.equal(json?.error?.code, "CHAT_BUSY");
+  assert.equal(status, 200, "streaming 中切换会话应成功（不中断旧会话生成）");
+  const data = json?.data as { session: { id: string; live: boolean } };
+  assert.equal(data.session.id, "activated-while-streaming");
+  assert.equal(data.session.live, true);
 });
 
 test("POST /api/chat/sessions/:id/activate：成功 → 200 live 转移", async () => {
@@ -905,4 +991,117 @@ test("启动恢复：无会话时新建空会话", async () => {
     await host.dispose();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+// ============================================================================
+// SessionPool 单测（多 session 并存核心）
+// ============================================================================
+
+function makePoolHandle(id: string, status: SessionStatus = "idle"): SessionHandle {
+  return {
+    id,
+    host: { cwd: "/proj" } as unknown as MainSessionHost,
+    status,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+test("SessionPool：多 session 并存，setActive 切换不 dispose 旧 handle", () => {
+  const pool = new SessionPool();
+  const h1 = makePoolHandle("s1", "streaming");
+  const h2 = makePoolHandle("s2", "idle");
+  pool.set(h1);
+  pool.set(h2);
+  pool.setActive("s1");
+  assert.equal(pool.getActive()?.id, "s1");
+  assert.equal(pool.size, 2, "池中应有 2 个 session");
+
+  // 切换活跃到 s2，s1 应仍在池中（不被 dispose）
+  pool.setActive("s2");
+  assert.equal(pool.getActive()?.id, "s2");
+  assert.equal(pool.get("s1")?.id, "s1", "切换后 s1 仍应在池中");
+  assert.equal(pool.size, 2, "切换不应减少池大小");
+});
+
+test("SessionPool：getBackgroundStreaming 返回非活跃且 streaming 的会话", () => {
+  const pool = new SessionPool();
+  const active = makePoolHandle("active", "idle");
+  const bg1 = makePoolHandle("bg1", "streaming");
+  const bg2 = makePoolHandle("bg2", "streaming");
+  const idle = makePoolHandle("idle", "idle");
+  pool.set(active);
+  pool.set(bg1);
+  pool.set(bg2);
+  pool.set(idle);
+  pool.setActive("active");
+
+  const bgList = pool.getBackgroundStreaming();
+  assert.equal(bgList.length, 2, "应有 2 个后台生成中的会话");
+  const bgIds = bgList.map((h) => h.id).sort();
+  assert.deepEqual(bgIds, ["bg1", "bg2"]);
+});
+
+test("SessionPool：updateStatus 更新状态与 updatedAt", async () => {
+  const pool = new SessionPool();
+  const h = makePoolHandle("s1", "idle");
+  pool.set(h);
+  const before = h.updatedAt;
+  // 确保时间戳推进
+  await new Promise((r) => setTimeout(r, 5));
+  pool.updateStatus("s1", "streaming");
+  assert.equal(pool.get("s1")?.status, "streaming");
+  assert.ok(pool.get("s1")!.updatedAt > before, "updatedAt 应更新");
+
+  pool.updateStatus("s1", "error", "网络错误");
+  assert.equal(pool.get("s1")?.status, "error");
+  assert.equal(pool.get("s1")?.lastError, "网络错误");
+});
+
+test("SessionPool：remove 移除指定 handle，活跃被移除时 activeId 清空", () => {
+  const pool = new SessionPool();
+  const h1 = makePoolHandle("s1");
+  pool.set(h1);
+  pool.setActive("s1");
+  assert.equal(pool.activeSessionId, "s1");
+
+  const removed = pool.remove("s1");
+  assert.equal(removed?.id, "s1");
+  assert.equal(pool.size, 0);
+  assert.equal(pool.activeSessionId, null, "活跃被移除后 activeId 应为 null");
+  assert.equal(pool.getActive(), null);
+});
+
+test("SessionPool：setActive 不存在时抛错", () => {
+  const pool = new SessionPool();
+  assert.throws(() => pool.setActive("nonexistent"), /不存在/);
+});
+
+test("SessionPool：getAll 按 createdAt 升序", async () => {
+  const pool = new SessionPool();
+  const h1 = makePoolHandle("s1");
+  pool.set(h1);
+  await new Promise((r) => setTimeout(r, 5));
+  const h2 = makePoolHandle("s2");
+  pool.set(h2);
+  await new Promise((r) => setTimeout(r, 5));
+  const h3 = makePoolHandle("s3");
+  pool.set(h3);
+
+  const all = pool.getAll();
+  assert.equal(all.length, 3);
+  assert.deepEqual(all.map((h) => h.id), ["s1", "s2", "s3"], "应按 createdAt 升序");
+});
+
+test("SessionPool：clear 清空所有 handle与活跃指针", () => {
+  const pool = new SessionPool();
+  pool.set(makePoolHandle("s1"));
+  pool.set(makePoolHandle("s2"));
+  pool.setActive("s1");
+  assert.equal(pool.size, 2);
+
+  pool.clear();
+  assert.equal(pool.size, 0);
+  assert.equal(pool.activeSessionId, null);
+  assert.equal(pool.getActive(), null);
 });

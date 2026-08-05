@@ -37,6 +37,7 @@ const CHAT_ERROR_STATUS: Record<string, number> = {
   SESSION_NOT_FOUND: 404,
   SESSION_INVALID_PATH: 400,
   EMBEDDER_UNAVAILABLE: 501,
+  MODEL_NOT_READY: 503,
 };
 
 const SSE_HEARTBEAT_MS = 30_000;
@@ -96,20 +97,11 @@ export async function handleChatApi(
         chars: text.length,
       });
       try {
-        const host = await ctx.chatContext.ensureHost();
-        if (!host) throw errWithCode("NO_ACTIVE_PROJECT", "尚未激活项目");
-        if (host.session.isStreaming) {
-          throw errWithCode("CHAT_BUSY", "主会话正在处理消息，请稍后重试");
-        }
-        // PI RPC 模式语义：prompt 被接收（preflight 通过）即回 ok，内容走 SSE 事件流
-        const preflightSucceeded = await new Promise<boolean>((resolve) => {
-          void host.session.prompt(text, { preflightResult: resolve }).catch(() => resolve(false));
-        });
-        if (!preflightSucceeded) {
-          throw errWithCode("MODEL_NOT_READY", "主会话模型不可用（未配置模型或 API Key）");
-        }
-        span.end({ received: true });
-        ok(res, { received: true });
+        // sendChatMessage 内部：ensureHost → 检查 active isStreaming → prompt + 状态跟踪
+        // 后台生成中的 session 不阻塞活跃会话发送
+        const result = await ctx.chatContext.sendChatMessage(text);
+        span.end({ received: true, sessionId: result.sessionId });
+        ok(res, { received: true, sessionId: result.sessionId });
         return true;
       } catch (err) {
         span.error(err);
@@ -117,25 +109,37 @@ export async function handleChatApi(
       }
     }
 
-    // GET /api/chat/events（SSE）
+    // GET /api/chat/events（SSE 多路复用：所有 session 事件经统一通道推送）
     if (segment === "/events" && method === "GET") {
       const host = await ctx.chatContext.ensureHost();
       if (!host) throw errWithCode("NO_ACTIVE_PROJECT", "尚未激活项目");
-      handleChatEvents(req, res, host.session);
+      handleChatEvents(req, res, ctx.chatContext);
       return true;
     }
 
-    // GET /api/chat/status（只读，不触发会话启动）
+    // GET /api/chat/status（只读，不触发会话启动；返回多 session 状态）
     if (segment === "/status" && method === "GET") {
-      const host = ctx.chatContext.activeHost;
+      const pool = ctx.chatContext.sessionPool;
+      const activeHandle = pool.getActive();
       const active = ctx.registry.getActive();
       ok(res, {
-        active: host !== null && active !== null,
-        cwd: host?.cwd ?? null,
-        isStreaming: host?.session.isStreaming ?? false,
-        systemPrompt: host?.session.systemPrompt ?? null,
-        sessionId: host?.session.sessionId ?? null,
-        modelFallbackMessage: host?.modelFallbackMessage ?? null,
+        active: activeHandle !== null && active !== null,
+        cwd: activeHandle?.host.cwd ?? null,
+        isStreaming: activeHandle?.status === "streaming",
+        sessionId: activeHandle?.id ?? null,
+        systemPrompt: activeHandle ? activeHandle.host.session.systemPrompt : null,
+        modelFallbackMessage: activeHandle?.host.modelFallbackMessage ?? null,
+        // 后台生成中的 session 列表（非活跃且 status=streaming）
+        backgroundStreaming: pool.getBackgroundStreaming().map((h) => ({
+          sessionId: h.id,
+          status: h.status,
+        })),
+        // 池中所有 session 的状态（前端用于按 sessionId 维护 busy 标记）
+        sessions: pool.getAll().map((h) => ({
+          sessionId: h.id,
+          status: h.status,
+          isActive: h.id === pool.activeSessionId,
+        })),
       });
       return true;
     }
@@ -144,18 +148,24 @@ export async function handleChatApi(
     if (segment === "/sessions" && method === "GET") {
       requireActiveDir(ctx);
       const sessions = await ctx.chatContext.listSessions();
-      const liveId = ctx.chatContext.activeHost?.session.sessionId ?? null;
+      const pool = ctx.chatContext.sessionPool;
+      const activeId = pool.activeSessionId;
       ok(res, {
-        sessions: sessions.map((s) => ({
-          id: s.id,
-          name: s.name ?? null,
-          path: s.path,
-          created: s.created.toISOString(),
-          modified: s.modified.toISOString(),
-          messageCount: s.messageCount,
-          firstMessage: s.firstMessage,
-          live: liveId !== null && s.id === liveId,
-        })),
+        sessions: sessions.map((s) => {
+          const handle = pool.get(s.id);
+          return {
+            id: s.id,
+            name: s.name ?? null,
+            path: s.path,
+            created: s.created.toISOString(),
+            modified: s.modified.toISOString(),
+            messageCount: s.messageCount,
+            firstMessage: s.firstMessage,
+            live: activeId !== null && s.id === activeId,
+            // 池中 session 的状态（未在池中的历史会话为 idle）
+            status: handle?.status ?? "idle",
+          };
+        }),
       });
       return true;
     }
@@ -223,11 +233,11 @@ export async function handleChatApi(
   }
 }
 
-/** SSE 事件流：session.subscribe 事件原样 JSON 推送，30s 心跳，断开清理 */
+/** SSE 事件流：ChatContext.subscribe 多路复用，所有 session 事件带 sessionId 推送，30s 心跳，断开清理 */
 function handleChatEvents(
   req: IncomingMessage,
   res: ServerResponse,
-  session: { subscribe: (cb: (event: unknown) => void) => () => void },
+  chatContext: { subscribe: (cb: (event: unknown) => void) => () => void },
 ): void {
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -247,7 +257,8 @@ function handleChatEvents(
     }
   }
 
-  const unsubscribe = session.subscribe((event) => send(event));
+  // 订阅 ChatContext 多路复用事件（所有 session 的 PI 事件 + background_complete 合成事件）
+  const unsubscribe = chatContext.subscribe((event) => send(event));
   const heartbeat = setInterval(() => {
     try {
       res.write(`:heartbeat\n\n`);

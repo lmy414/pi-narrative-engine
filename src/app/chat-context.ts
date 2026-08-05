@@ -21,6 +21,7 @@ import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
 import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
+import { SessionPool, type SessionHandle } from "../chat/session-pool.ts";
 import { createSchedulerTools } from "../chat/scheduler-tools.ts";
 import { createWorldTools } from "../chat/world-tools.ts";
 import { createRenderTools } from "../chat/render-tools.ts";
@@ -119,6 +120,24 @@ export interface HistoricalToolCall {
   isError: boolean;
 }
 
+/**
+ * SSE 多路复用事件（所有 session 的 PI 事件经此通道推送，带 sessionId 路由）
+ *
+ * type 为 "pi" 时 event 为 PI session 原始事件；
+ * type 为 "background_complete" 时为 ChatContext 合成事件（prompt() promise resolve 后触发）。
+ */
+export interface ChatEvent {
+  type: "pi" | "background_complete" | "background_error";
+  sessionId: string;
+  /** PI 原始事件（type="pi" 时）或错误信息（type="background_error" 时） */
+  event?: unknown;
+  error?: string;
+  timestamp: number;
+}
+
+/** SSE 订阅回调 */
+export type ChatEventSubscriber = (event: ChatEvent) => void;
+
 export interface UsageSummary {
   inputTokens: number;
   outputTokens: number;
@@ -181,7 +200,8 @@ export interface ChatContextOptions {
 }
 
 export class ChatContext {
-  private host: MainSessionHost | null = null;
+  private readonly pool = new SessionPool();
+  private readonly subscribers = new Set<ChatEventSubscriber>();
   private readonly storyTimes = createProjectStoryTimeStore();
   /** 按项目目录缓存的编排器服务（项目切换后旧实例随 dispose 释放） */
   private readonly orchestratorServices = new Map<string, OrchestratorService>();
@@ -195,27 +215,79 @@ export class ChatContext {
 
   /** 当前活跃主会话（未启动为 null） */
   get activeHost(): MainSessionHost | null {
-    return this.host;
+    return this.pool.getActive()?.host ?? null;
+  }
+
+  /** SessionPool（供 routes 层读取多 session 状态） */
+  get sessionPool(): SessionPool {
+    return this.pool;
   }
 
   /**
-   * 确保主会话就绪：无活跃项目 → null；cwd 变化 → dispose 重建。
+   * 确保活跃主会话就绪：无活跃项目 → null；cwd 变化 → dispose 重建池。
    * 懒启动：首个 chat 请求才创建。
    */
   async ensureHost(): Promise<MainSessionHost | null> {
     const active = this.opts.registry.getActive();
     if (!active) return null;
-    if (this.host && this.host.cwd === active.dir) return this.host;
+
+    // 池中已有活跃 session 且项目匹配 → 直接返回
+    const activeHandle = this.pool.getActive();
+    if (activeHandle && activeHandle.host.cwd === active.dir) {
+      return activeHandle.host;
+    }
 
     if (!this.opts.embedder) {
       throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
 
+    // 项目切换或首次启动 → dispose 整池重建
     await this.disposeRuntime();
+    const host = await this.createHostForProject(active);
+    return host;
+  }
+
+  /**
+   * 为活跃项目创建 host（continueRecent 恢复最近会话），注入池并设为活跃。
+   * 仅在 ensureHost 中调用（项目切换/首次启动）。
+   */
+  private async createHostForProject(active: ProjectHandle): Promise<MainSessionHost> {
     const cwd = active.dir;
     const modelConfig = this.resolveModelConfig();
     await this.ensureOrchestratorService(cwd);
 
+    const host = await this.createHostInternal(active, cwd, modelConfig, undefined);
+    const sessionId = host.session.sessionId;
+    const handle: SessionHandle = {
+      id: sessionId,
+      host,
+      status: "idle",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.pool.set(handle);
+    this.pool.setActive(sessionId);
+    this.subscribeSessionEvents(handle);
+    return host;
+  }
+
+  /**
+   * 为指定 sessionPath 创建 host（activateSession 切换到历史会话时调用）。
+   */
+  private async createHostForSession(active: ProjectHandle, sessionPath: string): Promise<MainSessionHost> {
+    const cwd = active.dir;
+    const modelConfig = this.resolveModelConfig();
+    await this.ensureOrchestratorService(cwd);
+    return this.createHostInternal(active, cwd, modelConfig, sessionPath);
+  }
+
+  /** host 创建内部实现（createHost 注入点供测试 mock） */
+  private async createHostInternal(
+    active: ProjectHandle,
+    cwd: string,
+    modelConfig: { model?: any; runtimeApiKey?: { provider: string; apiKey: string } },
+    sessionPath: string | undefined,
+  ): Promise<MainSessionHost> {
     const host = (this.opts.createHost ?? ((options) => new MainSessionHost(options)))({
       agentDir: join(this.opts.configDir, "pi-agent"),
       cwd,
@@ -225,15 +297,15 @@ export class ChatContext {
         wg: active.wg,
         search: active.search,
         cwd,
-        embedder: this.opts.embedder,
+        embedder: this.opts.embedder!,
         llmStore: this.opts.llmStore,
         currentStoryTime: this.storyTimes.get(cwd),
         setCurrentStoryTime: (storyTime) => { this.storyTimes.set(cwd, storyTime); },
       }),
       ...modelConfig,
+      sessionPath,
     });
     await host.start();
-    this.host = host;
     return host;
   }
 
@@ -286,17 +358,21 @@ export class ChatContext {
   }
 
   /**
-   * LLM 配置变更（default slot / key）后热应用到运行中的主会话。
+   * LLM 配置变更（default slot / key）后热应用到池中所有主会话。
    *
-   * 尽力而为：host 未启动时无操作（下次 ensureHost 自然用新配置）；
-   * 模型解析不出或 setModel 失败时抛给调用方（路由层兜底为"下次会话生效"）。
-   * 子代理每次调用都经 LlmConfigStore 现取配置，无需额外处理。
+   * 尽力而为：host 未启动时无操作；模型解析不出或 setModel 失败时抛给调用方。
+   * 多 session 并存：遍历池中所有 host 应用。
    */
   async applyLlmChange(): Promise<void> {
-    if (!this.host) return;
     const modelConfig = this.resolveModelConfig();
     if (!modelConfig.model) return;
-    await this.host.applyModelConfig(modelConfig.model, modelConfig.runtimeApiKey);
+    for (const handle of this.pool.getAll()) {
+      try {
+        await handle.host.applyModelConfig(modelConfig.model, modelConfig.runtimeApiKey);
+      } catch {
+        // 单个 host 应用失败不影响其他 host
+      }
+    }
   }
 
   // ============================================================================
@@ -320,40 +396,91 @@ export class ChatContext {
   }
 
   /**
-   * 新建空会话（G2-2）。
+   * 新建空会话（多 session 并存版）。
    *
-   * 懒启动 host（若未启动）；streaming 中拒绝（CHAT_BUSY）。
-   * 返回新会话的 SessionInfo（live=true）。
+   * 创建新 MainSessionHost（独立 runtime），调 host.newSession() 生成新会话文件。
+   * 不检查当前会话是否 streaming——旧会话在后台继续生成。
+   * 新会话设为活跃，旧会话保持存活。
    */
   async createSession(): Promise<SessionInfo> {
-    const host = await this.ensureHost();
-    if (!host) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
-    if (host.session.isStreaming) {
-      throw new ChatContextError("当前会话正在生成，请等待完成后再新建", "CHAT_BUSY");
+    const active = this.opts.registry.getActive();
+    if (!active) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    if (!this.opts.embedder) {
+      throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
-    await host.newSession();
-    // newSession 后 runtime 指向新会话，sessionId 即新会话 id
-    return this.findSessionInfo(host.session.sessionId);
+
+    // 确保 orchestrator service 就绪（首次或项目切换后）
+    await this.ensureOrchestratorService(active.dir);
+    const cwd = active.dir;
+    const modelConfig = this.resolveModelConfig();
+
+    // 创建新 host（无 sessionPath → continueRecent），再 newSession 生成新会话文件
+    const host = await this.createHostInternal(active, cwd, modelConfig, undefined);
+    await host.newSession(); // dispose host 内 continueRecent 会话，创建新会话文件（不影响池中其他 host）
+
+    const sessionId = host.session.sessionId;
+    const handle: SessionHandle = {
+      id: sessionId,
+      host,
+      status: "idle",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.pool.set(handle);
+    this.pool.setActive(sessionId); // 旧活跃会话保持存活，后台继续生成
+    this.subscribeSessionEvents(handle);
+    return this.findSessionInfo(sessionId);
   }
 
   /**
-   * 切换到指定会话（G2-2）。
+   * 切换到指定会话（多 session 并存版）。
    *
-   * 懒启动 host（若未启动）；streaming 中拒绝（CHAT_BUSY）。
+   * 池中已有 → 仅切 activeId 指针（不 dispose 旧 host，生成继续后台）。
+   * 池中没有 → 创建新 host（sessionPath 指定），注入池并设为活跃。
+   * 不检查 streaming——活跃会话切换不中断后台生成。
    * id 可为 sessionId 或 sessionId 前缀（与 PI 本体 resolveSessionPath 一致）。
-   * 返回切换后的 SessionInfo（live=true）。
    */
   async activateSession(id: string): Promise<SessionInfo> {
-    const host = await this.ensureHost();
-    if (!host) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
-    if (host.session.isStreaming) {
-      throw new ChatContextError("当前会话正在生成，请等待完成后再切换", "CHAT_BUSY");
+    const active = this.opts.registry.getActive();
+    if (!active) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    if (!this.opts.embedder) {
+      throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
+
+    // 池中已有 → 仅切指针
+    if (this.pool.has(id)) {
+      this.pool.setActive(id);
+      return this.findSessionInfo(id);
+    }
+
+    // 池中没有 → 创建新 host
     const sessions = await this.listSessions();
     const target = this.resolveSessionPath(id, sessions);
     if (!target) throw new ChatContextError(`会话不存在: ${id}`, "SESSION_NOT_FOUND");
-    await host.switchSession(target.path);
-    return this.findSessionInfo(host.session.sessionId);
+
+    // 确保池已初始化（首次切换时可能 ensureHost 未被调用过）
+    if (this.pool.size === 0) {
+      await this.ensureHost();
+      // ensureHost 后再次检查池中是否已有该 session
+      if (this.pool.has(id)) {
+        this.pool.setActive(id);
+        return this.findSessionInfo(id);
+      }
+    }
+
+    const host = await this.createHostForSession(active, target.path);
+    const sessionId = host.session.sessionId;
+    const handle: SessionHandle = {
+      id: sessionId,
+      host,
+      status: "idle",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.pool.set(handle);
+    this.pool.setActive(sessionId);
+    this.subscribeSessionEvents(handle);
+    return this.findSessionInfo(sessionId);
   }
 
   /** 按 id 或 id 前缀匹配会话（与 PI 本体 resolveSessionPath 语义一致） */
@@ -432,12 +559,139 @@ export class ChatContext {
   }
 
   private async disposeRuntime(): Promise<void> {
-    if (this.host) {
-      await this.host.dispose();
-      this.host = null;
+    // dispose 池中所有 host（后台生成中的也会被中断——项目切换场景）
+    for (const handle of this.pool.getAll()) {
+      try {
+        await handle.host.dispose();
+      } catch {
+        // 单个 host dispose 失败不影响其他
+      }
     }
+    this.pool.clear();
     this.orchestratorServices.clear();
     await Promise.all(Array.from(this.projectDebugBuses.values(), (bus) => bus.drain()));
+  }
+
+  // ============================================================================
+  // SSE 多路复用（所有 session 的 PI 事件经统一通道推送，带 sessionId 路由）
+  // ============================================================================
+
+  /**
+   * 订阅所有 session 的事件（SSE 端点调用）。
+   *
+   * 池中所有 session 的 PI 事件都经此通道推送，事件 payload 含 sessionId 路由：
+   * { type: "pi", sessionId, event, timestamp }
+   * 后台 session 完成时推送合成事件：
+   * { type: "background_complete", sessionId, timestamp }
+   *
+   * 返回取消订阅函数。
+   */
+  subscribe(cb: ChatEventSubscriber): () => void {
+    this.subscribers.add(cb);
+    return () => {
+      this.subscribers.delete(cb);
+    };
+  }
+
+  /**
+   * 订阅单个 session 的 PI 事件，转发给所有订阅者（带 sessionId 包装）。
+   * 新 session 创建/激活时调用。
+   */
+  private subscribeSessionEvents(handle: SessionHandle): void {
+    handle.host.session.subscribe((event) => {
+      const wrapped: ChatEvent = {
+        type: "pi",
+        sessionId: handle.id,
+        event,
+        timestamp: Date.now(),
+      };
+      for (const cb of this.subscribers) {
+        try {
+          cb(wrapped);
+        } catch {
+          // 单个订阅者异常不影响其他
+        }
+      }
+    });
+  }
+
+  /**
+   * 发送消息到活跃会话，并跟踪生成状态。
+   *
+   * - prompt 调用前设 status=streaming
+   * - prompt() promise resolve 后设 status=idle（含后置处理完成，解决问题 2 根因）
+   * - prompt() promise reject 后设 status=error
+   * - 后台完成时推送 background_complete 事件
+   *
+   * 返回 preflight 结果（true=模型就绪，false=模型不可用）。
+   * prompt() 只调用一次——preflightResult 回调通知 preflight 结果，
+   * prompt promise 的 then/catch 在生成+后置处理完成后触发。
+   */
+  async sendChatMessage(text: string): Promise<{ preflightSucceeded: boolean; sessionId: string }> {
+    const host = await this.ensureHost();
+    if (!host) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    if (host.session.isStreaming) {
+      throw new ChatContextError("当前活跃会话正在生成，请等待完成后再发送", "CHAT_BUSY");
+    }
+
+    const sessionId = host.session.sessionId;
+    this.pool.updateStatus(sessionId, "streaming");
+
+    const preflightSucceeded = await new Promise<boolean>((resolve) => {
+      const promptPromise = host.session.prompt(text, { preflightResult: resolve });
+      // prompt promise 在生成+后置处理完成后 resolve/reject
+      promptPromise
+        .then(() => {
+          this.pool.updateStatus(sessionId, "idle");
+          this.notifyBackgroundComplete(sessionId);
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.pool.updateStatus(sessionId, "error", msg);
+          this.notifyBackgroundError(sessionId, msg);
+          // preflight 阶段失败时 resolve(false)，让调用方知道模型不可用
+          resolve(false);
+        });
+    });
+
+    if (!preflightSucceeded) {
+      throw new ChatContextError("主会话模型不可用（未配置模型或 API Key）", "MODEL_NOT_READY");
+    }
+
+    return { preflightSucceeded: true, sessionId };
+  }
+
+  /** 推送 background_complete 合成事件（后台生成完成） */
+  private notifyBackgroundComplete(sessionId: string): void {
+    const event: ChatEvent = {
+      type: "background_complete",
+      sessionId,
+      timestamp: Date.now(),
+    };
+    for (const cb of this.subscribers) {
+      try {
+        cb(event);
+      } catch {
+        // 忽略
+      }
+    }
+  }
+
+  /** 推送 background_error 合成事件（后台生成失败） */
+  private notifyBackgroundError(sessionId: string, error: string): void {
+    const event: ChatEvent = {
+      type: "background_error",
+      sessionId,
+      error,
+      timestamp: Date.now(),
+    };
+    for (const cb of this.subscribers) {
+      try {
+        cb(event);
+      } catch {
+        // 忽略
+      }
+    }
   }
 
   private ensureProjectDebugBus(cwd: string): DrainableDebugBus | null {

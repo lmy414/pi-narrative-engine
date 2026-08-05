@@ -170,19 +170,11 @@
 
     getChatSessions: function () { return get('/chat/sessions'); },
     getChatMessages: function (sessionId) { return get('/chat/sessions/' + part(sessionId) + '/messages'); },
-    // G2-2：新建空会话（live 转移到新会话）
-    createChatSession: function () { return post('/chat/sessions', {}); },
-    // G2-2：切换到指定会话（live 转移）
+    // 切换到指定会话（live 转移）
     activateChatSession: function (sessionId) { return post('/chat/sessions/' + part(sessionId) + '/activate', {}); },
     sendChatMessage: function (text) { return post('/chat/message', { text: text }); },
-    // G1-7：拉取主会话流式状态（isStreaming），用于编排空闲但主会话仍在 LLM 输出时兜底 busy
+    // 拉取主会话流式状态（isStreaming），用于会话切换保护与 busy 兜底
     getChatStatus: function () { return get('/chat/status'); },
-    getSchedulerStatus: function () { return get('/scheduler/status'); },
-    getSchedulerPlan: function (planId) { return get('/scheduler/plans/' + part(planId)); },
-    setSchedulerMode: function (mode) { return put('/scheduler/mode', { mode: mode }); },
-    dispatch: function (body) { return post('/scheduler/dispatch', body); },
-    commitPlan: function (planId) { return post('/scheduler/commit', { planId: planId }); },
-    discardPlan: function (planId) { return post('/scheduler/discard', { planId: planId }); },
 
     getDebugEvents: function () { return get('/debug/events'); },
     clearDebugEvents: function () { return post('/debug/clear'); },
