@@ -278,3 +278,42 @@ G2-1（后端原语 + 端点 + 启动恢复）
 ### 下一步
 
 G2-2 前端真调用：`stNewSession`/`stSwitchSession` 改真调用 + api-client 加方法 + mock 同步 + streaming 时禁用按钮。
+
+---
+
+## 附录 B：G2-2 落地文档
+
+> 完成日期：2026-08-05
+> 提交：`2b77b9a`（已合并 master 并推送）
+
+### 实际改动
+
+| 文件 | 改动 |
+|---|---|
+| `frontend-demo/api-client.js` | 新增 `createChatSession()` / `activateChatSession(id)` 方法 |
+| `frontend-demo/views/studio.js` | `stNewSession()` 改真调用 `createChatSession`（原假实现只在前端造 id）；`stSwitchSession()` 改真调用 `activateChatSession`（原只读历史不切换 live）；新增 `stIsStreamingBusy()` / `stNotifyStreamingBusy(action)`；streaming 时禁用按钮 + 会话项；加 `studioBusy` 防重入 |
+| `frontend-demo/styles/views.css` | 新增 `.st-new-session.disabled` 和 `.st-session-item.disabled` 样式 |
+| `frontend-demo/api-mock.js` | 新增 `createChatSession`/`activateChatSession` mock（生成新 sessionId / 转移 live 标记） |
+
+### 测试结果
+
+- 647 pass / 0 fail（与 G2-1 后基线一致，无回归）
+
+### 关键设计决策
+
+1. **stNewSession 改 async + studioBusy 防重入**：原同步函数改为 async，`createChatSession` 期间设 `studioBusy=true`，按钮自动 disabled，完成后 finally 释放。避免重复点击创建多个空会话。
+2. **stSwitchSession 乐观更新 + 防重入**：保持原乐观更新 `currentSessionId`（立即切换高亮），但加 `studioBusy` 防重入。`activateChatSession` + `getChatMessages` 两步串行。
+3. **streaming 禁用按钮**：`stIsStreamingBusy()` 检查 `studioBusy || chatStreaming`。streaming 时 `stSessionsHtml` 给"新建议程"按钮加 `disabled` 类 + `aria-disabled`，`stSessionItemHtml` 给会话项加 `disabled` 类且不绑 `onclick`。
+4. **toast 提示**：`stNotifyStreamingBusy` 调用全局 `toast()` 函数（app.js:129），提示"切换会话需要等待当前生成完成"。
+
+### 风险跟踪
+
+| 存疑点 | 状态 | 说明 |
+|---|---|---|
+| streaming 中切换的 UX | ✅ 已落地 | 前端禁用按钮 + toast 提示；后端 CHAT_BUSY 409 兜底 |
+| 防重入 | ✅ 已落地 | studioBusy 保护 createChatSession/activateChatSession 期间 |
+| mock 模式行为一致 | ✅ 已落地 | api-mock.js 实现 createChatSession/activateChatSession |
+
+### 下一步
+
+G2-4 专项测试轮：按前端测试纪律自驱测试，覆盖新建/切换/启动恢复/streaming 边界/工具调用持久化/碎片治理。
