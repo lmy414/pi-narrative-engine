@@ -640,6 +640,8 @@ async function init() {
   try {
     const cfg = await apiCall('getAppConfig');
     if (cfg && cfg.theme) settingsApplyTheme(cfg.theme);
+    // BUG-018：应用全局页面缩放（写入 html 根字号，所有视图继承）
+    settingsApplyScale(cfg && cfg.uiScale);
     const roots = cfg?.launcher?.defaultScanRoots || [];
     viewState('projects').scanRoots = roots;
     App.viewState.scanRoots = roots;

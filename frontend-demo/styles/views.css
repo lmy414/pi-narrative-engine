@@ -2640,6 +2640,40 @@ body .detail-drawer {
   border: 1px solid var(--border-200);
   border-top-left-radius: 2px;
 }
+/* BUG-021：AI 消息 Markdown 渲染。marked 输出标准 HTML 标签，覆盖基类 white-space 并排版 */
+.st-bubble-ai { white-space: normal; }
+.st-bubble-ai > :first-child { margin-top: 0; }
+.st-bubble-ai > :last-child { margin-bottom: 0; }
+.st-bubble-ai p { margin: 0 0 0.5em; }
+.st-bubble-ai h1, .st-bubble-ai h2, .st-bubble-ai h3,
+.st-bubble-ai h4, .st-bubble-ai h5, .st-bubble-ai h6 {
+  font-family: var(--font-display); font-weight: 600; color: var(--text-900);
+  margin: 0.8em 0 0.4em; line-height: 1.3;
+}
+.st-bubble-ai h1 { font-size: 1.35em; }
+.st-bubble-ai h2 { font-size: 1.2em; }
+.st-bubble-ai h3 { font-size: 1.1em; }
+.st-bubble-ai h4, .st-bubble-ai h5, .st-bubble-ai h6 { font-size: 1em; }
+.st-bubble-ai ul, .st-bubble-ai ol { margin: 0 0 0.5em; padding-left: 1.4em; }
+.st-bubble-ai li { margin: 0.15em 0; }
+.st-bubble-ai code {
+  font-family: var(--font-mono); font-size: 0.875em;
+  background-color: var(--bg-200); padding: 0.1em 0.35em;
+  border-radius: 0.25rem; color: var(--brand-700);
+}
+.st-bubble-ai pre {
+  background-color: var(--bg-200); padding: 0.6em 0.8em;
+  border-radius: 0.3rem; overflow-x: auto; margin: 0 0 0.5em;
+}
+.st-bubble-ai pre code { background-color: transparent; padding: 0; color: inherit; }
+.st-bubble-ai blockquote {
+  margin: 0 0 0.5em; padding: 0.1em 0.8em;
+  border-left: 3px solid var(--border-300); color: var(--text-500);
+}
+.st-bubble-ai a { color: var(--brand-600); text-decoration: underline; }
+.st-bubble-ai hr { border: none; border-top: 1px solid var(--border-200); margin: 0.6em 0; }
+.st-bubble-ai table { border-collapse: collapse; margin: 0 0 0.5em; }
+.st-bubble-ai th, .st-bubble-ai td { border: 1px solid var(--border-200); padding: 0.3em 0.6em; }
 .st-bubble-character {
   background-color: var(--success-50);
   border: 1px solid var(--success-200);

@@ -192,6 +192,7 @@ const MOCK_APP_CONFIG = {
   embedder: { model: 'Xenova/all-MiniLM-L6-v2' },
   theme: 'light',
   editorFontSize: 16,
+  uiScale: 100,
   autosave: true,
   autosaveInterval: 30
 };

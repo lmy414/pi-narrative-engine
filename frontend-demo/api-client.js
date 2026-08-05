@@ -8,7 +8,7 @@
 
   var API_ROOT = '/api';
   var UI_PREFS_KEY = 'ne-frontend-ui-prefs';
-  var UI_PREF_KEYS = ['theme', 'fontSize', 'autoSave'];
+  var UI_PREF_KEYS = ['theme', 'fontSize', 'autoSave', 'uiScale'];
 
   function unsupported(message) {
     return Promise.resolve({

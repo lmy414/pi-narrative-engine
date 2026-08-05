@@ -110,6 +110,7 @@ async function settingsLoad() {
     apiCall('getLlmStatus'),
   ]);
   setSettingsState('setAppConfig', appConfig);
+  settingsApplyScale(appConfig && appConfig.uiScale);
 
   const llm = llmData.slots || {};
   setSettingsState('setLlmStatus', llm);
@@ -593,6 +594,7 @@ function settingsPanelAppPrefs() {
   const cfg = settingsState('setAppConfig', {}) || {};
   const theme = cfg.theme || 'light';
   const fontSize = cfg.editorFontSize || 16;
+  const uiScale = cfg.uiScale || 100;
   const autosave = settingsState('setAutosave', cfg.autosave !== false);
   const interval = cfg.autosaveInterval || 30;
   const rootDir = (cfg.launcher && cfg.launcher.defaultScanRoots && cfg.launcher.defaultScanRoots[0]) || '';
@@ -623,6 +625,16 @@ function settingsPanelAppPrefs() {
             <div class="set-slider-ctl">
               <input type="range" class="set-slider-input" min="12" max="24" value="${fontSize}" id="set-font-slider" oninput="settingsOnFontSlider(this.value)">
               <span class="set-slider-value" id="set-font-value">${fontSize} px</span>
+            </div>
+          </div>
+          <div class="set-slider-row">
+            <div class="set-slider-info">
+              <div class="set-slider-label">页面缩放</div>
+              <div class="set-slider-desc">全局界面缩放（所有页面生效）</div>
+            </div>
+            <div class="set-slider-ctl">
+              <input type="range" class="set-slider-input" min="80" max="150" step="10" value="${uiScale}" id="set-scale-slider" oninput="settingsOnScaleSlider(this.value)">
+              <span class="set-slider-value" id="set-scale-value">${uiScale}%</span>
             </div>
           </div>
           <div class="set-toggle-row">
@@ -684,10 +696,12 @@ function settingsBrowseRoot() {
 
 async function settingsSaveAppPrefs() {
   const fontEl = $('#set-font-slider');
+  const scaleEl = $('#set-scale-slider');
   const intervalEl = $('#set-autosave-interval');
   const rootEl = $('#set-root-dir');
   const patch = {
     editorFontSize: fontEl ? parseInt(fontEl.value, 10) || 16 : 16,
+    uiScale: scaleEl ? parseInt(scaleEl.value, 10) || 100 : 100,
     autosave: !!settingsState('setAutosave', true),
     autosaveInterval: intervalEl ? parseInt(intervalEl.value, 10) || 30 : 30,
   };
@@ -699,6 +713,7 @@ async function settingsSaveAppPrefs() {
   } catch (e) { handleApiError(e); return; }
   const cfg = settingsState('setAppConfig', {}) || {};
   setSettingsState('setAppConfig', { ...cfg, ...patch });
+  settingsApplyScale(patch.uiScale); // BUG-018：保存后应用缩放
   toast('应用偏好已保存', 'success');
   renderView();
 }
@@ -727,6 +742,21 @@ function settingsApplyTheme(themeChoice) {
   }
   App.theme = resolved;                       // 显式赋值
   document.documentElement.className = resolved; // 显式赋值
+}
+
+// BUG-018：全局页面缩放。缩放百分比写入 html 根 font-size，所有视图继承缩放。
+// 100% 时置空（用浏览器默认），避免累积缩放。
+function settingsApplyScale(scale) {
+  const pct = Number(scale);
+  const valid = Number.isFinite(pct) && pct >= 80 && pct <= 150;
+  document.documentElement.style.fontSize = valid && pct !== 100 ? pct + '%' : '';
+}
+
+// BUG-018：应用偏好面板「页面缩放」slider 的 oninput 实时预览
+function settingsOnScaleSlider(v) {
+  settingsApplyScale(v);
+  const el = $('#set-scale-value');
+  if (el) el.textContent = v + '%';
 }
 
 // ==================== 面板：关于 ====================
