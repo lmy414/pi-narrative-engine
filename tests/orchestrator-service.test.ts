@@ -331,3 +331,91 @@ test("getPlan：返回公开详情 DTO，且 commit/discard 后不可查询", as
   assert.equal(service.discard("plan_test_1").ok, true);
   assert.equal(service.getPlan("plan_test_1"), undefined);
 });
+
+test("committed PlanDetail 同时含三项结果（diffusion + render + commit）", async () => {
+  const { fake } = makeFakeOrchestrator();
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await waitWorker();
+  await service.commit("plan_test_1");
+  await waitWorker();
+
+  const detail = service.getPlan("plan_test_1");
+  assert.notEqual(detail, undefined);
+  assert.equal(detail?.status, "committed");
+  assert.ok(detail?.diffusion, "committed 后应有 diffusion");
+  assert.ok(detail?.render, "committed 后应有 render");
+  assert.ok(detail?.commit, "committed 后应有 commit");
+  assert.deepEqual(detail?.diffusion, { appliedEventIds: ["evt_x"], changes: [] });
+  assert.equal(detail?.render?.chapterPath, "", "render chapterPath 来自 runPostRolePipeline 返回值");
+  assert.equal(detail?.render?.text, "渲染正文", "render 保留 text");
+  assert.equal(detail?.commit?.ok, true);
+  assert.equal(detail?.commit?.writtenText, "渲染正文");
+  assert.equal(detail?.commit?.chapterPath, "");
+  assert.deepEqual(detail?.commit?.appliedEventIds, ["evt_x"]);
+});
+
+test("commit 失败保留前半链路并设置 commitError", async () => {
+  const { fake } = makeFakeOrchestrator({ pipelineError: new Error("可见推理失败") });
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await waitWorker();
+
+  // 确认前半链路完整
+  const before = service.getPlan("plan_test_1");
+  assert.notEqual(before, undefined);
+  assert.equal(before?.status, "confirmed");
+  assert.ok(Array.isArray(before?.outputs));
+  assert.ok(Array.isArray(before?.cast));
+  assert.ok(Array.isArray(before?.stages));
+  assert.ok(before?.retrievalPlan);
+  assert.equal("diffusion" in (before ?? {}), false, "confirmed 时无 diffusion");
+  assert.equal("commitError" in (before ?? {}), false, "confirmed 时无 commitError");
+
+  await service.commit("plan_test_1");
+  await waitWorker();
+
+  const after = service.getPlan("plan_test_1");
+  assert.notEqual(after, undefined);
+  assert.equal(after?.status, "error");
+  assert.equal(after?.commitError, "可见推理失败", "commitError 反映错误信息");
+  // 前半链路保留
+  assert.equal(after?.outputs.length, before?.outputs.length, "outputs 保留");
+  assert.equal(after?.cast.length, before?.cast.length, "cast 保留");
+  assert.equal(after?.stages.length, before?.stages.length, "stages 保留");
+  assert.ok(after?.retrievalPlan, "retrievalPlan 保留");
+  assert.equal("diffusion" in (after ?? {}), false, "失败时无 diffusion");
+});
+
+test("DTO 深拷贝覆盖 outputs.thought、diffusion、render.text 和 commit", async () => {
+  const result = makeResult("plan");
+  result.outputs = [{ actor: "char_a", action: "思考", thought: "深度思考内容" } as never];
+  const { fake } = makeFakeOrchestrator({ result });
+  const service = new OrchestratorService(fake);
+  service.dispatch(result.event);
+  await waitWorker();
+  await service.commit("plan_test_1");
+  await waitWorker();
+
+  const detail = service.getPlan("plan_test_1");
+  assert.notEqual(detail, undefined);
+
+  // outputs.thought 深拷贝
+  const thoughtBefore = detail!.outputs[0].thought;
+  detail!.outputs[0].thought = "篡改内容";
+  assert.equal(service.getPlan("plan_test_1")!.outputs[0].thought, thoughtBefore, "outputs.thought 深拷贝");
+
+  // diffusion 深拷贝
+  detail!.diffusion!.changes = [{ property: "mutated" }] as never;
+  detail!.diffusion!.appliedEventIds = ["mutated"];
+  assert.deepEqual(service.getPlan("plan_test_1")!.diffusion?.changes, []);
+  assert.deepEqual(service.getPlan("plan_test_1")!.diffusion?.appliedEventIds, ["evt_x"]);
+
+  // render.text 深拷贝
+  detail!.render!.text = "篡改正文";
+  assert.equal(service.getPlan("plan_test_1")!.render?.text, "渲染正文");
+
+  // commit 深拷贝
+  detail!.commit!.writtenText = "篡改";
+  assert.equal(service.getPlan("plan_test_1")!.commit?.writtenText, "渲染正文");
+});

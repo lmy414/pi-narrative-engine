@@ -253,3 +253,35 @@ test("getChain 对 causes 环不死循环且不重复收集（L-Test-3 / L-FE-5�
   assert.deepEqual(ids, ["evt-a", "evt-b"]);
   assert.equal(new Set(ids).size, ids.length);
 });
+
+test("getSchedulerStatus sends GET /scheduler/status", async () => {
+  const { client, calls } = loadClient();
+  await client.getSchedulerStatus();
+  assert.equal(calls[0].url, "/api/scheduler/status");
+  assert.equal(calls[0].options.method, "GET");
+});
+
+test("getSchedulerPlan sends GET /scheduler/plans/:id", async () => {
+  const { client, calls } = loadClient();
+  await client.getSchedulerPlan("plan-001");
+  assert.equal(calls[0].url, "/api/scheduler/plans/plan-001");
+  assert.equal(calls[0].options.method, "GET");
+});
+
+test("commitPlan sends POST /scheduler/commit with planId", async () => {
+  const { client, calls } = loadClient();
+  await client.commitPlan("plan-001");
+  assert.equal(calls[0].url, "/api/scheduler/commit");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers["Content-Type"], "application/json; charset=utf-8");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { planId: "plan-001" });
+});
+
+test("discardPlan sends POST /scheduler/discard with planId", async () => {
+  const { client, calls } = loadClient();
+  await client.discardPlan("plan-001");
+  assert.equal(calls[0].url, "/api/scheduler/discard");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers["Content-Type"], "application/json; charset=utf-8");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { planId: "plan-001" });
+});

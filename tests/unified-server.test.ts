@@ -40,6 +40,8 @@ let chatContext: ChatContext;
  * plan_ok = 存在的 planId；其他 planId 一律 not found
  */
 const stubPlanIds = new Set(["plan_ok"]);
+const stubCommittedPlanIds = new Set<string>();
+const stubErrorPlanIds = new Set<string>();
 const stubSchedulerService = {
   dispatch(event: { mode?: string }) {
     return { queueId: "q-stub-1", mode: event.mode === "yolo" ? "yolo" : "plan" };
@@ -81,7 +83,7 @@ const stubSchedulerService = {
   },
   getPlan(planId: string) {
     if (!stubPlanIds.has(planId)) return undefined;
-    return {
+    const base = {
       planId,
       storyTime: "ch001.ev001",
       mode: "plan",
@@ -102,6 +104,23 @@ const stubSchedulerService = {
         { stage: "role", agent: "role", status: "error", error: "char_a: role failed" },
       ],
     };
+    if (stubCommittedPlanIds.has(planId)) {
+      return {
+        ...base,
+        status: "committed" as const,
+        diffusion: { appliedEventIds: ["evt_x"], changes: [] },
+        render: { chapterPath: "chapters/ch001.md", text: "渲染正文" },
+        commit: { ok: true, appliedEventIds: ["evt_x"], writtenText: "渲染正文", chapterPath: "chapters/ch001.md", errors: [] },
+      };
+    }
+    if (stubErrorPlanIds.has(planId)) {
+      return {
+        ...base,
+        status: "error" as const,
+        commitError: "可见推理失败",
+      };
+    }
+    return { ...base, status: "confirmed" as const };
   },
 };
 
@@ -715,6 +734,7 @@ test("scheduler/plans/:id: 返回详情，未知 plan 404", async () => {
     "planId",
     "retrievalPlan",
     "stages",
+    "status",
     "storyTime",
   ]);
   assert.deepEqual(r.data.stages.map(({ stage, status }: any) => ({ stage, status })), [
@@ -821,6 +841,47 @@ test("scheduler/mode: PUT 设置默认模式并持久化；status 附带 default
 
   // 复位，避免影响后续用例
   await sendJson("PUT", "/scheduler/mode", { mode: "plan" });
+});
+
+test("scheduler/plans/:id: committed 时返回完整后三字段（diffusion + render + commit）", async () => {
+  stubPlanIds.add("plan_committed");
+  stubCommittedPlanIds.add("plan_committed");
+  try {
+    const r = await api("/scheduler/plans/plan_committed");
+    assert.equal(r.ok, true);
+    assert.equal(r.data.status, "committed");
+    assert.ok(r.data.diffusion, "committed 应有 diffusion");
+    assert.ok(r.data.render, "committed 应有 render");
+    assert.ok(r.data.commit, "committed 应有 commit");
+    assert.deepEqual(r.data.diffusion, { appliedEventIds: ["evt_x"], changes: [] });
+    assert.equal(r.data.render.text, "渲染正文");
+    assert.equal(r.data.commit.ok, true);
+    assert.equal(r.data.commit.writtenText, "渲染正文");
+  } finally {
+    stubCommittedPlanIds.delete("plan_committed");
+    stubPlanIds.delete("plan_committed");
+  }
+});
+
+test("scheduler/plans/:id: error 时返回 commitError 和已有前半结果", async () => {
+  stubPlanIds.add("plan_error");
+  stubErrorPlanIds.add("plan_error");
+  try {
+    const r = await api("/scheduler/plans/plan_error");
+    assert.equal(r.ok, true);
+    assert.equal(r.data.status, "error");
+    assert.equal(r.data.commitError, "可见推理失败");
+    // 前半链路保留
+    assert.ok(Array.isArray(r.data.outputs));
+    assert.ok(Array.isArray(r.data.cast));
+    assert.ok(Array.isArray(r.data.stages));
+    assert.ok(r.data.retrievalPlan);
+    assert.equal("diffusion" in r.data, false, "error 时无 diffusion");
+    assert.equal("render" in r.data, false, "error 时无 render");
+  } finally {
+    stubErrorPlanIds.delete("plan_error");
+    stubPlanIds.delete("plan_error");
+  }
 });
 
 // ============ /api/chat/sessions（B3） ============

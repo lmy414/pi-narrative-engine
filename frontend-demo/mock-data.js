@@ -209,6 +209,160 @@ const MOCK_NOVEL_JSON = {
   storyTimeFormat: 'ch<NNN>.ev<NNN>'
 };
 
+// ==================== 编排器 Mock 数据 ====================
+
+const MOCK_SCHEDULER_PLANS = {
+  'plan-mock-01': {
+    planId: 'plan-mock-01',
+    storyTime: 'ch006.ev008',
+    mode: 'plan',
+    characterIds: ['char-01', 'char-02', 'char-03'],
+    cast: [
+      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长，执着于寻找失踪的父亲' },
+      { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员，似乎知道舰长父亲的下落' },
+      { characterId: 'char-03', name: '老陈', summary: '星际联盟退役上将，林远航的导师' }
+    ],
+    outputs: [
+      {
+        characterId: 'char-01',
+        characterName: '林远航',
+        action: '坚持深入迷雾星云',
+        target: '艾莉亚',
+        emotion: '决心而焦虑',
+        relationUpdates: [
+          { targetId: 'char-02', label: '加深信任', change: 'positive' },
+          { targetId: 'char-03', label: '分歧加剧', change: 'negative' }
+        ],
+        knowledgeGained: ['星门协议需要三把钥匙激活'],
+        stateChanges: [
+          { entityId: 'char-01', property: 'location', value: '曙光号舰桥', modality: 'fact' }
+        ],
+        thought: '艾莉亚知道些什么，但她不愿意说。我必须找到父亲失踪的真相，哪怕要冒更大的风险。'
+      },
+      {
+        characterId: 'char-02',
+        characterName: '艾莉亚',
+        action: '暗中调查远古星门坐标',
+        target: '林远航',
+        emotion: '隐忍而坚定',
+        relationUpdates: [
+          { targetId: 'char-01', label: '暗中守护', change: 'positive' }
+        ],
+        knowledgeGained: ['星门坐标指向银河系外未知区域'],
+        stateChanges: [],
+        thought: '还不到告诉他真相的时候。如果他父亲真的在那扇门后面，他必须做好准备。'
+      },
+      {
+        characterId: 'char-03',
+        characterName: '老陈',
+        action: '试图阻止林远航冒险',
+        target: '林远航',
+        emotion: '忧虑而愤怒',
+        relationUpdates: [
+          { targetId: 'char-01', label: '师徒关系紧绷', change: 'negative' }
+        ],
+        knowledgeGained: ['曙光号燃料不足，深入星云风险极高'],
+        stateChanges: [
+          { entityId: 'char-03', property: 'location', value: '曙光号舰桥', modality: 'fact' }
+        ],
+        thought: '这孩子和他父亲一个脾气。但作为导师，我必须阻止他做出可能致命的决定。'
+      }
+    ],
+    retrievalPlan: {
+      items: [
+        { type: 'entity', target: 'char-01', assignTo: 'planner', params: { storyTime: 'ch006.ev008' } },
+        { type: 'entity', target: 'char-02', assignTo: 'planner', params: { storyTime: 'ch006.ev008' } },
+        { type: 'entity', target: 'char-03', assignTo: 'planner', params: { storyTime: 'ch006.ev008' } },
+        { type: 'relation', target: 'char-01~char-02', assignTo: 'planner', params: { storyTime: 'ch006.ev008' } },
+        { type: 'relation', target: 'char-01~char-03', assignTo: 'planner', params: { storyTime: 'ch006.ev008' } }
+      ]
+    },
+    errors: [],
+    stages: [
+      { stage: 'planner', agent: 'planner', status: 'done', durationMs: 1250, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '林远航', status: 'done', durationMs: 3400, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '艾莉亚', status: 'done', durationMs: 3100, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '老陈', status: 'done', durationMs: 2800, provider: 'default', model: 'default' }
+    ],
+    status: 'confirmed'
+  },
+  'plan-mock-02': {
+    planId: 'plan-mock-02',
+    storyTime: 'ch005.ev007',
+    mode: 'plan',
+    characterIds: ['char-01', 'char-02'],
+    cast: [
+      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长，执着于寻找失踪的父亲' },
+      { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员，似乎知道舰长父亲的下落' }
+    ],
+    outputs: [
+      {
+        characterId: 'char-01',
+        characterName: '林远航',
+        action: '下令启动星门扫描',
+        target: '艾莉亚',
+        emotion: '期待而紧张',
+        relationUpdates: [],
+        knowledgeGained: ['星门遗迹处于休眠状态，需要特定频率激活'],
+        stateChanges: [{ entityId: 'loc-02', property: 'status', value: '扫描中', modality: 'fact' }],
+        thought: '这就是父亲提到过的远古星门。如果我能激活它，也许就能找到他失踪的线索。'
+      },
+      {
+        characterId: 'char-02',
+        characterName: '艾莉亚',
+        action: '解读星门上的远古文字',
+        target: '林远航',
+        emotion: '专注而凝重',
+        relationUpdates: [],
+        knowledgeGained: ['星门文字预言了「归来者」的降临'],
+        stateChanges: [],
+        thought: '这些文字……和母亲留给我的项链上的符号一模一样。难道林远航的父亲就是预言中的「归来者」？'
+      }
+    ],
+    retrievalPlan: {
+      items: [
+        { type: 'entity', target: 'char-01', assignTo: 'planner', params: { storyTime: 'ch005.ev007' } },
+        { type: 'entity', target: 'char-02', assignTo: 'planner', params: { storyTime: 'ch005.ev007' } },
+        { type: 'location', target: 'loc-02', assignTo: 'planner', params: { storyTime: 'ch005.ev007' } }
+      ]
+    },
+    errors: [],
+    stages: [
+      { stage: 'planner', agent: 'planner', status: 'done', durationMs: 980, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '林远航', status: 'done', durationMs: 2600, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '艾莉亚', status: 'done', durationMs: 2900, provider: 'default', model: 'default' }
+    ],
+    status: 'committed',
+    diffusion: {
+      appliedEventIds: ['evt-07', 'evt-08'],
+      changes: [
+        { entityId: 'char-01', property: 'knowledge', value: '星门激活频率', modality: 'fact' },
+        { entityId: 'loc-02', property: 'status', value: '已扫描', modality: 'fact' }
+      ],
+      visibilityChanges: [
+        { characterId: 'char-01', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 },
+        { characterId: 'char-02', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 }
+      ]
+    },
+    render: {
+      chapterPath: '正文/ch007.md',
+      text: '# 第七章 星门之秘\n\n迷雾星云深处，远古星门的轮廓在扫描仪上逐渐清晰。林远航站在曙光号的观测窗前，双手紧握栏杆。\n\n「这就是……父亲提到过的星门。」他低声说。\n\n艾莉亚站在他身旁，手指在数据板上快速滑动：「扫描结果显示，星门处于休眠状态。需要特定频率才能激活。」\n\n「什么频率？」\n\n她抬起头，眼神中闪过一丝复杂：「和你父亲留下的星图碎片上的标记一致。」\n\n林远航猛地转身：「你早就知道？」\n\n「我猜到了。」艾莉亚没有回避他的目光，「但有些事情，你必须亲眼看到才会相信。」',
+      ok: true
+    },
+    commit: {
+      ok: true,
+      appliedEventIds: ['evt-07', 'evt-08'],
+      visibilityChanges: [
+        { characterId: 'char-01', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 },
+        { characterId: 'char-02', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 }
+      ],
+      writtenText: '第七章 星门之秘\n\n迷雾星云深处，远古星门的轮廓在扫描仪上逐渐清晰。',
+      chapterPath: '正文/ch007.md',
+      errors: []
+    }
+  }
+};
+
 const MOCK_ENV_CONFIG = {
   HF_ENDPOINT: '',
   PI_DEBUG: 'on',
@@ -261,6 +415,10 @@ let rulesets = JSON.parse(JSON.stringify(MOCK_RULESETS));
 let novelJson = JSON.parse(JSON.stringify(MOCK_NOVEL_JSON));
 let envConfig = JSON.parse(JSON.stringify(MOCK_ENV_CONFIG));
 let nextEventId = 100;
+
+// 编排器 Mock 运行态
+let schedulerPlans = JSON.parse(JSON.stringify(MOCK_SCHEDULER_PLANS));
+let schedulerCommittingTimeout = null;
 
 // 初始化文件内容
 function initFileContents() {

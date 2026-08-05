@@ -214,7 +214,12 @@
     getNovelJson: function () { return get('/admin/novel-json'); },
     setNovelJson: function (data) { return put('/admin/novel-json', data); },
     getEnvConfig: function () { return get('/admin/config'); },
-    setEnvConfig: function (data) { return put('/admin/config', data); }
+    setEnvConfig: function (data) { return put('/admin/config', data); },
+
+    getSchedulerStatus: function () { return get('/scheduler/status'); },
+    getSchedulerPlan: function (planId) { return get('/scheduler/plans/' + part(planId)); },
+    commitPlan: function (planId) { return post('/scheduler/commit', { planId: planId }); },
+    discardPlan: function (planId) { return post('/scheduler/discard', { planId: planId }); }
   };
 
   // M-Logic-12 修复：EventSource 指数退避重连。

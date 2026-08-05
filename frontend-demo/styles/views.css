@@ -3815,3 +3815,454 @@ body .detail-drawer {
   .set-form-row { grid-template-columns: 1fr; }
   .set-main { padding: 24px 20px; }
 }
+
+/* ============================================================
+   编排结果右侧面板（views/studio.js）
+   ============================================================ */
+.st-orchestration-results {
+  width: 340px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background-color: var(--bg-100);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.st-or-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- 头部 ---------- */
+.st-or-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+  flex-shrink: 0;
+}
+.st-or-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+}
+.st-or-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-400);
+  background-color: var(--bg-200);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* ---------- 筛选 ---------- */
+.st-or-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 14px 8px;
+  flex-shrink: 0;
+}
+.st-or-filter-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-500);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.st-or-filter-btn:hover {
+  background-color: var(--bg-200);
+  color: var(--foreground);
+}
+.st-or-filter-btn.active {
+  background-color: var(--brand-50);
+  color: var(--brand-600);
+  border-color: var(--brand-200);
+}
+
+/* ---------- Plan 列表 ---------- */
+.st-or-list {
+  flex: 0 0 auto;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 0 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.st-or-item {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.st-or-item:hover { background-color: var(--bg-200); }
+.st-or-item.active {
+  background-color: var(--brand-50);
+  border-color: var(--brand-200);
+}
+.st-or-item.committing { opacity: 0.85; }
+.st-or-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.st-or-item-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+.st-or-item-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-400);
+}
+.st-or-error-count { color: var(--error-500); }
+.st-or-item-committing {
+  font-size: 11px;
+  color: var(--brand-500);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.st-or-item-error {
+  font-size: 11px;
+  color: var(--error-500);
+  margin-top: 4px;
+}
+
+/* ---------- 徽章 ---------- */
+.st-or-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.st-or-badge-confirmed { background-color: #fef3c7; color: #92400e; }
+.st-or-badge-committing { background-color: #dbeafe; color: #1e40af; }
+.st-or-badge-committed { background-color: #d1fae5; color: #065f46; }
+.st-or-badge-error { background-color: #fee2e2; color: #991b1b; }
+.dark .st-or-badge-confirmed { background-color: #78350f; color: #fbbf24; }
+.dark .st-or-badge-committing { background-color: #1e3a5f; color: #93c5fd; }
+.dark .st-or-badge-committed { background-color: #064e3b; color: #6ee7b7; }
+.dark .st-or-badge-error { background-color: #7f1d1d; color: #fca5a5; }
+
+/* ---------- 详情 ---------- */
+.st-or-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 14px;
+}
+.st-or-detail-empty,
+.st-or-detail-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  color: var(--text-400);
+  gap: 6px;
+}
+.st-or-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------- 阶段卡片 ---------- */
+.st-or-stage {
+  background-color: var(--bg-50);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.st-or-stage-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+  background-color: var(--bg-100);
+  border-bottom: 1px solid var(--border);
+}
+.st-or-stage-content {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-700);
+  line-height: 1.5;
+}
+.st-or-stage-error .st-or-stage-header {
+  background-color: var(--error-50);
+  color: var(--error-600);
+}
+
+/* ---------- 检索计划 ---------- */
+.st-or-retrieval-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+.st-or-retrieval-type {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-200);
+  color: var(--text-500);
+  text-transform: uppercase;
+}
+.st-or-retrieval-target {
+  font-weight: 500;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.st-or-retrieval-assign {
+  color: var(--text-400);
+  font-size: 11px;
+}
+.st-or-retrieval-params {
+  font-size: 10px;
+  color: var(--text-400);
+  font-family: var(--font-mono);
+}
+
+/* ---------- 角色演绎 ---------- */
+.st-or-role-output {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.st-or-role-output:last-child { border-bottom: none; }
+.st-or-role-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 6px;
+}
+.st-or-role-detail { display: flex; flex-direction: column; gap: 3px; }
+.st-or-role-line { font-size: 12px; color: var(--text-600); }
+.st-or-role-label { color: var(--text-400); font-weight: 500; }
+.st-or-role-list {
+  margin: 2px 0 0 16px;
+  padding: 0;
+  list-style: disc;
+}
+.st-or-role-list li { margin-bottom: 1px; }
+.st-or-rel-update {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-200);
+  font-size: 11px;
+}
+.st-or-role-thought {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background-color: var(--bg-200);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--brand-400);
+  font-size: 12px;
+  color: var(--text-600);
+  line-height: 1.5;
+}
+.st-or-role-thought p { margin: 0 0 4px; }
+.st-or-role-thought p:last-child { margin-bottom: 0; }
+
+/* ---------- 可见推理 ---------- */
+.st-or-diff-line {
+  font-size: 12px;
+  color: var(--text-600);
+  margin-bottom: 4px;
+}
+.st-or-list {
+  margin: 4px 0 4px 16px;
+  padding: 0;
+  list-style: disc;
+  font-size: 11px;
+  color: var(--text-500);
+}
+.st-or-details {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.st-or-details summary {
+  cursor: pointer;
+  color: var(--brand-600);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+/* ---------- 渲染正文 ---------- */
+.st-or-render-line {
+  font-size: 12px;
+  color: var(--text-600);
+  margin-bottom: 4px;
+}
+.st-or-render-body {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background-color: var(--bg-100);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--foreground);
+}
+.st-or-render-body p { margin: 0 0 6px; }
+.st-or-render-body p:last-child { margin-bottom: 0; }
+
+/* ---------- 落地摘要 ---------- */
+.st-or-commit-line {
+  font-size: 12px;
+  color: var(--text-600);
+  margin-bottom: 4px;
+}
+.st-or-commit-errors {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background-color: var(--error-50);
+  border-radius: var(--radius-sm);
+  color: var(--error-600);
+  font-size: 11px;
+}
+
+/* ---------- committing 占位 ---------- */
+.st-or-committing-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-400);
+  font-size: 12px;
+  padding: 16px 12px;
+}
+
+/* ---------- 操作按钮 ---------- */
+.st-or-actions {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+.st-or-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.st-or-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.st-or-btn-primary {
+  background-color: var(--brand-500);
+  color: #fff;
+}
+.st-or-btn-primary:hover:not(:disabled) {
+  background-color: var(--brand-600);
+}
+.st-or-btn-secondary {
+  background-color: var(--bg-200);
+  color: var(--text-700);
+  border-color: var(--border);
+}
+.st-or-btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg-300);
+}
+
+/* ---------- 空态 / 加载 / 错误 ---------- */
+.st-or-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+.st-or-empty-icon {
+  width: 40px; height: 40px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-200);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-400);
+  margin-bottom: 12px;
+}
+.st-or-empty-text {
+  font-size: 12px;
+  color: var(--text-400);
+  line-height: 1.5;
+  max-width: 220px;
+}
+.st-or-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-400);
+  font-size: 12px;
+}
+.st-or-error-bar {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--error-600);
+  background-color: var(--error-50);
+  border-top: 1px solid var(--error-200);
+  flex-shrink: 0;
+}
+.st-or-empty-inline {
+  color: var(--text-400);
+  font-size: 11px;
+}
+
+/* ---------- 滚动条 ---------- */
+.st-or-list::-webkit-scrollbar,
+.st-or-detail::-webkit-scrollbar { width: 6px; }
+.st-or-list::-webkit-scrollbar-track,
+.st-or-detail::-webkit-scrollbar-track { background: transparent; }
+.st-or-list::-webkit-scrollbar-thumb,
+.st-or-detail::-webkit-scrollbar-thumb { background: var(--border-300); border-radius: 3px; }
+.st-or-list::-webkit-scrollbar-thumb:hover,
+.st-or-detail::-webkit-scrollbar-thumb:hover { background: var(--border-400); }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 1100px) {
+  .st-orchestration-results { width: 300px; }
+}
+@media (max-width: 900px) {
+  .st-orchestration-results { width: 260px; }
+}

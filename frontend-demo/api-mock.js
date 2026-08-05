@@ -677,6 +677,91 @@ const ApiMock = {
       else envConfig[key] = data[key];
     }
     return ok({ saved: true });
+  },
+
+  // ==================== 编排器 Mock ====================
+
+  async getSchedulerStatus() {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const plans = Object.values(schedulerPlans).map((p) => ({
+      planId: p.planId,
+      storyTime: p.storyTime,
+      mode: p.mode,
+      characterIds: p.characterIds,
+      outputCount: (p.outputs || []).length,
+      errorCount: (p.errors || []).length,
+      status: p.status,
+      ...(p.commitQueueId ? { commitQueueId: p.commitQueueId } : {}),
+      ...(p.commitError ? { commitError: p.commitError } : {}),
+    }));
+    return ok({ queue: { length: 0, active: 0, items: [] }, plans, defaultMode: 'plan' });
+  },
+
+  async getSchedulerPlan(planId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const plan = schedulerPlans[planId];
+    if (!plan) return fail('PLAN_NOT_FOUND', 'plan 不存在', 404);
+    return ok(JSON.parse(JSON.stringify(plan)));
+  },
+
+  async commitPlan(planId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const plan = schedulerPlans[planId];
+    if (!plan) return fail('PLAN_NOT_FOUND', 'plan 不存在', 404);
+    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', 'plan 正在提交中', 409);
+    if (plan.status === 'committed') return fail('PLAN_ALREADY_COMMITTED', 'plan 已提交', 410);
+    plan.status = 'committing';
+    plan.commitQueueId = 'mock-queue-' + planId;
+    // 模拟异步提交：2s 后完成
+    if (schedulerCommittingTimeout) clearTimeout(schedulerCommittingTimeout);
+    schedulerCommittingTimeout = setTimeout(() => {
+      schedulerCommittingTimeout = null;
+      const p = schedulerPlans[planId];
+      if (!p || p.status !== 'committing') return;
+      p.status = 'committed';
+      p.diffusion = {
+        appliedEventIds: ['mock-evt-01', 'mock-evt-02'],
+        changes: [
+          { entityId: 'char-01', property: 'knowledge', value: '星门激活频率', modality: 'fact' },
+        ],
+        visibilityChanges: [
+          { characterId: 'char-01', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 },
+        ],
+      };
+      p.render = {
+        chapterPath: '正文/ch007.md',
+        text: '# 第七章 星门之秘\n\n迷雾星云深处，远古星门的轮廓在扫描仪上逐渐清晰。',
+        ok: true,
+      };
+      p.commit = {
+        ok: true,
+        appliedEventIds: ['mock-evt-01', 'mock-evt-02'],
+        visibilityChanges: [
+          { characterId: 'char-01', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 },
+        ],
+        writtenText: '第七章 星门之秘\n\n迷雾星云深处，远古星门的轮廓在扫描仪上逐渐清晰。',
+        chapterPath: '正文/ch007.md',
+        errors: [],
+      };
+    }, 2000);
+    return ok({ ok: true, planId, queueId: plan.commitQueueId, status: 'committing' });
+  },
+
+  async discardPlan(planId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const plan = schedulerPlans[planId];
+    if (!plan) return fail('PLAN_NOT_FOUND', 'plan 不存在', 404);
+    if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', 'plan 正在提交中', 409);
+    delete schedulerPlans[planId];
+    return ok({ planId, discarded: true });
   }
 };
 

@@ -26,6 +26,7 @@ import type {
 } from "../orchestrator.ts";
 import type { RetrievalPlan } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
+import type { DiffusionOutput, RenderOutput, CommitSummary } from "../orchestrator.ts";
 
 /** dispatch 返回（plan 模式） */
 export interface DispatchResult {
@@ -95,6 +96,12 @@ export interface CommitResult {
   ok: boolean;
   planId: string;
   queueId: string;
+  /** 后半链路完整结果（diffusion + render + commit），成功时必有 */
+  pipelineResult?: {
+    diffusion: DiffusionOutput;
+    render: RenderOutput;
+    commit: CommitSummary;
+  };
   appliedEventIds: string[];
   writtenText: string;
   chapterPath: string;
@@ -118,6 +125,12 @@ export interface PlanDetail {
   commitQueueId?: string;
   /** commit 错误信息（status=error 时有值） */
   commitError?: string;
+  /** 后半链路结果：可见推理（diffusion） */
+  diffusion?: DiffusionOutput;
+  /** 后半链路结果：渲染正文（render） */
+  render?: RenderOutput;
+  /** 后半链路结果：落地摘要（commit） */
+  commit?: CommitSummary;
 }
 
 /**
@@ -151,6 +164,12 @@ export class OrchestratorService {
       status: PlanStatus;
       commitQueueId?: string;
       commitError?: string;
+      /** 后半链路完整结果（commit 成功后写回） */
+      pipelineResult?: {
+        diffusion: DiffusionOutput;
+        render: RenderOutput;
+        commit: CommitSummary;
+      };
     }
   >();
 
@@ -260,15 +279,20 @@ export class OrchestratorService {
     const eventId = result.eventId;
     const queueId = plan.commitQueueId ?? "";
     try {
-      const { commit } = await this.orchestrator.runPostRolePipeline(event, eventId, result.outputs);
+      const pipeline = await this.orchestrator.runPostRolePipeline(event, eventId, result.outputs);
       return {
-        ok: commit.ok,
+        ok: pipeline.commit.ok,
         planId,
         queueId,
-        appliedEventIds: commit.appliedEventIds,
-        writtenText: commit.writtenText,
-        chapterPath: commit.chapterPath,
-        ...(commit.errors.length > 0 ? { error: commit.errors.join(" | ") } : {}),
+        pipelineResult: {
+          diffusion: pipeline.diffusion,
+          render: pipeline.render,
+          commit: pipeline.commit,
+        },
+        appliedEventIds: pipeline.commit.appliedEventIds,
+        writtenText: pipeline.commit.writtenText,
+        chapterPath: pipeline.commit.chapterPath,
+        ...(pipeline.commit.errors.length > 0 ? { error: pipeline.commit.errors.join(" | ") } : {}),
       };
     } catch (err) {
       // 一致性缺口（沿用 2026-08-03 修复）：推理代理可能已通过写工具实际写入世界图，
@@ -286,11 +310,14 @@ export class OrchestratorService {
     }
   }
 
-  /** commit 任务完成回调：根据 result.ok 更新 plan.status */
+  /** commit 任务完成回调：根据 result.ok 更新 plan.status 并写回 pipelineResult */
   private onCommitDone(planId: string, result: CommitResult): void {
     const plan = this.plans.get(planId);
     if (!plan) return;
     if (result.ok) {
+      if (result.pipelineResult) {
+        plan.pipelineResult = result.pipelineResult;
+      }
       plan.status = "committed";
       plan.commitError = undefined;
     } else {
@@ -314,7 +341,7 @@ export class OrchestratorService {
   getPlan(planId: string): PlanDetail | undefined {
     const plan = this.plans.get(planId);
     if (!plan) return undefined;
-    const { event, result, status, commitQueueId, commitError } = plan;
+    const { event, result, status, commitQueueId, commitError, pipelineResult } = plan;
     return {
       planId: result.planId,
       storyTime: event.storyTime,
@@ -328,6 +355,13 @@ export class OrchestratorService {
       status,
       ...(commitQueueId !== undefined ? { commitQueueId } : {}),
       ...(commitError !== undefined ? { commitError } : {}),
+      ...(pipelineResult
+        ? {
+            diffusion: structuredClone(pipelineResult.diffusion),
+            render: structuredClone(pipelineResult.render),
+            commit: structuredClone(pipelineResult.commit),
+          }
+        : {}),
     };
   }
 

@@ -134,6 +134,10 @@ ViewRender.studio = () => {
       <button type="button" class="st-jump-to-latest" id="st-jump-to-latest" style="display:none" onclick="stJumpToLatest()">${icon('arrow-down', 'w-3.5 h-3.5')} 跳转到最新</button>
       ${stInputAreaHtml(busy)}
     </main>
+
+    <aside class="st-orchestration-results">
+      ${stOrPanelHtml()}
+    </aside>
   </div>`;
 };
 
@@ -144,6 +148,7 @@ ViewAfterRender.studio = () => {
   if (!ApiRuntime.isMock) {
     stStartRealRuntime();
   }
+  stOrStartRuntime();
 };
 
 function stStartRealRuntime() {
@@ -203,6 +208,7 @@ function stCloseRealRuntime() {
 
 function cleanupStudioView() {
   stCloseRealRuntime();
+  stOrCloseRuntime();
   stAbortLiveSimulation();
   setStState('studioBusy', false);
   setStState('realLiveMessage', null);
@@ -899,4 +905,458 @@ function stChatKeydown(event) {
     event.preventDefault();
     stSendChat();
   }
+}
+
+// ==================== 右侧编排结果面板 ====================
+
+/** 编排结果面板状态访问器 */
+function stOrState(key, fallback) { return stState('stOr_' + key, fallback); }
+function setStOrState(key, value) { setStState('stOr_' + key, value); }
+
+/** 面板主渲染：路由到空态 / 加载态 / 列表 */
+function stOrPanelHtml() {
+  const plans = stOrState('plans', null);
+  const error = stOrState('pollError', null);
+  const isLoading = plans === null && !error;
+  if (isLoading) {
+    return `
+    <div class="st-or-panel">
+      <div class="st-or-header">
+        <h3>编排结果</h3>
+      </div>
+      <div class="st-or-loading">${icon('loader', 'w-4 h-4 spin')} 加载中…</div>
+    </div>`;
+  }
+  if (!plans || !plans.length) {
+    return `
+    <div class="st-or-panel">
+      <div class="st-or-header">
+        <h3>编排结果</h3>
+      </div>
+      <div class="st-or-empty">
+        <div class="st-or-empty-icon">${icon('file-text', 'w-5 h-5')}</div>
+        <div class="st-or-empty-text">在聊天框描述创作意图，编排结果会显示在这里</div>
+      </div>
+      ${error ? `<div class="st-or-error-bar">${escapeHtml(error)}</div>` : ''}
+    </div>`;
+  }
+  return `
+  <div class="st-or-panel">
+    <div class="st-or-header">
+      <h3>编排结果</h3>
+      <span class="st-or-count">${escapeHtml(String(plans.length))}</span>
+    </div>
+    ${stOrFilterHtml()}
+    <div class="st-or-list" id="st-or-list">
+      ${stOrFilteredPlansHtml(plans)}
+    </div>
+    <div class="st-or-detail" id="st-or-detail">
+      ${stOrDetailHtml()}
+    </div>
+    ${error ? `<div class="st-or-error-bar">${escapeHtml(error)}</div>` : ''}
+  </div>`;
+}
+
+/** 状态筛选栏 */
+function stOrFilterHtml() {
+  const filter = stOrState('filter', null);
+  const plans = stOrState('plans', []);
+  const counts = { confirmed: 0, committing: 0, committed: 0, error: 0 };
+  for (const p of plans) {
+    if (counts[p.status] !== undefined) counts[p.status] += 1;
+  }
+  const filters = [
+    { key: null, label: '全部' },
+    { key: 'confirmed', label: '待确认 (' + counts.confirmed + ')' },
+    { key: 'committing', label: '处理中 (' + counts.committing + ')' },
+    { key: 'committed', label: '已完成 (' + counts.committed + ')' },
+    { key: 'error', label: '失败 (' + counts.error + ')' },
+  ];
+  return `
+  <div class="st-or-filter">
+    ${filters.map((f) => {
+      const active = filter === f.key;
+      return `<button type="button" class="st-or-filter-btn${active ? ' active' : ''}" onclick="stOrSetFilter(${q(f.key === null ? '' : f.key)})">${escapeHtml(f.label)}</button>`;
+    }).join('')}
+  </div>`;
+}
+
+/** 按筛选条件过滤后的 Plan 列表 */
+function stOrFilteredPlansHtml(plans) {
+  const filter = stOrState('filter', null);
+  const filtered = filter ? plans.filter((p) => p.status === filter) : plans;
+  const selectedId = stOrState('selectedPlanId', null);
+  return filtered.map((p) => stOrPlanSummaryHtml(p, p.planId === selectedId)).join('');
+}
+
+/** 单条 Plan 摘要 */
+function stOrPlanSummaryHtml(plan, isSelected) {
+  const cls = 'st-or-item' + (isSelected ? ' active' : '') + (plan.status === 'committing' ? ' committing' : '');
+  const badge = stOrStatusBadgeHtml(plan.status);
+  return `
+  <div class="${cls}" onclick="stOrSelectPlan(${q(plan.planId)})">
+    <div class="st-or-item-header">
+      <span class="st-or-item-time">${escapeHtml(plan.storyTime)}</span>
+      ${badge}
+    </div>
+    <div class="st-or-item-meta">
+      <span>${plan.characterIds.length} 角色</span>
+      <span>${plan.outputCount} 产出</span>
+      ${plan.errorCount ? `<span class="st-or-error-count">${plan.errorCount} 错误</span>` : ''}
+    </div>
+    ${plan.status === 'committing' ? `<div class="st-or-item-committing">${icon('loader', 'w-3 h-3 spin')} 提交处理中…</div>` : ''}
+    ${plan.commitError ? `<div class="st-or-item-error">${escapeHtml(plan.commitError)}</div>` : ''}
+  </div>`;
+}
+
+/** 状态徽章 */
+function stOrStatusBadgeHtml(status) {
+  const labels = { confirmed: '待确认', committing: '处理中', committed: '已完成', error: '失败' };
+  return `<span class="st-or-badge st-or-badge-${status}">${escapeHtml(labels[status] || status)}</span>`;
+}
+
+/** 当前选中 Plan 的五阶段详情 */
+function stOrDetailHtml() {
+  const detail = stOrState('detail', null);
+  const selectedId = stOrState('selectedPlanId', null);
+  if (!selectedId) {
+    return '<div class="st-or-detail-empty">选择一个 Plan 查看详情</div>';
+  }
+  if (!detail) {
+    return `<div class="st-or-detail-loading">${icon('loader', 'w-4 h-4 spin')} 加载详情…</div>`;
+  }
+  const parts = [];
+  // 阶段 1：检索计划
+  parts.push(stOrStageRetrievalHtml(detail.retrievalPlan));
+  // 阶段 2：角色演绎
+  parts.push(stOrStageRoleHtml(detail.outputs, detail.cast));
+  // 阶段 3-5：后半链路（committing 时显示统一占位，committed 时显示真实结果）
+  if (detail.status === 'committed') {
+    if (detail.diffusion) parts.push(stOrStageDiffusionHtml(detail.diffusion));
+    if (detail.render) parts.push(stOrStageRenderHtml(detail.render));
+    if (detail.commit) parts.push(stOrStageCommitHtml(detail.commit));
+  } else if (detail.status === 'committing') {
+    parts.push(stOrCommittingHtml());
+  } else if (detail.status === 'error') {
+    // error 时保留前半链路，显示错误
+    if (detail.commitError) {
+      parts.push(`<div class="st-or-stage st-or-stage-error">
+        <div class="st-or-stage-header">提交失败</div>
+        <div class="st-or-stage-content">${escapeHtml(detail.commitError)}</div>
+      </div>`);
+    }
+  }
+  // 操作按钮
+  parts.push(stOrActionsHtml(detail));
+  return '<div class="st-or-detail-body">' + parts.join('') + '</div>';
+}
+
+/** 阶段 1：检索计划 */
+function stOrStageRetrievalHtml(retrievalPlan) {
+  if (!retrievalPlan || !retrievalPlan.items) return '';
+  const items = retrievalPlan.items.map((item) => {
+    const params = item.params || {};
+    const paramStr = Object.keys(params).map((k) => `${k}=${escapeHtml(String(params[k]))}`).join(' ');
+    return `<div class="st-or-retrieval-item">
+      <span class="st-or-retrieval-type">${escapeHtml(item.type)}</span>
+      <span class="st-or-retrieval-target">${escapeHtml(item.target)}</span>
+      <span class="st-or-retrieval-assign">→ ${escapeHtml(item.assignTo)}</span>
+      ${paramStr ? `<span class="st-or-retrieval-params">${escapeHtml(paramStr)}</span>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="st-or-stage">
+    <div class="st-or-stage-header">阶段 1：检索计划</div>
+    <div class="st-or-stage-content">${items || '<span class="st-or-empty-inline">无检索项</span>'}</div>
+  </div>`;
+}
+
+/** 阶段 2：角色演绎 */
+function stOrStageRoleHtml(outputs, cast) {
+  if (!outputs || !outputs.length) return '';
+  const castMap = {};
+  if (cast) for (const c of cast) castMap[c.characterId] = c;
+  const outHtml = outputs.map((o) => {
+    const c = castMap[o.characterId] || {};
+    const name = o.characterName || c.name || o.characterId;
+    const relUpdates = (o.relationUpdates || []).map((ru) => {
+      const changeLabel = ru.change === 'positive' ? '↑' : (ru.change === 'negative' ? '↓' : '→');
+      return `<span class="st-or-rel-update">${escapeHtml(ru.label)} ${changeLabel}</span>`;
+    }).join(' ');
+    const knowledge = (o.knowledgeGained || []).map((k) => `<li>${escapeHtml(k)}</li>`).join('');
+    const stateChanges = (o.stateChanges || []).map((sc) =>
+      `<li>${escapeHtml(sc.entityId)}.${escapeHtml(sc.property)} → ${escapeHtml(String(sc.value))}</li>`
+    ).join('');
+    return `<div class="st-or-role-output">
+      <div class="st-or-role-name">${escapeHtml(name)}</div>
+      <div class="st-or-role-detail">
+        <div class="st-or-role-line"><span class="st-or-role-label">行动：</span>${escapeHtml(o.action || '')}</div>
+        <div class="st-or-role-line"><span class="st-or-role-label">目标：</span>${escapeHtml(o.target || '')}</div>
+        <div class="st-or-role-line"><span class="st-or-role-label">情绪：</span>${escapeHtml(o.emotion || '')}</div>
+        ${relUpdates ? `<div class="st-or-role-line"><span class="st-or-role-label">关系：</span>${relUpdates}</div>` : ''}
+        ${knowledge ? `<div class="st-or-role-line"><span class="st-or-role-label">新知：</span><ul class="st-or-role-list">${knowledge}</ul></div>` : ''}
+        ${stateChanges ? `<div class="st-or-role-line"><span class="st-or-role-label">状态：</span><ul class="st-or-role-list">${stateChanges}</ul></div>` : ''}
+        ${o.thought ? `<div class="st-or-role-thought">${stMarkdownHtml(o.thought)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="st-or-stage">
+    <div class="st-or-stage-header">阶段 2：角色演绎</div>
+    <div class="st-or-stage-content">${outHtml}</div>
+  </div>`;
+}
+
+/** 阶段 3：可见推理（Diffusion） */
+function stOrStageDiffusionHtml(diffusion) {
+  if (!diffusion) return '';
+  const evtCount = (diffusion.appliedEventIds || []).length;
+  const changes = (diffusion.changes || []).map((c) =>
+    `<li>${escapeHtml(c.entityId)}.${escapeHtml(c.property)} [${escapeHtml(c.modality)}] → ${escapeHtml(String(c.value))}</li>`
+  ).join('');
+  const visChanges = (diffusion.visibilityChanges || []).map((v) =>
+    `<li>${escapeHtml(v.characterId)} 知晓 ${escapeHtml(v.declarationId)} (${escapeHtml(v.source)}, ${v.confidence})</li>`
+  ).join('');
+  return `<div class="st-or-stage">
+    <div class="st-or-stage-header">阶段 3：可见推理</div>
+    <div class="st-or-stage-content">
+      <div class="st-or-diff-line">已应用事件：${evtCount} 个</div>
+      ${evtCount ? `<details class="st-or-details"><summary>事件列表</summary><ul class="st-or-list">${(diffusion.appliedEventIds || []).map((id) => `<li>${escapeHtml(id)}</li>`).join('')}</ul></details>` : ''}
+      ${changes ? `<div class="st-or-diff-line">状态变化：</div><ul class="st-or-list">${changes}</ul>` : ''}
+      ${visChanges ? `<div class="st-or-diff-line">可见性变化：</div><ul class="st-or-list">${visChanges}</ul>` : ''}
+    </div>
+  </div>`;
+}
+
+/** 阶段 4：渲染正文 */
+function stOrStageRenderHtml(render) {
+  if (!render) return '';
+  const wordCount = render.text ? render.text.length : 0;
+  return `<div class="st-or-stage">
+    <div class="st-or-stage-header">阶段 4：渲染正文</div>
+    <div class="st-or-stage-content">
+      <div class="st-or-render-line">章节路径：${escapeHtml(render.chapterPath || '')}</div>
+      <div class="st-or-render-line">状态：${render.ok ? '成功' : '失败'}</div>
+      <div class="st-or-render-line">字数：${wordCount}</div>
+      ${render.text ? `<div class="st-or-render-body">${stMarkdownHtml(render.text)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+/** 阶段 5：落地摘要 */
+function stOrStageCommitHtml(commitData) {
+  if (!commitData) return '';
+  return `<div class="or-stage">
+    <div class="st-or-stage-header">阶段 5：落地摘要</div>
+    <div class="st-or-stage-content">
+      <div class="st-or-commit-line">状态：${commitData.ok ? '成功' : '失败'}</div>
+      <div class="st-or-commit-line">已应用事件：${(commitData.appliedEventIds || []).length} 个</div>
+      <div class="st-or-commit-line">章节路径：${escapeHtml(commitData.chapterPath || '')}</div>
+      <div class="st-or-commit-line">正文长度：${commitData.writtenText ? commitData.writtenText.length : 0} 字符</div>
+      ${commitData.visibilityChanges && commitData.visibilityChanges.length ? `<details class="st-or-details"><summary>可见性变更 (${commitData.visibilityChanges.length})</summary><ul class="st-or-list">${commitData.visibilityChanges.map((v) => `<li>${escapeHtml(v.characterId)} → ${escapeHtml(v.declarationId)} (${escapeHtml(v.source)}, ${v.confidence})</li>`).join('')}</ul></details>` : ''}
+      ${commitData.errors && commitData.errors.length ? `<div class="st-or-commit-errors">${commitData.errors.map((e) => `<div>${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+/** committing 占位（后半链路统一显示） */
+function stOrCommittingHtml() {
+  return `<div class="st-or-stage">
+    <div class="st-or-stage-header">后半链路</div>
+    <div class="st-or-stage-content st-or-committing-placeholder">
+      ${icon('loader', 'w-4 h-4 spin')} 提交处理中，请稍候…
+    </div>
+  </div>`;
+}
+
+/** 操作按钮（基于 status 渲染） */
+function stOrActionsHtml(detail) {
+  if (!detail) return '';
+  const busy = stOrState('commitBusy', false);
+  if (detail.status === 'confirmed') {
+    return `<div class="st-or-actions">
+      <button type="button" class="st-or-btn st-or-btn-primary" onclick="stOrCommitPlan(${q(detail.planId)})" ${busy ? 'disabled' : ''}>${busy ? icon('loader', 'w-3.5 h-3.5 spin') + ' ' : ''}提交落地</button>
+      <button type="button" class="st-or-btn st-or-btn-secondary" onclick="stOrDiscardPlan(${q(detail.planId)})" ${busy ? 'disabled' : ''}>丢弃</button>
+    </div>`;
+  }
+  if (detail.status === 'committing') {
+    return `<div class="st-or-actions">
+      <button type="button" class="st-or-btn" disabled>${icon('loader', 'w-3.5 h-3.5 spin')} 提交中…</button>
+    </div>`;
+  }
+  if (detail.status === 'error') {
+    return `<div class="st-or-actions">
+      <button type="button" class="st-or-btn st-or-btn-primary" onclick="stOrCommitPlan(${q(detail.planId)})" ${busy ? 'disabled' : ''}>${busy ? icon('loader', 'w-3.5 h-3.5 spin') + ' ' : ''}重试提交</button>
+      <button type="button" class="st-or-btn st-or-btn-secondary" onclick="stOrDiscardPlan(${q(detail.planId)})" ${busy ? 'disabled' : ''}>丢弃</button>
+    </div>`;
+  }
+  return '';
+}
+
+// ==================== 编排结果面板运行时 ====================
+
+let stOrTimer = null;
+let stOrGeneration = 0;
+
+/** 启动编排结果轮询 */
+function stOrStartRuntime() {
+  stOrCloseRuntime();
+  const gen = ++stOrGeneration;
+  // 初始加载
+  stOrPollStatus(gen);
+}
+
+/** 轮询 /api/scheduler/status */
+async function stOrPollStatus(gen) {
+  if (gen !== stOrGeneration) return;
+  try {
+    const data = await apiCall('getSchedulerStatus');
+    if (gen !== stOrGeneration) return;
+    const plans = data.plans || [];
+    setStOrState('plans', plans);
+    setStOrState('pollError', null);
+    // 默认选择
+    const selectedId = stOrState('selectedPlanId', null);
+    if (!selectedId || !plans.some((p) => p.planId === selectedId)) {
+      const defaultId = stOrResolveDefaultPlan(plans);
+      if (defaultId) stOrSelectPlan(defaultId);
+    } else {
+      // 检查选中 plan 是否需要刷新详情
+      const selected = plans.find((p) => p.planId === selectedId);
+      if (selected) {
+        const cached = stOrState('detail', null);
+        if (cached && (cached.status !== selected.status || cached.commitQueueId !== selected.commitQueueId)) {
+          stOrFetchDetail(selectedId, gen);
+        }
+      }
+    }
+    // 下次轮询间隔
+    const hasBusy = plans.some((p) => p.status === 'committing');
+    scheduleNext(gen, hasBusy ? 2000 : 10000);
+  } catch (error) {
+    if (gen !== stOrGeneration) return;
+    setStOrState('pollError', error.message || '状态暂不可用');
+    scheduleNext(gen, 5000);
+  }
+}
+
+function scheduleNext(gen, ms) {
+  if (gen !== stOrGeneration) return;
+  stOrTimer = setTimeout(() => stOrPollStatus(gen), ms);
+}
+
+/** 获取 Plan 详情 */
+async function stOrFetchDetail(planId, gen) {
+  if (gen === undefined) gen = stOrGeneration;
+  try {
+    const data = await apiCall('getSchedulerPlan', planId);
+    if (gen !== stOrGeneration) return;
+    setStOrState('detail', data);
+    setStOrState('detailCache', Object.assign(stOrState('detailCache', {}), { [planId]: data }));
+  } catch (error) {
+    if (gen !== stOrGeneration) return;
+    if (error.code === 'PLAN_NOT_FOUND') {
+      setStOrState('selectedPlanId', null);
+      setStOrState('detail', null);
+      // 从列表中移除
+      const plans = (stOrState('plans', []) || []).filter((p) => p.planId !== planId);
+      setStOrState('plans', plans);
+    } else {
+      setStOrState('pollError', error.message || '详情加载失败');
+    }
+  }
+}
+
+/** 默认 Plan 选择 */
+function stOrResolveDefaultPlan(plans) {
+  if (!plans || !plans.length) return null;
+  // 1. 保留已有选中
+  const selected = stOrState('selectedPlanId', null);
+  if (selected && plans.some((p) => p.planId === selected)) return selected;
+  // 2. 最新 confirmed
+  const confirmed = plans.filter((p) => p.status === 'confirmed');
+  if (confirmed.length) return confirmed[0].planId;
+  // 3. 最新 committing
+  const committing = plans.filter((p) => p.status === 'committing');
+  if (committing.length) return committing[0].planId;
+  // 4. 最新可用
+  return plans[0].planId;
+}
+
+/** 设置筛选 */
+function stOrSetFilter(filter) {
+  setStOrState('filter', filter || null);
+  renderView();
+}
+
+/** 选中 Plan */
+function stOrSelectPlan(planId) {
+  setStOrState('selectedPlanId', planId);
+  // 先检查缓存
+  const cache = stOrState('detailCache', {});
+  if (cache[planId]) {
+    setStOrState('detail', cache[planId]);
+  } else {
+    setStOrState('detail', null);
+  }
+  stOrFetchDetail(planId);
+  renderView();
+}
+
+/** 提交 Plan */
+async function stOrCommitPlan(planId) {
+  if (stOrState('commitBusy', false)) return;
+  setStOrState('commitBusy', true);
+  // 乐观更新状态为 committing
+  const plans = stOrState('plans', []).map((p) => p.planId === planId ? { ...p, status: 'committing' } : p);
+  setStOrState('plans', plans);
+  const detail = stOrState('detail', null);
+  if (detail && detail.planId === planId) {
+    setStOrState('detail', { ...detail, status: 'committing' });
+  }
+  renderView();
+  try {
+    const result = await apiCall('commitPlan', planId);
+    if (!result.ok) {
+      throw new Error(result.error?.message || '提交失败');
+    }
+  } catch (error) {
+    handleApiError(error);
+    // 回退：刷新状态
+    stOrPollStatus(stOrGeneration);
+  } finally {
+    setStOrState('commitBusy', false);
+    // 刷新详情
+    stOrFetchDetail(planId);
+  }
+}
+
+/** 丢弃 Plan */
+async function stOrDiscardPlan(planId) {
+  if (stOrState('commitBusy', false)) return;
+  setStOrState('commitBusy', true);
+  try {
+    const result = await apiCall('discardPlan', planId);
+    if (!result.ok) {
+      throw new Error(result.error?.message || '丢弃失败');
+    }
+    // 从列表中移除
+    const plans = (stOrState('plans', []) || []).filter((p) => p.planId !== planId);
+    setStOrState('plans', plans);
+    if (stOrState('selectedPlanId', null) === planId) {
+      setStOrState('selectedPlanId', null);
+      setStOrState('detail', null);
+    }
+    renderView();
+  } catch (error) {
+    handleApiError(error);
+    stOrPollStatus(stOrGeneration);
+  } finally {
+    setStOrState('commitBusy', false);
+  }
+}
+
+/** 停止编排结果轮询 */
+function stOrCloseRuntime() {
+  stOrGeneration += 1;
+  if (stOrTimer) clearTimeout(stOrTimer);
+  stOrTimer = null;
 }
