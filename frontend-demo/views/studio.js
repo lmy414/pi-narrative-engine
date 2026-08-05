@@ -352,11 +352,6 @@ function stInputAreaHtml(busy) {
   return `
   <div class="st-input-area">
     <div class="st-input-toolbar">
-      <button type="button" class="st-tool-btn" title="附件" onclick="stToolAction('attach')">${icon('paperclip', 'w-3.5 h-3.5')}</button>
-      <button type="button" class="st-tool-btn" title="加粗" onclick="stToolAction('bold')">${icon('bold', 'w-3.5 h-3.5')}</button>
-      <button type="button" class="st-tool-btn" title="斜体" onclick="stToolAction('italic')">${icon('italic', 'w-3.5 h-3.5')}</button>
-      <button type="button" class="st-tool-btn" title="列表" onclick="stToolAction('list')">${icon('list', 'w-3.5 h-3.5')}</button>
-      <div class="st-tool-spacer"></div>
       <span class="st-input-hint">Enter 发送 · Shift+Enter 换行</span>
     </div>
     <div class="st-input-main">
@@ -386,6 +381,17 @@ async function stSwitchSession(id) {
     setStState('studioMessages', []);
     handleApiError(e);
   } finally {
+    // BUG-017：重新拉取会话列表，刷新每个会话的 live 字段（旧值在切换后仍指向旧会话）
+    try {
+      const sessionData = await apiCall('getChatSessions');
+      const sessions = sessionData.sessions || [];
+      setStState('studioSessions', sessions);
+      const statusMap = {};
+      for (const s of sessions) statusMap[s.id] = s.status || 'idle';
+      setStState('sessionStatus', statusMap);
+    } catch (e) {
+      // 列表刷新失败不影响切换本身，保持现有数据
+    }
     setStState('studioBusy', false);
     setStState('chatAutoScroll', true);
     renderView();
@@ -827,10 +833,6 @@ function stStreamStep() {
     st.timer = setTimeout(stStreamStep, ST_STREAM_TICK_MS);
   }
   setStState('stream', st);
-}
-
-function stToolAction(name) {
-  toast(`「${name}」为演示占位功能`, 'info');
 }
 
 // ==================== DOM 工具 ====================
