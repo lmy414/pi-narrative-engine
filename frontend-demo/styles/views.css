@@ -2399,6 +2399,12 @@ body .detail-drawer {
   transition: background-color 0.15s;
 }
 .st-new-session:hover { background-color: var(--brand-100); }
+/* G2-2：streaming 时禁用"新建议程"按钮 */
+.st-new-session.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 .st-sessions-list {
   flex: 1;
@@ -2438,6 +2444,12 @@ body .detail-drawer {
   background-color: var(--brand-50);
   border-color: var(--brand-200);
 }
+/* G2-2：streaming 时禁用会话项切换 */
+.st-session-item.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.st-session-item.disabled:hover { background-color: transparent; }
 .st-session-icon {
   flex-shrink: 0;
   width: 26px;

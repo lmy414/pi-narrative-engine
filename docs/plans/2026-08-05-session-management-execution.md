@@ -237,3 +237,44 @@ G2-1（后端原语 + 端点 + 启动恢复）
 ---
 
 **待用户核对**：以上目标定义、任务分解、不做范围、风险存疑是否有需要调整的？核对通过后从 G2-1 第一步开始执行。
+
+---
+
+## 附录 A：G2-1 落地文档
+
+> 完成日期：2026-08-05
+> 提交：`f25db33`（已合并 master 并推送）
+
+### 实际改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/chat/main-session.ts` | start() 改用 `SessionManager.continueRecent`（一行改动）；注入 `setRebindSession`（刷新 `this.services = runtime.services`）+ `setBeforeSessionInvalidate`（空实现）；新增 `switchSession(path)` / `newSession()` 公开方法 |
+| `src/app/chat-context.ts` | 新增 `createSession()` / `activateSession(id)` / `resolveSessionPath` / `findSessionInfo` |
+| `src/app/routes-chat.ts` | 新增 `POST /sessions` + `POST /sessions/:id/activate`；`GET /sessions` 扩展 `path` 字段；`SESSION_INVALID_PATH` → 400 |
+| `tests/chat-routes.test.ts` | stub host 扩展 `switchSession`/`newSession`；新增 9 个 G2 测试 |
+| `docs/plans/2026-08-05-session-management-execution.md` | 本执行文档 |
+
+### 测试结果
+
+- 647 pass / 0 fail（基线 645 → 647，新增 9 个 G2 测试，原有测试无回归）
+- 新增测试覆盖：新建/切换端点 + streaming 409 + 启动恢复（continueRecent 有会话/无会话）+ path 字段透出
+
+### 关键发现（查档求证）
+
+1. **SDK `_persist` 行为**（`session-manager.ts:886-913`）：只有 `hasAssistant`（会话中存在 assistant 消息）时才真正 flush 文件到磁盘。user-only 会话不落盘。测试需 appendMessage assistant 角色消息才会产生 `.jsonl` 文件。
+2. **`continueRecent` 语义**（`session-manager.ts:1390-1398`）：同步方法，`findMostRecentSession` 按 `statSync(path).mtime` 降序取第一个，按 cwd 过滤。找不到则 `new SessionManager(...)` 走 create 新建。与 PI 本体 `pi -c` 一致。
+3. **`setRebindSession` 刷新 services**：`runtime.services` 是公开 getter（`agent-session-runtime.ts:91`），rebind 回调里 `this.services = this.runtime.services` 可同步刷新，修复 `applyModelConfig` 在 switchSession 后访问 stale services 的隐患。
+
+### 风险跟踪
+
+| 存疑点 | 状态 | 说明 |
+|---|---|---|
+| `MainSessionHost.services` 刷新方式 | ✅ 已落地 | rebind 回调刷新；未单测"切换后立即 applyModelConfig"（推 G2-2 前端测试轮覆盖） |
+| 启动恢复走 `continueRecent` | ✅ 已落地 | 一行改动，测试验证有会话/无会话两种路径 |
+| streaming 中切换的 UX | ⏳ 推 G2-2 | 后端 CHAT_BUSY 409 已就绪，前端按钮禁用待 G2-2 |
+| 删除会话能力缺失 | ⏳ 推后续批次 | 文档明示 |
+
+### 下一步
+
+G2-2 前端真调用：`stNewSession`/`stSwitchSession` 改真调用 + api-client 加方法 + mock 同步 + streaming 时禁用按钮。

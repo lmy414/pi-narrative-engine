@@ -252,17 +252,26 @@ function stSessionsHtml(sessions, currentId, nowIso) {
     </div>`;
   }).join('');
 
+  // G2-2：streaming 时禁用"新建议程"按钮
+  const busy = stIsStreamingBusy();
+  const newBtnAttrs = busy ? 'disabled aria-disabled="true" title="请等待生成完成"' : '';
+  const newBtnClass = 'st-new-session' + (busy ? ' disabled' : '');
+
   return `
   <div class="st-sessions-head">
     <h2 class="st-sessions-title">会话</h2>
-    <button type="button" class="st-new-session" onclick="stNewSession()">${icon('plus', 'w-3.5 h-3.5')} 新建议程</button>
+    <button type="button" class="${newBtnClass}" ${newBtnAttrs} onclick="stNewSession()">${icon('plus', 'w-3.5 h-3.5')} 新建议程</button>
   </div>
   <div class="st-sessions-list">${items || '<div class="st-sessions-empty">暂无会话</div>'}</div>`;
 }
 
 function stSessionItemHtml(s, active) {
+  // G2-2：streaming 时会话项禁用切换（加 disabled 类 + 不绑 onclick）
+  const busy = stIsStreamingBusy();
+  const itemClass = 'st-session-item' + (active ? ' active' : '') + (busy ? ' disabled' : '');
+  const clickAttr = busy ? 'aria-disabled="true" title="请等待生成完成"' : `onclick="stSwitchSession(${q(s.id)})"`;
   return `
-  <div class="st-session-item${active ? ' active' : ''}" onclick="stSwitchSession(${q(s.id)})">
+  <div class="${itemClass}" ${clickAttr}>
     <span class="st-session-icon">${icon('message-square', 'w-3.5 h-3.5')}</span>
     <div class="st-session-main">
       <div class="st-session-name">${escapeHtml(s.name)}${s.live ? '<span class="st-live-dot"></span>' : ''}</div>
@@ -770,30 +779,65 @@ function stDispatchInstructionKeydown(event) {
 // ==================== 会话交互 ====================
 
 async function stSwitchSession(id) {
+  // G2-2：streaming 中禁用切换（后端 switchSession 会 dispose 旧 session，中断生成）
+  if (stIsStreamingBusy()) {
+    stNotifyStreamingBusy('切换会话');
+    return;
+  }
+  // G2-2：防重入——切换期间设 studioBusy，会话项自动 disabled
+  setStState('studioBusy', true);
   stAbortLiveSimulation();
   setStState('currentSessionId', id);
-  if (ApiRuntime.isMock) setStState('studioBusy', false);
+  renderView();
   try {
+    // G2-2：真实切换——调 activateChatSession 让后端 switchSession，live 转移到目标会话
+    await apiCall('activateChatSession', id);
     const data = await apiCall('getChatMessages', id);
     setStState('studioMessages', data.messages || []);
   } catch (e) {
     setStState('studioMessages', []);
     handleApiError(e);
+  } finally {
+    setStState('studioBusy', false);
+    setStState('chatAutoScroll', true);
+    renderView();
   }
-  setStState('chatAutoScroll', true);
-  renderView();
 }
 
-function stNewSession() {
-  if (stState('studioBusy', false)) return;
-  const id = 'session-' + Date.now();
-  const now = new Date().toISOString();
-  const session = { id, name: '新会话', created: now, modified: now, messageCount: 0, firstMessage: '' };
-  setStState('studioSessions', [session].concat(stState('studioSessions', [])));
-  setStState('currentSessionId', id);
-  setStState('studioMessages', []);
-  setStState('chatAutoScroll', true);
+async function stNewSession() {
+  // G2-2：streaming 中禁用新建（后端 newSession 会 dispose 旧 session，中断生成）
+  if (stIsStreamingBusy()) {
+    stNotifyStreamingBusy('新建会话');
+    return;
+  }
+  // G2-2：防重入——createChatSession 期间设 studioBusy，按钮自动 disabled
+  setStState('studioBusy', true);
   renderView();
+  try {
+    const data = await apiCall('createChatSession');
+    const session = data.session;
+    setStState('studioSessions', [session].concat(stState('studioSessions', [])));
+    setStState('currentSessionId', session.id);
+    setStState('studioMessages', []);
+    setStState('chatAutoScroll', true);
+  } catch (e) {
+    handleApiError(e);
+  } finally {
+    setStState('studioBusy', false);
+    renderView();
+  }
+}
+
+/** G2-2：判断当前是否处于 streaming 状态（studioBusy 或 chatStreaming） */
+function stIsStreamingBusy() {
+  return stState('studioBusy', false) || stState('chatStreaming', false);
+}
+
+/** G2-2：streaming 中操作被拒绝时的提示 */
+function stNotifyStreamingBusy(action) {
+  if (typeof toast === 'function') {
+    toast(`${action}需要等待当前生成完成`, 'warn');
+  }
 }
 
 // ==================== 发送与编排模拟 ====================

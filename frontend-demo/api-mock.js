@@ -337,6 +337,34 @@ const ApiMock = {
     return ok({ id: sessionId, messages: chatMessages[sessionId].map(m => ({ ...m })) });
   },
 
+  // G2-2：新建空会话（mock 生成新 sessionId，push 到 chatSessions，live 转移）
+  async createChatSession() {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const id = 'session-' + Date.now();
+    const now = new Date().toISOString();
+    const session = { id, name: null, created: now, modified: now, messageCount: 0, firstMessage: '', live: true };
+    // 旧 live 会话取消 live 标记
+    chatSessions.forEach(s => { delete s.live; });
+    chatSessions.unshift(session);
+    chatMessages[id] = [];
+    return ok({ session });
+  },
+
+  // G2-2：切换到指定会话（mock 转移 live 标记）
+  async activateChatSession(sessionId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const target = chatSessions.find(s => s.id === sessionId);
+    if (!target) return fail('SESSION_NOT_FOUND', '会话不存在', 404);
+    chatSessions.forEach(s => { delete s.live; });
+    target.live = true;
+    target.modified = new Date().toISOString();
+    return ok({ session: { ...target } });
+  },
+
   async sendChatMessage(text) {
     await delay(200);
     const err = requireActiveProject();

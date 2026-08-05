@@ -170,6 +170,10 @@
 
     getChatSessions: function () { return get('/chat/sessions'); },
     getChatMessages: function (sessionId) { return get('/chat/sessions/' + part(sessionId) + '/messages'); },
+    // G2-2：新建空会话（live 转移到新会话）
+    createChatSession: function () { return post('/chat/sessions', {}); },
+    // G2-2：切换到指定会话（live 转移）
+    activateChatSession: function (sessionId) { return post('/chat/sessions/' + part(sessionId) + '/activate', {}); },
     sendChatMessage: function (text) { return post('/chat/message', { text: text }); },
     // G1-7：拉取主会话流式状态（isStreaming），用于编排空闲但主会话仍在 LLM 输出时兜底 busy
     getChatStatus: function () { return get('/chat/status'); },
