@@ -96,6 +96,7 @@
 
 - 文档：`docs/audits/frontend-test-runs/2026-08-05-background-generation.md`
 - 结果：15 PASS / 0 FAIL / 1 N/A（TC-005 mock 模式不适用 SSE）
+  - **补充（真实 LLM 调用测试）**：TC-005 用后端 API 直连 + 真实 DeepSeek 调用复测通过——建立 SSE 连接后发送消息进入 streaming，期间 POST /sessions/:id/activate 切换会话，SSE 连接保持（`sseClosed: false`），后台生成持续推送 54 个 `pi` 事件至原 sessionId，完成后收到 `background_complete`。确认切换会话不重建/不断开 SSE，事件按 sessionId 路由。
 - 缺陷：0
 - 覆盖：会话切换不阻塞、streaming/error 状态显示、background_complete/error 事件处理、agent_end 清除 busy、其他视图回归、mock 编排集成
 
@@ -110,7 +111,7 @@ mock 模式未实测多 session 并存的内存开销。根据查证：
 
 1. **LRU 池上限**：SessionPool 添加 LRU 策略，上限 10，超出时 dispose 最久未访问的 idle session（streaming 中的不回收）
 2. **resourceLoaderOptions 优化**：创建 services 时传 noExtensions:true，减少 reload 开销
-3. **真实后端 SSE 验证**：mock 模式无法验证真实 SSE 事件流，需在真实后端 + LLM 环境下验证 background_complete 实际推送
+3. **真实后端 SSE 验证**：mock 模式无法验证真实 SSE 事件流——已通过真实 LLM 调用测试补证（见 §4.2），确认 SSE 多路复用、连接保持、background_complete 实际推送均正常
 4. **跨项目会话隔离**：验证不同项目的会话独立管理，storyTime 等状态不跨项目泄漏
 5. **后台生成恢复**：当前重启后丢失（与 ChatGPT 行为一致），如需持久化可参考 open-webui tasks.py 模式
 
