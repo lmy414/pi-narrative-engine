@@ -319,6 +319,68 @@ export class ChatContext {
     return SessionManager.list(active.dir, sessionDir);
   }
 
+  /**
+   * 新建空会话（G2-2）。
+   *
+   * 懒启动 host（若未启动）；streaming 中拒绝（CHAT_BUSY）。
+   * 返回新会话的 SessionInfo（live=true）。
+   */
+  async createSession(): Promise<SessionInfo> {
+    const host = await this.ensureHost();
+    if (!host) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    if (host.session.isStreaming) {
+      throw new ChatContextError("当前会话正在生成，请等待完成后再新建", "CHAT_BUSY");
+    }
+    await host.newSession();
+    // newSession 后 runtime 指向新会话，sessionId 即新会话 id
+    return this.findSessionInfo(host.session.sessionId);
+  }
+
+  /**
+   * 切换到指定会话（G2-2）。
+   *
+   * 懒启动 host（若未启动）；streaming 中拒绝（CHAT_BUSY）。
+   * id 可为 sessionId 或 sessionId 前缀（与 PI 本体 resolveSessionPath 一致）。
+   * 返回切换后的 SessionInfo（live=true）。
+   */
+  async activateSession(id: string): Promise<SessionInfo> {
+    const host = await this.ensureHost();
+    if (!host) throw new ChatContextError("尚未激活项目", "NO_ACTIVE_PROJECT");
+    if (host.session.isStreaming) {
+      throw new ChatContextError("当前会话正在生成，请等待完成后再切换", "CHAT_BUSY");
+    }
+    const sessions = await this.listSessions();
+    const target = this.resolveSessionPath(id, sessions);
+    if (!target) throw new ChatContextError(`会话不存在: ${id}`, "SESSION_NOT_FOUND");
+    await host.switchSession(target.path);
+    return this.findSessionInfo(host.session.sessionId);
+  }
+
+  /** 按 id 或 id 前缀匹配会话（与 PI 本体 resolveSessionPath 语义一致） */
+  private resolveSessionPath(id: string, sessions: SessionInfo[]): SessionInfo | null {
+    // 精确匹配优先
+    const exact = sessions.find((s) => s.id === id);
+    if (exact) return exact;
+    // 前缀匹配（PI 本体 main.ts:167 同逻辑）
+    const prefixed = sessions.filter((s) => s.id.startsWith(id));
+    if (prefixed.length === 1) return prefixed[0];
+    if (prefixed.length > 1) {
+      throw new ChatContextError(`会话 ID 前缀不唯一: ${id}（匹配 ${prefixed.length} 个）`, "SESSION_INVALID_PATH");
+    }
+    return null;
+  }
+
+  /** 按 sessionId 从 listSessions 查找 SessionInfo（含 path 字段） */
+  private async findSessionInfo(sessionId: string): Promise<SessionInfo> {
+    const sessions = await this.listSessions();
+    const info = sessions.find((s) => s.id === sessionId);
+    if (!info) {
+      // 新建会话可能在 list 时还未被读取（极端竞态），返回最小信息
+      throw new ChatContextError(`新建会话未出现在列表中: ${sessionId}`, "INTERNAL_ERROR");
+    }
+    return info;
+  }
+
   /** 读取指定会话的历史消息，并聚合 assistant toolCall/toolResult。 */
   async getSessionMessages(sessionId: string): Promise<HistoricalChatMessage[]> {
     const sessions = await this.listSessions();

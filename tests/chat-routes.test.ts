@@ -21,6 +21,7 @@ import { ChatContext } from "../src/app/chat-context.ts";
 import { ProjectRegistry } from "../src/app/project-registry.ts";
 import type { ProjectHandle } from "../src/app/project-registry.ts";
 import type { MainSessionHost, MainSessionHostOptions } from "../src/chat/main-session.ts";
+import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
 import type { OrchestratorService } from "../src/orchestrator/service.ts";
 import type { Embedder } from "../src/embedder.ts";
@@ -34,13 +35,33 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 interface StubSession {
   isStreaming: boolean;
   systemPrompt: string;
+  sessionId: string;
   promptCalls: string[];
   prompt: (text: string, opts?: { preflightResult?: (ok: boolean) => void }) => Promise<void>;
   subscribe: (cb: (event: unknown) => void) => () => void;
 }
 
-function makeHost(session: StubSession, cwd = "/proj") {
-  return { session, cwd, modelFallbackMessage: undefined };
+interface StubHost {
+  session: StubSession;
+  cwd: string;
+  modelFallbackMessage: string | undefined;
+  switchSessionCalls: string[];
+  newSessionCalls: number;
+  switchSession: (path: string) => Promise<void>;
+  newSession: () => Promise<void>;
+}
+
+function makeHost(session: StubSession, cwd = "/proj"): StubHost {
+  return {
+    session,
+    cwd,
+    modelFallbackMessage: undefined,
+    switchSessionCalls: [],
+    newSessionCalls: 0,
+    // G2 stub：会话切换/新建（真实由 runtime 完成，测试只记录调用）
+    switchSession: async (path: string) => { /* stub */ void path; },
+    newSession: async () => { /* stub */ },
+  };
 }
 
 function makeSession(overrides?: Partial<StubSession>): StubSession {
@@ -48,6 +69,7 @@ function makeSession(overrides?: Partial<StubSession>): StubSession {
   const session: StubSession = {
     isStreaming: false,
     systemPrompt: "system-prompt-stub",
+    sessionId: "stub-session-id",
     promptCalls,
     prompt: async (text, opts) => {
       promptCalls.push(text);
@@ -68,18 +90,54 @@ const HANDLE = {
 } as unknown as ProjectHandle;
 
 function makeCtx(overrides: {
-  host?: ReturnType<typeof makeHost> | null;
+  host?: StubHost | null;
   activeHandle?: ProjectHandle | null;
+  createSessionResult?: SessionInfo;
+  activateSessionResult?: SessionInfo;
+  createSessionError?: { code: string; message: string };
+  activateSessionError?: { code: string; message: string };
 }): { chatContext: ChatContext; registry: { getActive: () => ProjectHandle | null } } {
   const chatContext = {
     ensureHost: async () => overrides.host ?? null,
     activeHost: overrides.host ?? null,
+    listSessions: async () => [] as SessionInfo[],
+    createSession: async () => {
+      if (overrides.createSessionError) {
+        const err = new Error(overrides.createSessionError.message) as Error & { code: string };
+        err.code = overrides.createSessionError.code;
+        throw err;
+      }
+      return overrides.createSessionResult ?? makeSessionInfo("new-stub-id");
+    },
+    activateSession: async (_id: string) => {
+      if (overrides.activateSessionError) {
+        const err = new Error(overrides.activateSessionError.message) as Error & { code: string };
+        err.code = overrides.activateSessionError.code;
+        throw err;
+      }
+      return overrides.activateSessionResult ?? makeSessionInfo("activated-stub-id");
+    },
     dispose: async () => {},
   } as unknown as ChatContext;
   const registry = {
     getActive: () => overrides.activeHandle === undefined ? HANDLE : overrides.activeHandle,
   };
   return { chatContext, registry };
+}
+
+/** 构造测试用 SessionInfo（含 path 字段，G2 端点需要） */
+function makeSessionInfo(id: string, overrides?: Partial<SessionInfo>): SessionInfo {
+  return {
+    path: `/proj/.pi/sessions/20260805_${id}.jsonl`,
+    id,
+    cwd: "/proj",
+    created: new Date("2026-08-05T00:00:00Z"),
+    modified: new Date("2026-08-05T00:00:00Z"),
+    messageCount: 0,
+    firstMessage: "(no messages)",
+    allMessagesText: "",
+    ...overrides,
+  };
 }
 
 /** mock req/res（参考 tests/debug/sse.test.ts） */
@@ -175,6 +233,8 @@ test("ChatContext.ensureHost：A→B→A 重建 host 并隔离项目 provider/st
         modelFallbackMessage: undefined,
         start: async () => {},
         dispose: async () => { disposed.push(options.cwd); },
+        switchSession: async () => {},
+        newSession: async () => {},
       } as unknown as MainSessionHost;
     },
   });
@@ -599,6 +659,8 @@ test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项�
         modelFallbackMessage: undefined,
         start: async () => {},
         dispose: async () => { disposed.push(options.cwd); },
+        switchSession: async () => {},
+        newSession: async () => {},
       } as unknown as MainSessionHost;
     },
   });
@@ -648,5 +710,199 @@ test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项�
       if (value === undefined) delete process.env[envName];
       else process.env[envName] = value;
     }
+  }
+});
+
+// ============================================================================
+// G2 会话管理端点（POST /sessions, POST /sessions/:id/activate, GET /sessions 扩展 path）
+// ============================================================================
+
+test("POST /api/chat/sessions：无活跃项目 → 409 NO_ACTIVE_PROJECT", async () => {
+  const ctx = makeCtx({ activeHandle: null });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions", {});
+  assert.equal(hit, true);
+  assert.equal(status, 409);
+  assert.equal(json?.error?.code, "NO_ACTIVE_PROJECT");
+});
+
+test("POST /api/chat/sessions：streaming 中 → 409 CHAT_BUSY", async () => {
+  const session = makeSession({ isStreaming: true });
+  const ctx = makeCtx({
+    host: makeHost(session),
+    createSessionError: { code: "CHAT_BUSY", message: "当前会话正在生成" },
+  });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions", {});
+  assert.equal(hit, true);
+  assert.equal(status, 409);
+  assert.equal(json?.error?.code, "CHAT_BUSY");
+});
+
+test("POST /api/chat/sessions：成功 → 200 新会话 live=true", async () => {
+  const newInfo = makeSessionInfo("new-session-123", {
+    messageCount: 0,
+    firstMessage: "(no messages)",
+  });
+  const ctx = makeCtx({ host: makeHost(makeSession()), createSessionResult: newInfo });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions", {});
+  assert.equal(hit, true);
+  assert.equal(status, 200);
+  const data = json?.data as { session: { id: string; live: boolean; path: string; messageCount: number } };
+  assert.equal(data.session.id, "new-session-123");
+  assert.equal(data.session.live, true);
+  assert.equal(data.session.path, newInfo.path);
+  assert.equal(data.session.messageCount, 0);
+});
+
+test("POST /api/chat/sessions/:id/activate：会话不存在 → 404 SESSION_NOT_FOUND", async () => {
+  const ctx = makeCtx({
+    host: makeHost(makeSession()),
+    activateSessionError: { code: "SESSION_NOT_FOUND", message: "会话不存在: bad-id" },
+  });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions/bad-id/activate", {});
+  assert.equal(hit, true);
+  assert.equal(status, 404);
+  assert.equal(json?.error?.code, "SESSION_NOT_FOUND");
+});
+
+test("POST /api/chat/sessions/:id/activate：streaming 中 → 409 CHAT_BUSY", async () => {
+  const session = makeSession({ isStreaming: true });
+  const ctx = makeCtx({
+    host: makeHost(session),
+    activateSessionError: { code: "CHAT_BUSY", message: "当前会话正在生成" },
+  });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions/some-id/activate", {});
+  assert.equal(hit, true);
+  assert.equal(status, 409);
+  assert.equal(json?.error?.code, "CHAT_BUSY");
+});
+
+test("POST /api/chat/sessions/:id/activate：成功 → 200 live 转移", async () => {
+  const activated = makeSessionInfo("activated-session-456", {
+    messageCount: 5,
+    firstMessage: "开始",
+  });
+  const ctx = makeCtx({
+    host: makeHost(makeSession()),
+    activateSessionResult: activated,
+  });
+  const { hit, status, json } = await call(ctx, "POST", "/api/chat/sessions/activated-session-456/activate", {});
+  assert.equal(hit, true);
+  assert.equal(status, 200);
+  const data = json?.data as { session: { id: string; live: boolean; messageCount: number; firstMessage: string } };
+  assert.equal(data.session.id, "activated-session-456");
+  assert.equal(data.session.live, true);
+  assert.equal(data.session.messageCount, 5);
+  assert.equal(data.session.firstMessage, "开始");
+});
+
+test("GET /api/chat/sessions：响应含 path 字段（G2 切换需要）", async () => {
+  // 用真实 ChatContext + 临时目录，验证 SessionInfo.path 透出
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "narrative-sessions-list-"));
+  const projectDir = path.join(tmpDir, "project");
+  const sessionDir = path.join(projectDir, ".pi", "sessions");
+  fs.mkdirSync(projectDir, { recursive: true });
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const manager = SessionManager.create(projectDir, sessionDir);
+  // SDK 行为：只有 assistant 消息到达才 flush 文件（_persist hasAssistant 检查）
+  manager.appendMessage({ role: "user", content: "hi", timestamp: 1 });
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "hello" }],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-test",
+    stopReason: "stop",
+    timestamp: 2,
+  } satisfies AssistantMessage);
+
+  const context = new ChatContext({
+    registry: { getActive: () => ({ ...HANDLE, dir: projectDir }) } as unknown as ProjectRegistry,
+    llmStore: new LlmConfigStore(),
+    configDir: path.join(tmpDir, "config"),
+  });
+
+  try {
+    const { hit, status, json } = await call(
+      { chatContext: context, registry: { getActive: () => ({ ...HANDLE, dir: projectDir }) } },
+      "GET",
+      "/api/chat/sessions",
+    );
+    assert.equal(hit, true);
+    assert.equal(status, 200);
+    const data = json?.data as { sessions: Array<{ id: string; path: string; live: boolean }> };
+    assert.equal(data.sessions.length, 1);
+    assert.equal(data.sessions[0].id, manager.getSessionId());
+    assert.ok(data.sessions[0].path.endsWith(".jsonl"), "path 应为 .jsonl 文件路径");
+    assert.equal(data.sessions[0].live, false, "无 host 启动时 live=false");
+  } finally {
+    await context.dispose();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("启动恢复：continueRecent 在有最近会话时复用旧文件", async () => {
+  // 验证 MainSessionHost.start() 用 continueRecent（有最近会话则 open 旧文件）
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "narrative-restore-"));
+  const projectDir = path.join(tmpDir, "project");
+  const sessionDir = path.join(projectDir, ".pi", "sessions");
+  const agentDir = path.join(tmpDir, "agent");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  // 先创建一个会话，写入 user + assistant 消息（SDK 行为：只有 assistant 消息才 flush 文件）
+  const manager1 = SessionManager.create(projectDir, sessionDir);
+  const existingId = manager1.getSessionId();
+  manager1.appendMessage({ role: "user", content: "previous", timestamp: 1 });
+  manager1.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "response" }],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-test",
+    stopReason: "stop",
+    timestamp: 2,
+  } satisfies AssistantMessage);
+
+  // 再用 MainSessionHost 启动（应恢复 existingId）
+  const { MainSessionHost } = await import("../src/chat/main-session.ts");
+  const host = new MainSessionHost({
+    agentDir,
+    cwd: projectDir,
+    sessionDir,
+    customTools: [],
+  });
+  await host.start();
+  try {
+    assert.equal(host.session.sessionId, existingId, "启动应恢复最近会话 id");
+  } finally {
+    await host.dispose();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("启动恢复：无会话时新建空会话", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "narrative-restore-empty-"));
+  const projectDir = path.join(tmpDir, "project");
+  const sessionDir = path.join(projectDir, ".pi", "sessions");
+  const agentDir = path.join(tmpDir, "agent");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+
+  const { MainSessionHost } = await import("../src/chat/main-session.ts");
+  const host = new MainSessionHost({
+    agentDir,
+    cwd: projectDir,
+    sessionDir,
+    customTools: [],
+  });
+  await host.start();
+  try {
+    assert.ok(host.session.sessionId, "无会话时应新建空会话");
+    // SDK 行为：newSession 后只有 assistant 消息到达才 flush 文件；
+    // 此处无消息发送，sessionDir 可能为空或只有未 flush 的内存会话。
+    // 验证 sessionId 非空即足够（文件落盘在首条 assistant 消息后）。
+  } finally {
+    await host.dispose();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

@@ -88,12 +88,43 @@ export class MainSessionHost {
       return { ...created, services, diagnostics: services.diagnostics };
     };
 
-    const sessionManager = SessionManager.create(this.opts.cwd, this.opts.sessionDir);
+    // G2-3：启动恢复最近会话（与 PI 本体 `pi -c` 一致）。
+    // continueRecent 同步：有最近 .jsonl 则 open 旧文件（新消息 append），无则 create 新建。
+    // 不走 runtime.switchSession（那是交互期 slash 命令路径），避免首次启动触发 teardown。
+    const sessionManager = SessionManager.continueRecent(this.opts.cwd, this.opts.sessionDir);
     this.runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: this.opts.cwd,
       agentDir: this.opts.agentDir,
       sessionManager,
     });
+
+    // G2-1：注入 rebind 钩子，切换会话后刷新 services 引用（修复 applyModelConfig
+    // 在 switchSession 后访问 stale services 的隐患；PI 本体 modes/print-mode.ts:67 同模式）。
+    this.runtime.setRebindSession(async () => {
+      this.services = this.runtime.services;
+    });
+    // G2-1：beforeSessionInvalidate 留空 hook（当前无 UI 拆卸需求，未来扩展时回填）。
+    this.runtime.setBeforeSessionInvalidate(() => {});
+  }
+
+  /**
+   * 切换到指定会话路径（G2-2 切换端点入口）。
+   *
+   * 内部调 runtime.switchSession，会 dispose 当前 session 并接管目标 session。
+   * streaming 中调用会中断当前生成——上层（ChatContext）应先检查 isStreaming 抛 CHAT_BUSY。
+   */
+  async switchSession(sessionPath: string): Promise<void> {
+    await this.runtime.switchSession(sessionPath);
+  }
+
+  /**
+   * 新建空会话（G2-2 新建端点入口）。
+   *
+   * 内部调 runtime.newSession，会 dispose 当前 session 并创建新会话文件。
+   * streaming 中调用会中断当前生成——上层（ChatContext）应先检查 isStreaming 抛 CHAT_BUSY。
+   */
+  async newSession(): Promise<void> {
+    await this.runtime.newSession();
   }
 
   /**

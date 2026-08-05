@@ -35,6 +35,7 @@ const CHAT_ERROR_STATUS: Record<string, number> = {
   NO_ACTIVE_PROJECT: 409,
   CHAT_BUSY: 409,
   SESSION_NOT_FOUND: 404,
+  SESSION_INVALID_PATH: 400,
   EMBEDDER_UNAVAILABLE: 501,
 };
 
@@ -148,12 +149,55 @@ export async function handleChatApi(
         sessions: sessions.map((s) => ({
           id: s.id,
           name: s.name ?? null,
+          path: s.path,
           created: s.created.toISOString(),
           modified: s.modified.toISOString(),
           messageCount: s.messageCount,
           firstMessage: s.firstMessage,
           live: liveId !== null && s.id === liveId,
         })),
+      });
+      return true;
+    }
+
+    // POST /api/chat/sessions（新建空会话，live 转移到新会话）
+    if (segment === "/sessions" && method === "POST") {
+      requireActiveDir(ctx);
+      const session = await ctx.chatContext.createSession();
+      ok(res, {
+        session: {
+          id: session.id,
+          name: session.name ?? null,
+          path: session.path,
+          created: session.created.toISOString(),
+          modified: session.modified.toISOString(),
+          messageCount: session.messageCount,
+          firstMessage: session.firstMessage,
+          live: true,
+        },
+      });
+      return true;
+    }
+
+    // POST /api/chat/sessions/:id/activate（切换到指定会话，live 转移）
+    // 必须在 /sessions/:id/messages 之前判断（endsWith("/activate") 区分后缀）
+    if (segment.startsWith("/sessions/") && segment.endsWith("/activate") && method === "POST") {
+      requireActiveDir(ctx);
+      const id = decodeURIComponent(
+        segment.slice("/sessions/".length, segment.length - "/activate".length),
+      );
+      const session = await ctx.chatContext.activateSession(id);
+      ok(res, {
+        session: {
+          id: session.id,
+          name: session.name ?? null,
+          path: session.path,
+          created: session.created.toISOString(),
+          modified: session.modified.toISOString(),
+          messageCount: session.messageCount,
+          firstMessage: session.firstMessage,
+          live: true,
+        },
       });
       return true;
     }
