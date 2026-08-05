@@ -212,6 +212,94 @@ const MOCK_NOVEL_JSON = {
 // ==================== 编排器 Mock 数据 ====================
 
 const MOCK_SCHEDULER_PLANS = {
+  'plan-mock-03': {
+    planId: 'plan-mock-03',
+    storyTime: 'ch006.ev009',
+    mode: 'plan',
+    characterIds: ['char-01', 'char-02'],
+    cast: [
+      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长，执着于寻找失踪的父亲' },
+      { characterId: 'char-02', name: '艾莉亚', summary: '神秘的导航员，似乎知道舰长父亲的下落' }
+    ],
+    outputs: [
+      {
+        characterId: 'char-01',
+        characterName: '林远航',
+        action: '决定前往星门遗迹深处探索',
+        target: '艾莉亚',
+        emotion: '坚定而急切',
+        relationUpdates: [
+          { targetId: 'char-02', label: '相互信任', change: 'positive' }
+        ],
+        knowledgeGained: ['星门遗迹深处可能存在远古文明数据库'],
+        stateChanges: [
+          { entityId: 'char-01', property: 'location', value: '星门遗迹入口', modality: 'fact' }
+        ],
+        thought: '星门遗迹比我想象的更加宏大。如果父亲真的来过这里，他一定留下了什么线索。'
+      },
+      {
+        characterId: 'char-02',
+        characterName: '艾莉亚',
+        action: '分析星门能量波动模式',
+        target: '林远航',
+        emotion: '专注而谨慎',
+        relationUpdates: [],
+        knowledgeGained: ['星门能量波动与远古文明语言编码一致'],
+        stateChanges: [],
+        thought: '能量波动模式和我母亲留下的笔记完全吻合。这扇门背后，可能藏着整个星盟的起源秘密。'
+      }
+    ],
+    retrievalPlan: {
+      items: [
+        { type: 'entity', target: 'char-01', assignTo: 'planner', params: { storyTime: 'ch006.ev009' } },
+        { type: 'entity', target: 'char-02', assignTo: 'planner', params: { storyTime: 'ch006.ev009' } },
+        { type: 'location', target: 'loc-02', assignTo: 'planner', params: { storyTime: 'ch006.ev009' } }
+      ]
+    },
+    errors: [],
+    stages: [
+      { stage: 'planner', agent: 'planner', status: 'done', durationMs: 1100, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '林远航', status: 'done', durationMs: 2900, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '艾莉亚', status: 'done', durationMs: 2600, provider: 'default', model: 'default' }
+    ],
+    status: 'committing',
+    commitQueueId: 'mock-queue-03'
+  },
+  'plan-mock-04': {
+    planId: 'plan-mock-04',
+    storyTime: 'ch005.ev008',
+    mode: 'plan',
+    characterIds: ['char-01'],
+    cast: [
+      { characterId: 'char-01', name: '林远航', summary: '年轻的星舰舰长，执着于寻找失踪的父亲' }
+    ],
+    outputs: [
+      {
+        characterId: 'char-01',
+        characterName: '林远航',
+        action: '尝试解读星门上的文字',
+        target: '艾莉亚',
+        emotion: '困惑而执着',
+        relationUpdates: [],
+        knowledgeGained: ['星门文字属于失落文明「启明者」的语系'],
+        stateChanges: [],
+        thought: '这些文字我从未见过，但似乎和我父亲笔记本里的符号有相似之处。'
+      }
+    ],
+    retrievalPlan: {
+      items: [
+        { type: 'entity', target: 'char-01', assignTo: 'planner', params: { storyTime: 'ch005.ev008' } },
+        { type: 'location', target: 'loc-02', assignTo: 'planner', params: { storyTime: 'ch005.ev008' } }
+      ]
+    },
+    errors: [],
+    stages: [
+      { stage: 'planner', agent: 'planner', status: 'done', durationMs: 950, provider: 'default', model: 'default' },
+      { stage: 'role', agent: '林远航', status: 'done', durationMs: 2200, provider: 'default', model: 'default' }
+    ],
+    status: 'error',
+    commitError: '可见推理失败：模型返回格式异常，请重试'
+  },
   'plan-mock-01': {
     planId: 'plan-mock-01',
     storyTime: 'ch006.ev008',

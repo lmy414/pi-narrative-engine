@@ -138,6 +138,9 @@ ViewRender.studio = () => {
     <aside class="st-orchestration-results">
       ${stOrPanelHtml()}
     </aside>
+    <button class="st-or-toggle" onclick="stOrToggleDrawer()">编排结果 (${(stOrState('plans', []) || []).length})</button>
+    <div class="st-or-drawer-overlay" onclick="stOrToggleDrawer()"></div>
+    <aside class="st-or-drawer"></aside>
   </div>`;
 };
 
@@ -452,7 +455,6 @@ async function stSendChat() {
   const text = ta.value.trim();
   const currentId = stState('currentSessionId', null);
   if (!text || stIsStreamingBusy(currentId)) return;
-  setStState('chatAutoScroll', true);
   ta.value = '';
   const msg = { role: 'user', text, ts: new Date().toISOString() };
   setStState('studioMessages', stState('studioMessages', []).concat([msg]));
@@ -710,7 +712,7 @@ function stOrchestrationScript() {
     { action: 'tool', tool: { id: 'live-tool-search', name: '检索世界图', status: 'done', isError: false } },
     { action: 'tool', tool: { id: 'live-tool-dispatch', name: '调用编排器', status: 'done', isError: false } },
     { action: 'system', text: 'AI 触发编排 · 多代理协作中' },
-    { action: 'stream', text: '已生成编排计划，等待你的确认。' },
+    { action: 'stream', text: '## 叙事指令\n\n基于当前剧情进展，编排计划如下：\n\n**目标**：推进星门遗迹探索主线，深化林远航与艾莉亚的互动。\n\n**角色**：\n- 林远航（舰长）——主动探索星门深处\n- 艾莉亚（导航员）——暗中协助，透露远古线索\n\n**节奏**：先展示星门遗迹的外景悬念，再切入角色对话揭示核心冲突。\n\n**关键事件**：星门能量波动异常，触发远古警报系统。\n\n已生成编排计划，等待你的确认。' },
     { action: 'finish' }
   ];
 }
@@ -811,6 +813,29 @@ function stFinalizeOrchestration(orch) {
   if (orch.timer) { clearTimeout(orch.timer); orch.timer = null; }
   setStState('orch', orch);
   setStState('studioBusy', false);
+
+  // 设计文档 §10.1：mock 模式下编排完成后注入 Plan 到右侧面板
+  if (ApiRuntime.isMock) {
+    stOrInjectMockPlan();
+  }
+}
+
+/** Mock 模式：编排完成后注入一个 confirmed Plan 到右侧面板 */
+function stOrInjectMockPlan() {
+  // 使用 MOCK_SCHEDULER_PLANS 中的 plan-mock-01（confirmed）作为模板
+  if (typeof MOCK_SCHEDULER_PLANS === 'undefined') return;
+  const template = MOCK_SCHEDULER_PLANS['plan-mock-01'];
+  if (!template) return;
+  const plan = JSON.parse(JSON.stringify(template));
+  plan.planId = 'plan-injected-' + Date.now();
+  plan.status = 'confirmed';
+  delete plan.commitQueueId;
+  // 注入到 mock 数据层
+  apiCall('injectMockPlan', plan).then(() => {
+    // 清除现有 timer 后强制立即轮询，避免重复 timer
+    if (stOrTimer) { clearTimeout(stOrTimer); stOrTimer = null; }
+    stOrPollStatus(stOrGeneration);
+  }).catch(() => {});
 }
 
 function stAbortLiveSimulation() {
@@ -1144,7 +1169,7 @@ function stOrStageRenderHtml(render) {
 /** 阶段 5：落地摘要 */
 function stOrStageCommitHtml(commitData) {
   if (!commitData) return '';
-  return `<div class="or-stage">
+  return `<div class="st-or-stage">
     <div class="st-or-stage-header">阶段 5：落地摘要</div>
     <div class="st-or-stage-content">
       <div class="st-or-commit-line">状态：${commitData.ok ? '成功' : '失败'}</div>
@@ -1195,31 +1220,60 @@ function stOrActionsHtml(detail) {
 
 let stOrTimer = null;
 let stOrGeneration = 0;
+let stOrConsecutiveFailures = 0;
 
 /** 启动编排结果轮询 */
 function stOrStartRuntime() {
   stOrCloseRuntime();
   const gen = ++stOrGeneration;
-  // 初始加载
+  stOrConsecutiveFailures = 0;
   stOrPollStatus(gen);
 }
 
-/** 轮询 /api/scheduler/status */
+/**
+ * 局部刷新面板 DOM（不触发全量 renderView，避免循环）
+ *
+ * 设计文档 §8：轮询仅更新面板数据，不离场时不清空整个面板。
+ * 使用此函数替代 renderView()，因为 renderView() 会重新执行
+ * ViewAfterRender.studio → stOrStartRuntime() → 重置 stOrGeneration
+ * → 旧 poll 的 gen 失效 → 新 poll 启动 → 完成后又 renderView → 死循环。
+ */
+function stOrRenderPanel() {
+  const el = document.querySelector('.st-orchestration-results');
+  if (!el) return;
+  el.innerHTML = stOrPanelHtml();
+  refreshIcons();
+  // 更新窄屏 toggle 按钮计数
+  const toggle = document.querySelector('.st-or-toggle');
+  if (toggle) {
+    const count = (stOrState('plans', []) || []).length;
+    toggle.textContent = '编排结果 (' + count + ')';
+  }
+  // 抽屉打开时同步更新内容
+  const drawer = document.querySelector('.st-or-drawer.active');
+  if (drawer) {
+    drawer.innerHTML = stOrPanelHtml();
+    refreshIcons();
+  }
+}
+
+/** 轮询 /api/scheduler/status（设计文档 §8.1） */
 async function stOrPollStatus(gen) {
   if (gen !== stOrGeneration) return;
   try {
     const data = await apiCall('getSchedulerStatus');
     if (gen !== stOrGeneration) return;
+    stOrConsecutiveFailures = 0;
     const plans = data.plans || [];
     setStOrState('plans', plans);
     setStOrState('pollError', null);
-    // 默认选择
+    // 默认选择（设计文档 §7.1 默认选中规则）
     const selectedId = stOrState('selectedPlanId', null);
     if (!selectedId || !plans.some((p) => p.planId === selectedId)) {
       const defaultId = stOrResolveDefaultPlan(plans);
-      if (defaultId) stOrSelectPlan(defaultId);
+      if (defaultId) stOrFetchDetail(defaultId, gen);
     } else {
-      // 检查选中 plan 是否需要刷新详情
+      // 检查选中 plan 是否需要刷新详情（设计文档 §8.2）
       const selected = plans.find((p) => p.planId === selectedId);
       if (selected) {
         const cached = stOrState('detail', null);
@@ -1228,13 +1282,22 @@ async function stOrPollStatus(gen) {
         }
       }
     }
-    // 下次轮询间隔
+    // 局部刷新面板（避免全量 renderView 循环）
+    stOrRenderPanel();
+    // 下次轮询间隔（设计文档 §8.1：有 committing → 2s，空闲 → 10s）
     const hasBusy = plans.some((p) => p.status === 'committing');
     scheduleNext(gen, hasBusy ? 2000 : 10000);
   } catch (error) {
     if (gen !== stOrGeneration) return;
+    stOrConsecutiveFailures += 1;
     setStOrState('pollError', error.message || '状态暂不可用');
-    scheduleNext(gen, 5000);
+    // 设计文档 §8.1：连续失败指数退避，最大 30s
+    const delay = Math.min(2000 * Math.pow(2, stOrConsecutiveFailures - 1), 30000);
+    // 首次失败时刷新面板（显示错误状态）
+    if (stOrConsecutiveFailures === 1) {
+      stOrRenderPanel();
+    }
+    scheduleNext(gen, delay);
   }
 }
 
@@ -1243,7 +1306,7 @@ function scheduleNext(gen, ms) {
   stOrTimer = setTimeout(() => stOrPollStatus(gen), ms);
 }
 
-/** 获取 Plan 详情 */
+/** 获取 Plan 详情（设计文档 §8.2：按需请求，不重复下载正文） */
 async function stOrFetchDetail(planId, gen) {
   if (gen === undefined) gen = stOrGeneration;
   try {
@@ -1251,21 +1314,24 @@ async function stOrFetchDetail(planId, gen) {
     if (gen !== stOrGeneration) return;
     setStOrState('detail', data);
     setStOrState('detailCache', Object.assign(stOrState('detailCache', {}), { [planId]: data }));
+    stOrRenderPanel();
   } catch (error) {
     if (gen !== stOrGeneration) return;
+    // 设计文档 §9.1：PLAN_NOT_FOUND → 移除本地缓存
     if (error.code === 'PLAN_NOT_FOUND') {
       setStOrState('selectedPlanId', null);
       setStOrState('detail', null);
-      // 从列表中移除
       const plans = (stOrState('plans', []) || []).filter((p) => p.planId !== planId);
       setStOrState('plans', plans);
+      stOrRenderPanel();
     } else {
       setStOrState('pollError', error.message || '详情加载失败');
+      stOrRenderPanel();
     }
   }
 }
 
-/** 默认 Plan 选择 */
+/** 默认 Plan 选择（设计文档 §7.1 优先级规则） */
 function stOrResolveDefaultPlan(plans) {
   if (!plans || !plans.length) return null;
   // 1. 保留已有选中
@@ -1284,13 +1350,13 @@ function stOrResolveDefaultPlan(plans) {
 /** 设置筛选 */
 function stOrSetFilter(filter) {
   setStOrState('filter', filter || null);
-  renderView();
+  stOrRenderPanel();
 }
 
 /** 选中 Plan */
 function stOrSelectPlan(planId) {
   setStOrState('selectedPlanId', planId);
-  // 先检查缓存
+  // 先检查缓存（设计文档 §8.2：命中缓存不重复请求）
   const cache = stOrState('detailCache', {});
   if (cache[planId]) {
     setStOrState('detail', cache[planId]);
@@ -1298,10 +1364,10 @@ function stOrSelectPlan(planId) {
     setStOrState('detail', null);
   }
   stOrFetchDetail(planId);
-  renderView();
+  stOrRenderPanel();
 }
 
-/** 提交 Plan */
+/** 提交 Plan（设计文档 §7.4：本地 busy 锁 + 后端并发保护） */
 async function stOrCommitPlan(planId) {
   if (stOrState('commitBusy', false)) return;
   setStOrState('commitBusy', true);
@@ -1312,24 +1378,25 @@ async function stOrCommitPlan(planId) {
   if (detail && detail.planId === planId) {
     setStOrState('detail', { ...detail, status: 'committing' });
   }
-  renderView();
+  stOrRenderPanel();
   try {
     const result = await apiCall('commitPlan', planId);
     if (!result.ok) {
       throw new Error(result.error?.message || '提交失败');
     }
+    // 提交成功：刷新详情以获取完整结果
+    stOrFetchDetail(planId);
   } catch (error) {
-    handleApiError(error);
-    // 回退：刷新状态
+    // 设计文档 §9.1：面板级错误显示，不清空前半结果
+    setStOrState('pollError', error.message || '提交失败');
+    // 回退：刷新状态（恢复乐观更新前的状态）
     stOrPollStatus(stOrGeneration);
   } finally {
     setStOrState('commitBusy', false);
-    // 刷新详情
-    stOrFetchDetail(planId);
   }
 }
 
-/** 丢弃 Plan */
+/** 丢弃 Plan（设计文档 §7.4：committing 中禁止丢弃） */
 async function stOrDiscardPlan(planId) {
   if (stOrState('commitBusy', false)) return;
   setStOrState('commitBusy', true);
@@ -1345,18 +1412,37 @@ async function stOrDiscardPlan(planId) {
       setStOrState('selectedPlanId', null);
       setStOrState('detail', null);
     }
-    renderView();
+    stOrRenderPanel();
   } catch (error) {
-    handleApiError(error);
+    // 设计文档 §9.1：面板级错误显示
+    setStOrState('pollError', error.message || '丢弃失败');
     stOrPollStatus(stOrGeneration);
   } finally {
     setStOrState('commitBusy', false);
   }
 }
 
-/** 停止编排结果轮询 */
+/** 切换窄屏抽屉（设计文档 §7.6） */
+function stOrToggleDrawer() {
+  const overlay = document.querySelector('.st-or-drawer-overlay');
+  const drawer = document.querySelector('.st-or-drawer');
+  if (!overlay || !drawer) return;
+  const isOpen = drawer.classList.contains('active');
+  if (isOpen) {
+    overlay.classList.remove('active');
+    drawer.classList.remove('active');
+  } else {
+    overlay.classList.add('active');
+    drawer.classList.add('active');
+    drawer.innerHTML = stOrPanelHtml();
+    refreshIcons();
+  }
+}
+
+/** 停止编排结果轮询（设计文档 §8.3：离场清理） */
 function stOrCloseRuntime() {
   stOrGeneration += 1;
+  stOrConsecutiveFailures = 0;
   if (stOrTimer) clearTimeout(stOrTimer);
   stOrTimer = null;
 }

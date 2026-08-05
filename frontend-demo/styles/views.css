@@ -4259,10 +4259,76 @@ body .detail-drawer {
 .st-or-list::-webkit-scrollbar-thumb:hover,
 .st-or-detail::-webkit-scrollbar-thumb:hover { background: var(--border-400); }
 
-/* ---------- 窄屏 ---------- */
+/* ---------- 窄屏抽屉 ---------- */
+.st-or-toggle {
+  display: none;
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 100;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background-color: var(--bg-50);
+  color: var(--text-700);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.st-or-toggle:hover {
+  background-color: var(--brand-50);
+  color: var(--brand-600);
+  border-color: var(--brand-200);
+}
+.st-or-drawer-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background-color: rgba(0, 0, 0, 0.3);
+}
+.st-or-drawer-overlay.active {
+  display: block;
+}
+.st-or-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 340px;
+  max-width: 85vw;
+  height: 100vh;
+  z-index: 210;
+  background-color: var(--bg-100);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+}
+.st-or-drawer.active {
+  transform: translateX(0);
+}
+.st-or-drawer .st-or-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- 窄屏响应式 ---------- */
 @media (max-width: 1100px) {
   .st-orchestration-results { width: 300px; }
 }
 @media (max-width: 900px) {
-  .st-orchestration-results { width: 260px; }
+  .st-orchestration-results { display: none; }
+  .st-or-toggle { display: flex; }
 }

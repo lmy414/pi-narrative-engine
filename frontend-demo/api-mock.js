@@ -762,6 +762,12 @@ const ApiMock = {
     if (plan.status === 'committing') return fail('COMMIT_IN_PROGRESS', 'plan 正在提交中', 409);
     delete schedulerPlans[planId];
     return ok({ planId, discarded: true });
+  },
+
+  /** 注入 Plan（mock 专用：编排模拟完成后注入 Plan 到右侧面板） */
+  injectMockPlan(plan) {
+    schedulerPlans[plan.planId] = plan;
+    return ok({ planId: plan.planId, injected: true });
   }
 };
 

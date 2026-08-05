@@ -42,6 +42,12 @@
 | BUG-021 | 2026-08-05-user-reported | P2 | studio → LLM 输出渲染 | 用户要求编排页面（studio）的 LLM 输出支持 **Markdown 格式语法渲染**。**现状**：[studio.js#L284-L295](file:///d:/claude/pi-ex/narrative-engine/frontend-demo/views/studio.js#L284-L295) 中 `stTextHtml` 仅做 `escapeHtml + 换行转<br>`，`stBubbleContentHtml` 直接调用 `stTextHtml`，无 MD 解析。**可复用资源**：[files.js#L372-L408](file:///d:/claude/pi-ex/narrative-engine/frontend-demo/views/files.js#L372-L408) 已有完整的 `flRenderMarkdown` + `flInline` 实现（支持标题/#、列表、粗体/**、斜体/*、行内代码/`），可提取为共享函数或在 studio.js 中拷贝同名函数。**修复方向**：将 `stBubbleContentHtml` 的 `stTextHtml(text)` 替换为 MD 渲染（用户消息保持纯文本 escape，AI 消息走 MD）；补充对应 CSS（标题字号、列表缩进、行内代码背景色），样式类名前缀与 `fl-` 区分或复用 | fixed | 2026-08-05-md-rendering-and-page-scale |
 | BUG-022 | 2026-08-05-md-rendering-and-page-scale | P2 | 设置 → 应用偏好 | BUG-018 页面缩放保存后刷新不持久化。根因：`api-client.js` 的 `UI_PREF_KEYS=['theme','fontSize','autoSave']` 不含 `uiScale`，`splitAppConfig` 把 `uiScale` 归入 `remote` 走后端 PUT `/api/admin/app-config`，而后端仅接受 `launcher`/`embedder` 静默丢弃。修复：`UI_PREF_KEYS` 补 `uiScale`，复用现有 localStorage uiPrefs 机制（与 theme 一致） | fixed | 2026-08-05-md-rendering-and-page-scale |
 
+| BUG-023 | 2026-08-05-manual-test | P2 | studio → 编排结果面板 | 无编排结果时面板一直显示"加载中…"空转，应直接展示空态（如"暂无编排结果"）。根因：初始 `plans=null` 触发加载态，若 poll 返回空数组或失败，因 `plans !== null` 或 `pollError` 条件未能正确切换为空态渲染 | open | |
+| BUG-024 | 2026-08-05-manual-test | P2 | studio → 编排结果面板 | 事件派发后 plan 显示"待确认"状态徽章但无法交互（提交/丢弃按钮不可用或不可见）。根因：`stOrActionsHtml` 对 `status === 'confirmed'` 已渲染按钮，但后端返回的 PlanDetail 可能缺 `status` 字段，或 `.st-or-detail` 容器 overflow 截断按钮，或 `stOrFetchDetail` 返回的 `status` 字段名不匹配 | open | |
+| BUG-025 | 2026-08-06-manual-test | P1 | orchestrator → planner | **planner 偶发失败**：retrieval_plan 工具执行失败（ch012.ev008 首次派发，12 秒即挂）。根因：planner 提交的检索计划未过 TypeBox schema 校验（LLM 偶发输出非法枚举值/缺字段）。影响：整个事件作废，需重试 | open | |
+| BUG-026 | 2026-08-06-manual-test | P1 | orchestrator → 角色演绎 | **角色演绎偶发失败**：ch012.ev008 中辉夜演绎失败（errorCount=1），辉夜状态未写扩散。细节：正文仍渲染出辉夜台词（渲染器按事件指令补写，合理）；但世界图缺辉夜的状态更新 | open | |
+| BUG-027 | 2026-08-06-manual-test | P2 | engine → renderToFile | **渲染元注释重复**：ch012.ev007/ev008 文件头 `<!-- engine v0.01 -->` + 锚点重复两次。根因：renderToFile 把整个已有章节文件当上下文注入 LLM，LLM 偶发把文件头/锚点复制进生成文本（规则集虽禁止但压不住模仿行为）。处置：已在文件层面修复，但引擎侧无防护（下次还可能复现） | open | |
+
 > BUG-016 决策（2026-08-05 用户确认）：移除"新建议程"按钮功能，统一到对话框内输入意图即可，不需要单独按钮派发。BUG-016 不再修复，随按钮移除一并解决。移除工作未执行，待后续批次处理。
 
 > BUG-001 / BUG-002 历史溯源：首次见于 `2026-08-03-production-gap-bug-inventory.md` §2（用户实测上报），2026-08-03-fix-frontend-4-bugs 修复并实测确认。
