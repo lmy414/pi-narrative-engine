@@ -7,3 +7,12 @@ dist/
 
 # Tauri 构建产物（含旧版 extension-snapshot 快照，不应入库）
 tauri-app/src-tauri/target/
+
+# IDE 个人配置
+.vscode/
+
+# Trae 工具运行时产物（brainstorm session/pid/草稿）
+.superpowers/
+
+# 运行时生成的章节数据（属于小说项目，不入引擎仓库）
+chapters/
