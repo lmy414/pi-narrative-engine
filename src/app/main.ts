@@ -12,9 +12,10 @@
  *   node server/main.js          [--project <dir>] [--port 7421] [--embed] [--config-dir <dir>]
  */
 import { existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KnownProvider } from "@earendil-works/pi-ai";
+import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import { Embedder } from "../embedder.ts";
 import { createDebugBus } from "../debug/bus.ts";
 import { LlmConfigStore } from "../orchestrator/llm-config.ts";
@@ -72,13 +73,30 @@ async function main(): Promise<void> {
   const configDir = args.configDir ?? _defaultConfigDir();
   const appConfig = await readAppConfig(configDir);
 
+  // 共享 AuthStorage（与 admin API 同实例同 auth.json，保证自定义厂商密钥对子代理可见）
+  const authStorage = AuthStorage.create(join(configDir, "pi-agent", "auth.json"));
+
   // 主会话/子代理共用配置中心：启动时用 app-config 持久化的 slot 映射水合
-  const llmStore = new LlmConfigStore();
+  const llmStore = new LlmConfigStore({
+    // 自定义厂商密钥：从共享 AuthStorage 读取（admin API 写入即见）
+    apiKeyResolver: (providerId) => {
+      if (!authStorage.hasAuth(providerId)) return undefined;
+      const cred = authStorage.get(providerId);
+      return cred && cred.type === "api_key" ? cred.key : undefined;
+    },
+  });
   for (const [slot, cfg] of Object.entries(appConfig.llm.slots)) {
     if (!cfg) continue;
-    llmStore.setConfig(slot as LlmSlot, {
-      model: { provider: cfg.provider as KnownProvider, name: cfg.model },
-    });
+    // 自定义厂商：从 providers 表恢复 baseURL/apiKind，保证 getModel 走 buildCustomModel 而非查表
+    const custom = appConfig.llm.providers.find((p) => p.id === cfg.provider);
+    const setConfig: Parameters<LlmConfigStore["setConfig"]>[1] = custom
+      ? {
+          model: { provider: cfg.provider, name: cfg.model },
+          baseURL: custom.baseURL,
+          apiKind: custom.apiKind,
+        }
+      : { model: { provider: cfg.provider as KnownProvider, name: cfg.model } };
+    llmStore.setConfig(slot as LlmSlot, setConfig);
   }
   // B7：会话级默认执行模式水合（dispatch 未显式传 mode 时生效）
   setSchedulerDefaultMode(appConfig.scheduler.defaultMode);
@@ -114,6 +132,7 @@ async function main(): Promise<void> {
     configDir,
     appConfigDir: configDir,
     llmConfigStore: llmStore,
+    authStorage,
     debugBus,
     // 生产打包布局：入口同级资源存在即显式传入；不存在走开发模式自动探测
     uiDir: existsSync(resolve(__dirname, "frontend-demo"))

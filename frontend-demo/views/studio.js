@@ -346,6 +346,13 @@ function stMessageHtml(m) {
   // assistant
   const tc = (m.toolCalls || []);
   const toolCalls = tc.map((tc) => stToolCardHtml(tc)).join('');
+  // LLM 错误（如 402 余额不足）：错误气泡替代空文本气泡，避免「看不到回复也无提示」
+  const errorBox = m.error
+    ? `<div class="st-msg-error">${icon('circle-alert', 'w-3.5 h-3.5')}<span>${escapeHtml(m.error)}</span></div>`
+    : '';
+  const bubble = m.text || !m.error
+    ? `<div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(m.text, tc.length > 0, true)}</div>`
+    : '';
   return `
   <div class="st-msg st-msg-ai">
     <div class="st-msg-avatar st-avatar-ai">AI</div>
@@ -354,7 +361,8 @@ function stMessageHtml(m) {
         <span class="st-msg-name">AI 助手</span>
         <span class="st-msg-time">${ts}</span>
       </div>
-      <div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(m.text, tc.length > 0, true)}</div>
+      ${bubble}
+      ${errorBox}
       ${toolCalls ? `<div class="st-tool-list">${toolCalls}</div>` : ''}
     </div>
   </div>`;
@@ -378,13 +386,25 @@ function stInputAreaHtml(busy) {
   return `
   <div class="st-input-area">
     <div class="st-input-toolbar">
-      <span class="st-input-hint">Enter 发送 · Shift+Enter 换行</span>
+      <span class="st-input-hint">${busy ? '生成中…可点击右侧按钮中断' : 'Enter 发送 · Shift+Enter 换行'}</span>
     </div>
     <div class="st-input-main">
       <textarea id="st-chat-textarea" class="st-chat-textarea" rows="2" placeholder="输入消息…" onkeydown="stChatKeydown(event)" spellcheck="false"></textarea>
-      <button type="button" class="st-send-btn" onclick="stSendChat()" ${busy ? 'disabled' : ''}>${icon('send', 'w-4 h-4')}</button>
+      ${busy
+        ? `<button type="button" class="st-send-btn st-stop-btn" title="中断生成" onclick="stAbortChat()">${icon('square', 'w-4 h-4')}</button>`
+        : `<button type="button" class="st-send-btn" onclick="stSendChat()">${icon('send', 'w-4 h-4')}</button>`}
     </div>
   </div>`;
+}
+
+// 中断当前会话生成（活跃会话；后台会话的中断经 sessionId 参数由后端支持，当前 UI 只暴露活跃会话）
+async function stAbortChat() {
+  try {
+    const res = await apiCall('abortChat');
+    if (res && res.aborted === false) { toast('当前没有生成中的回复', 'info'); return; }
+    toast('已请求中断生成', 'info');
+    // busy 复位由 SSE agent_end 驱动（stHandlePiEvent），此处不手动清，避免与流式状态竞争
+  } catch (e) { handleApiError(e); }
 }
 
 // ==================== 会话交互 ====================
@@ -670,12 +690,20 @@ function stRenderRealLiveMessage(live) {
 
 function stLiveMessageHtml(live) {
   const hasTools = Array.isArray(live.toolCalls) && live.toolCalls.length > 0;
+  // 实时错误（message_end stopReason=error）：红条提示，与历史错误气泡同口径
+  const errorBox = live.error
+    ? `<div class="st-msg-error">${icon('circle-alert', 'w-3.5 h-3.5')}<span>${escapeHtml(live.error)}</span></div>`
+    : '';
+  const bubble = live.text || !live.error
+    ? `<div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(live.text, hasTools, true)}</div>`
+    : '';
   return `
   <div class="st-msg st-msg-ai" id="st-live-msg">
     <div class="st-msg-avatar st-avatar-ai">AI</div>
     <div class="st-msg-body">
       <div class="st-msg-meta"><span class="st-msg-name">AI 助手</span><span class="st-msg-time">${stMsgTime(live.ts)}</span></div>
-      <div class="st-msg-bubble st-bubble-ai">${stBubbleContentHtml(live.text, hasTools, true)}</div>
+      ${bubble}
+      ${errorBox}
       ${hasTools ? `<div class="st-tool-list">${live.toolCalls.map((tool) => stToolCardHtml(tool)).join('')}</div>` : ''}
     </div>
   </div>`;

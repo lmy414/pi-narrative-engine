@@ -101,6 +101,9 @@ function makeCtx(overrides: {
   sendChatMessageResult?: { preflightSucceeded: boolean; sessionId: string };
   /** sendChatMessage 抛错（CHAT_BUSY/MODEL_NOT_READY 等） */
   sendChatMessageError?: { code: string; message: string };
+  /** abortChat 结果/抛错（中断生成） */
+  abortChatResult?: { aborted: boolean; sessionId: string };
+  abortChatError?: { code: string; message: string };
   /** 自定义 sessionPool（不传时按 host 自动构造） */
   pool?: SessionPool;
   /** SSE 订阅回调收集（外部传入用于断言事件推送） */
@@ -149,6 +152,14 @@ function makeCtx(overrides: {
         throw err;
       }
       return overrides.sendChatMessageResult ?? { preflightSucceeded: true, sessionId: overrides.host?.session.sessionId ?? "stub-session-id" };
+    },
+    abortChat: async (sessionId?: string) => {
+      if (overrides.abortChatError) {
+        const err = new Error(overrides.abortChatError.message) as Error & { code: string };
+        err.code = overrides.abortChatError.code;
+        throw err;
+      }
+      return overrides.abortChatResult ?? { aborted: true, sessionId: sessionId ?? overrides.host?.session.sessionId ?? "stub-session-id" };
     },
     subscribe: (cb: (event: unknown) => void) => {
       subscribers.push(cb);
@@ -1104,4 +1115,71 @@ test("SessionPool：clear 清空所有 handle与活跃指针", () => {
   assert.equal(pool.size, 0);
   assert.equal(pool.activeSessionId, null);
   assert.equal(pool.getActive(), null);
+});
+
+// ----------------------------------------------------------------------------
+
+test("POST /chat/abort：成功中断返回 200 + aborted；sessionId 透传", async () => {
+  const ctx = makeCtx({ host: makeHost(makeSession()) });
+  const r1 = await call(ctx, "POST", "/api/chat/abort", {});
+  assert.equal(r1.hit, true);
+  assert.equal(r1.status, 200);
+  assert.deepEqual(r1.json?.data, { aborted: true, sessionId: "stub-session-id" });
+
+  const r2 = await call(ctx, "POST", "/api/chat/abort", { sessionId: "bg-session-1" });
+  assert.equal(r2.status, 200);
+  assert.deepEqual(r2.json?.data, { aborted: true, sessionId: "bg-session-1" });
+});
+
+test("POST /chat/abort：无活跃项目 409；会话不存在 404", async () => {
+  const noProj = makeCtx({ host: null, activeHandle: null });
+  const r1 = await call(noProj, "POST", "/api/chat/abort", {});
+  assert.equal(r1.status, 409);
+
+  const notFound = makeCtx({
+    host: makeHost(makeSession()),
+    abortChatError: { code: "SESSION_NOT_FOUND", message: "会话不存在: nope" },
+  });
+  const r2 = await call(notFound, "POST", "/api/chat/abort", { sessionId: "nope" });
+  assert.equal(r2.status, 404);
+  assert.equal(r2.json?.error?.code, "SESSION_NOT_FOUND");
+});
+
+test("ChatContext.abortChat：streaming 中断成功；非 streaming 幂等 false；未知会话抛错", async () => {
+  let abortCalls = 0;
+  const streamingSession = makeSession({ isStreaming: true }) as StubSession & { abort: () => Promise<void> };
+  streamingSession.abort = async () => { abortCalls++; };
+  const context = new ChatContext({
+    registry: { getActive: () => HANDLE } as never,
+    llmStore: new LlmConfigStore(),
+    configDir: "/config",
+    embedder: {} as Embedder,
+    createOrchestratorService: async () => ({} as OrchestratorService),
+    createHost(options) {
+      return {
+        cwd: options.cwd,
+        session: streamingSession,
+        modelFallbackMessage: undefined,
+        start: async () => {},
+        dispose: async () => {},
+        switchSession: async () => {},
+        newSession: async () => {},
+      } as unknown as MainSessionHost;
+    },
+  });
+  try {
+    await context.ensureHost();
+    const r1 = await context.abortChat();
+    assert.deepEqual(r1, { aborted: true, sessionId: "stub-session-id" });
+    assert.equal(abortCalls, 1);
+
+    streamingSession.isStreaming = false;
+    const r2 = await context.abortChat();
+    assert.equal(r2.aborted, false);
+    assert.equal(abortCalls, 1, "非 streaming 不再调 abort");
+
+    await assert.rejects(() => context.abortChat("nope"), /会话不存在/);
+  } finally {
+    await context.dispose();
+  }
 });

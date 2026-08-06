@@ -170,6 +170,17 @@ export async function handleChatApi(
       return true;
     }
 
+    // POST /api/chat/abort — 中断会话生成（body 可带 sessionId 指定后台会话，缺省活跃会话）
+    if (segment === "/abort" && method === "POST") {
+      requireActiveDir(ctx);
+      const sid =
+        body !== null && typeof body === "object"
+          ? (body as Record<string, unknown>).sessionId
+          : undefined;
+      ok(res, await ctx.chatContext.abortChat(sid === undefined ? undefined : String(sid)));
+      return true;
+    }
+
     // POST /api/chat/sessions（新建空会话，live 转移到新会话）
     if (segment === "/sessions" && method === "POST") {
       requireActiveDir(ctx);

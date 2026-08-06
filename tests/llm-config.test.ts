@@ -141,6 +141,25 @@ test("store: slot 覆盖模型无 key、default 有 key、无 env 时抛错（M-
   assert.throws(() => store.getApiKey("role"), /API Key/);
 });
 
+test("store: 内置厂商 key 走 AuthStorage（apiKeyResolver）——/api/admin/llm/key 落盘的 key 运行时可取", () => {
+  cleanEnv();
+  // 模拟 main.ts 装配：apiKeyResolver 读共享 AuthStorage（auth.json）
+  const auth: Record<string, string> = { "opencode-go": "sk-auth-ocg", deepseek: "sk-auth-ds" };
+  const store = new LlmConfigStore({ apiKeyResolver: (p) => auth[p] });
+  store.setConfig("default", cfg("opencode-go", "deepseek-v4-flash"));
+  store.setConfig("role", cfg("deepseek", "deepseek-v4-flash"));
+  // 无 cfg.apiKey、无 NE_LLM_API_KEY、无 provider 标准 env —— 旧实现此处抛错
+  assert.equal(store.getApiKey("default"), "sk-auth-ocg");
+  assert.equal(store.getApiKey("role"), "sk-auth-ds");
+  // 优先级：显式 cfg.apiKey > AuthStorage
+  store.setConfig("planner", cfg("deepseek", "deepseek-v4-flash", "sk-explicit"));
+  assert.equal(store.getApiKey("planner"), "sk-explicit");
+  // resolver 无该 provider 时回退 NE_LLM_API_KEY / 标准 env / 抛错
+  process.env.NE_LLM_API_KEY = "sk-ne";
+  store.setConfig("renderer", cfg("openai", "gpt-5.1"));
+  assert.equal(store.getApiKey("renderer"), "sk-ne");
+});
+
 test("store: slot 和 default 都无 key 时回退 NE_LLM_API_KEY", () => {
   cleanEnv();
   process.env.NE_LLM_API_KEY = "sk-ne-env";

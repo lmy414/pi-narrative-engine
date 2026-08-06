@@ -2,9 +2,12 @@
  * frontend-demo/views/settings.js — 设置视图（高保真重构，Task 10）
  *
  * 设计基准：narrative-engine-design/pages/settings.html
- * （左侧二级导航：应用配置[模型配置/密钥管理/向量模型/应用偏好/关于] + 项目配置[规则集/项目信息/环境变量]；
- *   模型 Slot 表（default/planner/role/reasoning/renderer，inherited 跟随默认 / slot 已配，Provider/Model 选择与保存/清除/自定义）；
- *   密钥管理（脱敏 ••••、添加、显示/隐藏、删除，纯前端 Demo）；向量模型（状态卡、Warmup、清缓存、改模型）；
+ * （左侧二级导航：应用配置[模型配置/厂商管理/向量模型/应用偏好/关于] + 项目配置[规则集/项目信息/环境变量]；
+ *   模型配置（可用模型卡片[仅展示启用模型，默认空] + Slot 表：统一「模型」下拉按厂商分组，直接选择后保存/清除）；
+ *   增加配置弹窗（选厂商[内置/自定义/新建] → 填密钥自动拉取模型 → 勾选启用 → 保存；移除=弹窗内取消勾选）；
+ *   厂商管理（默认空，仅列已配置厂商：有启用模型或有密钥的内置/自定义；软移除=清启用+清密钥，可经弹窗配回）；
+ *   密钥统一在厂商配置弹窗中管理（无独立密钥管理面板）；
+ *   向量模型（状态卡、Warmup、清缓存、改模型）；
  *   应用偏好（主题卡 light/dark/system、字号 slider、自动保存开关+间隔、默认扫描根目录）；
  *   关于（版本、Doctor 自检）；规则集（Tab render/role/planner、恢复模板、保存、字数）；
  *   项目信息（novel.json：名称/章节目录/故事时间格式）；环境变量（HF_ENDPOINT/PI_DEBUG/PI_EMBEDDER_MODEL））
@@ -23,9 +26,9 @@
  *
  * 状态读写约定（viewState('settings') 命名空间 + 平面双写，参考 events.js / files.js）：
  *   - settingsState(key, fallback) / setSettingsState(key, value)
- *   - 数据键用 setActivePanel / setAppConfig / setLlmStatus / setKeys / setEmbedder / setVersion /
- *     setDoctor / setRulesets / setRulesetTab / setNovelJson / setEnvConfig / setAutosave / setPiDebug /
- *     setCustomizing 等，避免与命名空间 routeId 'settings' 同名（防止双写把命名空间覆盖成标量）
+ *   - 数据键用 setActivePanel / setAppConfig / setLlmStatus / setEmbedder / setVersion /
+ *     setDoctor / setRulesets / setRulesetTab / setNovelJson / setEnvConfig / setAutosave / setPiDebug
+ *     等，避免与命名空间 routeId 'settings' 同名（防止双写把命名空间覆盖成标量）
  *
  * 数据获取与写操作走 apiMock 闭环（api-mock.js 实际暴露方法，不臆造）：
  *   getAppConfig/setAppConfig · getLlmStatus/setLlmSlot/clearLlmSlot/setLlmKey/deleteLlmKey ·
@@ -39,7 +42,7 @@
 
 const SETTINGS_PANELS = [
   { id: 'models',       group: 'app',     label: '模型配置', icon: 'smile' },
-  { id: 'keys',         group: 'app',     label: '密钥管理', icon: 'key' },
+  { id: 'providers',    group: 'app',     label: '厂商管理', icon: 'globe' },
   { id: 'embedder',     group: 'app',     label: '向量模型', icon: 'layers' },
   { id: 'app-prefs',    group: 'app',     label: '应用偏好', icon: 'settings' },
   { id: 'about',        group: 'app',     label: '关于',     icon: 'info' },
@@ -56,8 +59,6 @@ const SET_SLOT_META = {
   renderer:  { name: '渲染',     desc: '章节正文渲染' },
 };
 const SET_SLOT_ORDER = ['default', 'planner', 'role', 'reasoning', 'renderer'];
-
-const SET_PROVIDERS = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', '自定义'];
 
 const SET_RULESET_TABS = [
   { id: 'render',  label: '渲染', file: 'render.md' },
@@ -95,30 +96,21 @@ function settingsCountWords(text) {
   return String(text || '').replace(/\s/g, '').length;
 }
 
-function settingsMaskKey(value) {
-  if (!value) return '••••••••';
-  if (value.length <= 4) return '••••';
-  return '••••' + value.slice(-4);
-}
-
 // ==================== 数据加载（覆盖 viewLoaders.settings） ====================
 
 async function settingsLoad() {
   // 快组：并行拉取与项目无关的配置（首屏渲染依赖）
-  const [appConfig, llmData] = await Promise.all([
+  const [appConfig, llmData, provData] = await Promise.all([
     apiCall('getAppConfig'),
     apiCall('getLlmStatus'),
+    apiCall('getLlmProviders'),
   ]);
   setSettingsState('setAppConfig', appConfig);
   settingsApplyScale(appConfig && appConfig.uiScale);
 
   const llm = llmData.slots || {};
   setSettingsState('setLlmStatus', llm);
-
-  // 本地密钥列表：首次从 llm 状态派生（哪些 provider 有密钥），后续保留用户增删
-  if (settingsState('setKeys', null) === null) {
-    setSettingsState('setKeys', settingsDeriveKeys(llm));
-  }
+  setSettingsState('setProviders', (provData && provData.providers) || []);
 
   // 项目级数据：并行（仅在激活项目时拉取，getRulesets/getNovelJson/getEnvConfig 内部 requireActiveProject）
   const projPromise = (async () => {
@@ -146,7 +138,6 @@ async function settingsLoad() {
   if (settingsState('setActivePanel', null) === null) setSettingsState('setActivePanel', 'models');
   if (settingsState('setRulesetTab', null) === null) setSettingsState('setRulesetTab', 'render');
   if (settingsState('setAutosave', null) === null) setSettingsState('setAutosave', appConfig.autosave !== false);
-  if (settingsState('setCustomizing', null) === null) setSettingsState('setCustomizing', []);
 
   // 应用级数据：embedder 快，等它；version/doctor 慢（git），后台拉取不阻塞首屏
   try { setSettingsState('setEmbedder', await apiCall('getEmbedderStatus')); } catch (e) {}
@@ -169,18 +160,6 @@ async function settingsLoadLazy() {
 }
 
 viewLoaders.settings = settingsLoad;
-
-function settingsDeriveKeys(llm) {
-  const map = {};
-  (Object.keys(llm || {})).forEach((slot) => {
-    const s = llm[slot];
-    if (s && s.hasKey) {
-      const p = (s.configured && s.configured.provider) || (s.resolved && s.resolved.provider);
-      if (p && !map[p]) map[p] = { provider: p, value: '', visible: false };
-    }
-  });
-  return Object.keys(map).map((p) => map[p]);
-}
 
 // ==================== 渲染入口 ====================
 
@@ -236,7 +215,7 @@ function settingsSwitchPanel(panelId) {
 function settingsPanelHtml(panelId) {
   switch (panelId) {
     case 'models':        return settingsPanelModels();
-    case 'keys':          return settingsPanelKeys();
+    case 'providers':     return settingsPanelProviders();
     case 'embedder':      return settingsPanelEmbedder();
     case 'app-prefs':     return settingsPanelAppPrefs();
     case 'about':         return settingsPanelAbout();
@@ -248,20 +227,52 @@ function settingsPanelHtml(panelId) {
 }
 
 // ==================== 面板：模型配置 ====================
+// 可用模型（仅展示）+ Slot 统一模型下拉；可用模型的增删统一在「厂商管理」面板的「增加配置」弹窗维护
+
+// 全部可用模型：仅含用户显式启用的模型（默认空）
+// 内置厂商 = enabledModelIds（弹窗勾选启用子集，存 llm.providerModels）；自定义厂商 = modelIds（勾选即启用）
+function settingsAvailableModels() {
+  const providers = settingsState('setProviders', []) || [];
+  const out = [];
+  providers.forEach((p) => {
+    const ids = p.builtin ? (p.enabledModelIds || []) : (p.modelIds || []);
+    ids.forEach((m) => {
+      out.push({ providerId: p.id, providerName: p.name || p.id, modelId: m, builtin: !!p.builtin });
+    });
+  });
+  return out;
+}
+
+// 模型编码：providerId + '::' + modelId（option value）
+function settingsModelKey(providerId, modelId) {
+  return providerId + '::' + modelId;
+}
 
 function settingsPanelModels() {
   const llm = settingsState('setLlmStatus', {}) || {};
+  const models = settingsAvailableModels();
   return `
     <div>
       <h1 class="set-page-title">模型配置</h1>
-      <p class="set-page-desc">为不同用途配置模型，未配置的 slot 会使用默认模型</p>
+      <p class="set-page-desc">为不同用途配置模型，未配置的 slot 会使用默认模型；可用模型在「厂商管理」中维护</p>
+
+      <div class="set-card">
+        <div class="set-card-header">
+          <div class="set-card-title">${icon('list-checks', 'w-4 h-4')} 可用模型</div>
+          <span class="set-muted">${models.length} 个</span>
+        </div>
+        <div class="set-card-body">
+          ${models.length
+            ? `<div class="set-avail-list">${models.map((m) => settingsAvailModelTagHtml(m)).join('')}</div>`
+            : `<div class="set-empty set-empty-inline"><div class="set-empty-icon">${icon('globe', 'w-6 h-6')}</div><div class="set-empty-desc">暂无可用模型，请到「厂商管理」点击「增加配置」添加</div></div>`}
+        </div>
+      </div>
 
       <div class="set-model-table">
         <div class="set-model-header">
           <div>用途</div>
           <div>来源</div>
-          <div>Provider</div>
-          <div>Model</div>
+          <div>模型</div>
           <div>密钥状态</div>
           <div>操作</div>
         </div>
@@ -278,81 +289,87 @@ function settingsPanelModels() {
     </div>`;
 }
 
+// 可用模型标签（厂商名 · 模型名，纯展示）
+// 本页不提供移除：移除统一在「增加配置」弹窗中取消勾选（内置写启用子集、自定义写 modelIds），口径单一
+function settingsAvailModelTagHtml(m) {
+  return `
+    <span class="set-avail-tag" title="${escapeHtml(m.providerId)} / ${escapeHtml(m.modelId)}">
+      <span class="set-avail-provider">${escapeHtml(m.providerName)}</span>
+      <span class="set-avail-model">${escapeHtml(m.modelId)}</span>
+    </span>`;
+}
+
 function settingsSlotRowHtml(slot, status) {
   status = status || {};
   const meta = SET_SLOT_META[slot] || { name: slot, desc: '' };
-  const customizing = settingsIsCustomizing(slot);
-  const inherited = status.source !== 'slot' && !customizing;
-  const provider = inherited
-    ? (status.resolved && status.resolved.provider) || ''
-    : (status.configured && status.configured.provider) || (status.resolved && status.resolved.provider) || '';
-  const model = inherited
-    ? (status.resolved && status.resolved.model) || ''
-    : (status.configured && status.configured.model) || (status.resolved && status.resolved.model) || '';
+  const configured = status.source === 'slot';
+  const provider = (status.configured && status.configured.provider) || (status.resolved && status.resolved.provider) || '';
+  const model = (status.configured && status.configured.model) || (status.resolved && status.resolved.model) || '';
   const hasKey = !!status.hasKey;
   const isDefault = slot === 'default';
 
-  const actions = inherited
-    ? `<button class="set-btn set-btn-ghost set-btn-sm set-btn-primary-text" onclick="settingsCustomizeSlot(${settingsJs(slot)})">${icon('pencil', 'w-3.5 h-3.5')} 自定义</button>`
-    : `<button class="set-btn set-btn-primary set-btn-sm" onclick="settingsSaveSlot(${settingsJs(slot)})">${icon('save', 'w-3.5 h-3.5')} 保存</button>
-       ${isDefault ? '' : `<button class="set-btn set-btn-ghost set-btn-sm" onclick="settingsClearSlot(${settingsJs(slot)})">清除</button>`}`;
-
   return `
-    <div class="set-model-row${inherited ? ' set-model-row-inherited' : ''}">
+    <div class="set-model-row${configured ? '' : ' set-model-row-inherited'}">
       <div class="set-slot-purpose">
         <div class="set-slot-name">${escapeHtml(meta.name)}</div>
         <div class="set-slot-desc">${escapeHtml(meta.desc)}</div>
       </div>
-      <div class="set-slot-source">${settingsSourceBadge(status.source, customizing)}</div>
+      <div class="set-slot-source">${settingsSourceBadge(status.source)}</div>
       <div class="set-slot-field">
-        <select class="set-select" ${inherited ? 'disabled' : ''} id="set-provider-${escapeHtml(slot)}">${settingsProviderOptions(provider)}</select>
-      </div>
-      <div class="set-slot-field">
-        <input type="text" class="set-input" value="${escapeHtml(model)}" ${inherited ? 'disabled' : ''} id="set-model-${escapeHtml(slot)}">
+        <select class="set-select" id="set-model-${escapeHtml(slot)}">${settingsModelOptions(provider, model)}</select>
       </div>
       <div class="set-key-status ${hasKey ? 'set-key-status-has' : 'set-key-status-none'}">
         ${icon(hasKey ? 'check' : 'x', 'w-3.5 h-3.5')}
         ${hasKey ? '已配置' : '未配置'}
       </div>
-      <div class="set-slot-actions">${actions}</div>
+      <div class="set-slot-actions">
+        <button class="set-btn set-btn-primary set-btn-sm" onclick="settingsSaveSlot(${settingsJs(slot)})">${icon('save', 'w-3.5 h-3.5')} 保存</button>
+        ${isDefault || !configured ? '' : `<button class="set-btn set-btn-ghost set-btn-sm" onclick="settingsClearSlot(${settingsJs(slot)})">清除</button>`}
+      </div>
     </div>`;
 }
 
-function settingsSourceBadge(source, customizing) {
-  if (customizing || source === 'slot') return `<span class="set-badge set-badge-configured">slot 已配</span>`;
+// 统一下拉：可用模型按厂商分组（optgroup）；当前值不在列表时保留占位项避免丢选择
+function settingsModelOptions(actualProvider, actualModel) {
+  const models = settingsAvailableModels();
+  if (!models.length) return '<option value="">暂无可用模型，请先到「厂商管理」添加</option>';
+  const actualKey = settingsModelKey(actualProvider, actualModel);
+  const groups = {};
+  models.forEach((m) => {
+    (groups[m.providerName] = groups[m.providerName] || []).push(m);
+  });
+  let html = '';
+  Object.keys(groups).forEach((name) => {
+    html += `<optgroup label="${escapeHtml(name)}">` + groups[name].map((m) => {
+      const key = settingsModelKey(m.providerId, m.modelId);
+      return `<option value="${escapeHtml(key)}" ${key === actualKey ? 'selected' : ''}>${escapeHtml(m.modelId)}</option>`;
+    }).join('') + '</optgroup>';
+  });
+  // 当前选中值若已不在可用列表（如被移除/厂商删除），保留占位项
+  if (actualProvider && actualModel && !models.some((m) => settingsModelKey(m.providerId, m.modelId) === actualKey)) {
+    html = `<option value="${escapeHtml(actualKey)}" selected>${escapeHtml(actualProvider)} / ${escapeHtml(actualModel)}</option>` + html;
+  }
+  return html;
+}
+
+function settingsSourceBadge(source) {
+  if (source === 'slot') return `<span class="set-badge set-badge-configured">slot 已配</span>`;
   if (source === 'default') return `<span class="set-badge set-badge-default">跟随默认</span>`;
   if (source === 'env') return `<span class="set-badge set-badge-env">环境变量</span>`;
   return `<span class="set-badge set-badge-none">未配置</span>`;
 }
 
-function settingsProviderOptions(actual) {
-  const opts = SET_PROVIDERS.slice();
-  if (actual && opts.indexOf(actual) < 0) opts.push(actual);
-  return opts.map((p) => `<option ${p === actual ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('');
-}
-
-function settingsIsCustomizing(slot) {
-  const list = settingsState('setCustomizing', []) || [];
-  return list.indexOf(slot) >= 0;
-}
-
-function settingsCustomizeSlot(slot) {
-  const list = (settingsState('setCustomizing', []) || []).slice();
-  if (list.indexOf(slot) < 0) list.push(slot);
-  setSettingsState('setCustomizing', list);
-  renderView();
-}
-
+// 保存 slot：从统一下拉值 'provider::model' 拆出两者
 async function settingsSaveSlot(slot) {
-  const providerEl = $('#set-provider-' + slot);
   const modelEl = $('#set-model-' + slot);
-  const provider = providerEl ? providerEl.value : '';
-  const model = modelEl ? modelEl.value : '';
+  const key = modelEl ? modelEl.value : '';
+  const sep = key.indexOf('::');
+  if (sep <= 0) { toast('请选择可用模型', 'error'); return; }
+  const provider = key.slice(0, sep);
+  const model = key.slice(sep + 2);
   try {
     await apiCall('setLlmSlot', slot, provider, model);
   } catch (e) { handleApiError(e); return; }
-  const list = (settingsState('setCustomizing', []) || []).filter((s) => s !== slot);
-  setSettingsState('setCustomizing', list);
   await settingsLoad();
   toast('模型配置已保存', 'success');
   renderView();
@@ -372,127 +389,358 @@ async function settingsConfirmClearSlot(slot) {
   try {
     await apiCall('clearLlmSlot', slot);
   } catch (e) { handleApiError(e); return; }
-  const list = (settingsState('setCustomizing', []) || []).filter((s) => s !== slot);
-  setSettingsState('setCustomizing', list);
   await settingsLoad();
   toast('已恢复跟随默认', 'info');
   renderView();
 }
 
-// ==================== 面板：密钥管理 ====================
+// ==================== 面板：厂商管理 ====================
 
-function settingsPanelKeys() {
-  const keys = settingsState('setKeys', []) || [];
+// 已配置厂商：有启用模型或有密钥的（内置/自定义统一口径；面板默认空，不展示未配置厂商）
+function settingsConfiguredProviders() {
+  const providers = settingsState('setProviders', []) || [];
+  return providers.filter((p) =>
+    (p.enabledModelIds || []).length > 0 || settingsProviderHasKey(p));
+}
+
+function settingsPanelProviders() {
+  const providers = settingsConfiguredProviders();
   return `
     <div>
-      <h1 class="set-page-title">密钥管理</h1>
-      <p class="set-page-desc">API Key 仅本地存储，服务端不回显明文</p>
-
-      <div class="set-card">
-        <div class="set-card-header"><div class="set-card-title">已配置密钥</div></div>
-        <div class="set-card-body">
-          ${keys.length
-            ? `<div class="set-key-list">${keys.map((k, i) => settingsKeyItemHtml(k, i)).join('')}</div>`
-            : `<div class="set-empty set-empty-inline"><div class="set-empty-icon">${icon('key', 'w-6 h-6')}</div><div class="set-empty-desc">尚未配置任何 API Key</div></div>`}
+      <div class="set-page-head">
+        <div>
+          <h1 class="set-page-title">厂商管理</h1>
+          <p class="set-page-desc">选厂商 → 填密钥 → 自动拉取模型 → 勾选启用，启用后即可在「模型配置」中选用</p>
         </div>
+        <button class="set-btn set-btn-primary" onclick="settingsOpenProviderForm()">${icon('plus', 'w-3.5 h-3.5')} 增加配置</button>
       </div>
 
       <div class="set-card">
-        <div class="set-card-header"><div class="set-card-title">添加密钥</div></div>
+        <div class="set-card-header"><div class="set-card-title">已配置厂商</div><span class="set-muted">${providers.length} 个</span></div>
         <div class="set-card-body">
-          <div class="set-form-row">
-            <div class="set-field">
-              <label>Provider</label>
-              <select class="set-select" id="set-key-provider">${settingsProviderOptions(SET_PROVIDERS[0])}</select>
-            </div>
-            <div class="set-field">
-              <label>API Key</label>
-              <div class="set-pw-wrap">
-                <input type="password" class="set-input" placeholder="sk-..." id="set-key-value" spellcheck="false" autocomplete="off">
-                <button class="set-pw-toggle" title="显示/隐藏" onclick="settingsToggleKeyInput()">${icon('eye', 'w-3.5 h-3.5')}</button>
-              </div>
-            </div>
-          </div>
-          <div class="set-form-actions">
-            <button class="set-btn set-btn-primary" onclick="settingsSaveKey()">${icon('save', 'w-3.5 h-3.5')} 保存密钥</button>
-          </div>
+          ${providers.length
+            ? `<div class="set-provider-list">${providers.map((p) => settingsProviderRowHtml(p)).join('')}</div>`
+            : `<div class="set-empty set-empty-inline"><div class="set-empty-icon">${icon('globe', 'w-6 h-6')}</div><div class="set-empty-desc">尚未配置任何厂商，点击右上角「增加配置」添加</div></div>`}
         </div>
       </div>
     </div>`;
 }
 
-function settingsKeyItemHtml(k, i) {
-  const display = k.visible ? (k.value || '（已加密，未回显）') : settingsMaskKey(k.value);
+// 统一厂商行：内置（只读）+ 自定义（可删除）共享卡片；模型标签只显示「启用模型」（内置=enabledModelIds，自定义=modelIds）
+function settingsProviderRowHtml(p) {
+  const hasKey = settingsProviderHasKey(p);
+  const typeTag = p.builtin
+    ? '<span class="set-provider-tag">内置</span>'
+    : '<span class="set-provider-tag set-provider-tag-custom">自定义</span>';
+  const models = p.builtin ? (p.enabledModelIds || []) : (p.modelIds || []);
   return `
-    <div class="set-key-item">
-      <div class="set-key-info">
-        <span class="set-key-name">${escapeHtml(k.provider)}</span>
-        <span class="set-key-value">${escapeHtml(display)}</span>
-        <span class="set-key-status-row">${icon('check', 'w-3.5 h-3.5')} 已配置</span>
+    <div class="set-provider-card">
+      <div class="set-provider-card-main">
+        <div class="set-provider-card-title">${escapeHtml(p.name)} ${typeTag}</div>
+        <div class="set-provider-card-desc">
+          ${p.builtin ? '' : `<span class="set-mono">${escapeHtml(p.baseURL || '')}</span>`}
+          <span class="set-provider-tag">${escapeHtml(p.apiKind || 'openai-completions')}</span>
+        </div>
+        <div class="set-provider-card-models">
+          ${models.map((m) => `<span class="set-provider-model-tag">${escapeHtml(m)}</span>`).join('') || '<span class="set-muted">暂无启用模型，点击「配置」勾选</span>'}
+        </div>
+        <div class="set-key-status-row ${hasKey ? 'set-key-status-has' : 'set-key-status-none'}">${icon(hasKey ? 'check' : 'x', 'w-3.5 h-3.5')} ${hasKey ? '已配置密钥' : '未配置密钥'}</div>
       </div>
       <div class="set-key-actions">
-        <button class="set-btn set-btn-ghost set-btn-sm" title="显示/隐藏" onclick="settingsToggleKeyVisible(${i})">${icon(k.visible ? 'eye-off' : 'eye', 'w-3.5 h-3.5')}</button>
-        <button class="set-btn set-btn-danger set-btn-sm" onclick="settingsDeleteKey(${i})">删除</button>
+        <button class="set-btn set-btn-secondary set-btn-sm" onclick="settingsOpenProviderForm(${settingsJs(p.id)})">${icon('sliders-horizontal', 'w-3.5 h-3.5')} 配置</button>
+        ${p.builtin ? '' : `
+        <button class="set-btn set-btn-secondary set-btn-sm" onclick="settingsTestProvider(${settingsJs(p.id)})">${icon('zap', 'w-3.5 h-3.5')} 测试连通</button>`}
+        <button class="set-btn set-btn-danger set-btn-sm" onclick="settingsRemoveProvider(${settingsJs(p.id)})">移除</button>
       </div>
     </div>`;
 }
 
-function settingsToggleKeyInput() {
-  const el = $('#set-key-value');
+// 密钥状态：优先后端 ProviderView.hasKey（内置/自定义均带）；缺省时从 llm slot 状态派生（兼容旧后端）
+function settingsProviderHasKey(p) {
+  if (p && p.hasKey !== undefined) return !!p.hasKey;
+  const llm = settingsState('setLlmStatus', {}) || {};
+  const id = p && p.id;
+  return Object.keys(llm).some((slot) => {
+    const s = llm[slot];
+    if (!s || !s.hasKey) return false;
+    const pid = (s.configured && s.configured.provider) || (s.resolved && s.resolved.provider) || '';
+    return pid === id;
+  });
+}
+
+// 统一配置弹窗：选厂商（内置/自定义/新建）→ 填密钥自动拉取模型 → 勾选启用 → 保存
+function settingsOpenProviderForm(id) {
+  const providers = settingsState('setProviders', []) || [];
+  const prov = id ? providers.find((p) => p.id === id) : null;
+  const builtinOpts = providers.filter((p) => p.builtin).map((p) =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+  const customOpts = providers.filter((p) => !p.builtin).map((p) =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+  openModal(prov ? `配置厂商 · ${prov.name}` : '增加配置',
+    `<div class="set-form-modal">
+      <div class="set-field">
+        <label>厂商</label>
+        <select class="set-select" id="set-provider-form-select" onchange="settingsOnProviderSelect()">
+          ${builtinOpts ? `<optgroup label="内置厂商">${builtinOpts}</optgroup>` : ''}
+          ${customOpts ? `<optgroup label="自定义厂商">${customOpts}</optgroup>` : ''}
+          <option value="__new__" ${!prov ? 'selected' : ''}>＋ 新建自定义厂商</option>
+        </select>
+      </div>
+      <div id="set-provider-form-fields">${settingsProviderFormFields(prov)}</div>
+      <div class="set-field">
+        <label>API Key</label>
+        <div class="set-pw-wrap">
+          <input type="password" class="set-input" id="set-provider-form-key" placeholder="sk-...（输入后自动拉取模型）" spellcheck="false" autocomplete="off" oninput="settingsOnProvKeyInput()">
+          <button class="set-pw-toggle" title="显示/隐藏" onclick="settingsToggleProvKey()">${icon('eye', 'w-3.5 h-3.5')}</button>
+        </div>
+      </div>
+      <div class="set-field">
+        <div class="set-models-head">
+          <label>启用模型</label>
+          <span class="set-models-tools">
+            <button type="button" class="set-btn set-btn-secondary set-btn-sm" onclick="settingsDetectModels()">${icon('search', 'w-3 h-3')} 检测模型</button>
+            <button type="button" class="set-link-btn" onclick="settingsCheckAllModels(true)">全选</button>
+            <button type="button" class="set-link-btn" onclick="settingsCheckAllModels(false)">清空</button>
+          </span>
+        </div>
+        <div class="set-provider-models-box" id="set-provider-models-box">
+          ${settingsProviderFormModelsHtml(prov)}
+        </div>
+        <span class="set-field-hint" id="set-provider-detect-hint">勾选加入可用列表，保存后生效</span>
+      </div>
+    </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="settingsSaveProvider()">保存</button>`);
+}
+
+// 弹窗模型区初始内容：未选厂商给提示；内置给静态列表（预勾已启用子集）；自定义给已启用列表（预勾）
+function settingsProviderFormModelsHtml(prov) {
+  if (!prov) return '<span class="set-muted">选择厂商并填入 API Key 后自动拉取模型列表</span>';
+  if (prov.builtin) return settingsProviderModelChecks(prov.modelIds || [], prov.enabledModelIds || []);
+  return settingsProviderModelChecks(prov.modelIds || [], prov.modelIds || []);
+}
+
+// 根据当前选中厂商渲染字段区：内置为提示条（系统预置无需填连接信息）；自定义/新建为 ID/名称/BaseURL
+function settingsProviderFormFields(prov) {
+  if (prov && prov.builtin) {
+    return `<div class="set-form-hint">${icon('info', 'w-3.5 h-3.5')} 内置厂商由系统预置，配置密钥并勾选启用模型即可</div>`;
+  }
+  const idVal = prov && prov.id ? prov.id : '';
+  const nameVal = prov && prov.name ? prov.name : '';
+  const urlVal = prov && prov.baseURL ? prov.baseURL : '';
+  return `
+    <div class="set-form-row">
+      <div class="set-field"><label>ID</label><input type="text" class="set-input set-mono" id="set-provider-form-id" value="${escapeHtml(idVal)}" ${prov ? 'readonly' : ''} placeholder="如 my-groq（唯一，不可与内置冲突）"></div>
+      <div class="set-field"><label>名称</label><input type="text" class="set-input" id="set-provider-form-name" value="${escapeHtml(nameVal)}" placeholder="如 My Groq"></div>
+    </div>
+    <div class="set-field"><label>Base URL</label><input type="text" class="set-input set-mono" id="set-provider-form-url" value="${escapeHtml(urlVal)}" placeholder="https://api.example.com/v1"></div>`;
+}
+
+// 厂商下拉切换：重渲染字段区与模型区（内置立即展示静态模型列表 = 自动匹配；自定义/新建等待密钥自动拉取）
+function settingsOnProviderSelect() {
+  const sel = $('#set-provider-form-select');
+  const id = sel ? sel.value : '';
+  const providers = settingsState('setProviders', []) || [];
+  const prov = id === '__new__' ? null : providers.find((p) => p.id === id);
+  const fields = $('#set-provider-form-fields');
+  if (fields) fields.innerHTML = settingsProviderFormFields(prov);
+  const box = $('#set-provider-models-box');
+  const hint = $('#set-provider-detect-hint');
+  if (id === '__new__') {
+    if (box) box.innerHTML = '<span class="set-muted">填写信息并输入 API Key 后自动拉取模型列表</span>';
+    if (hint) hint.textContent = '';
+  } else if (prov && prov.builtin) {
+    if (box) box.innerHTML = settingsProviderModelChecks(prov.modelIds || [], prov.enabledModelIds || []);
+    if (hint) hint.textContent = `内置静态模型 ${(prov.modelIds || []).length} 个，勾选启用`;
+  } else {
+    if (box) box.innerHTML = settingsProviderModelChecks(prov ? prov.modelIds : [], prov ? prov.modelIds : []);
+    if (hint) hint.textContent = '';
+  }
+}
+
+// 模型复选框区：checkedIds 中的预勾，其余不勾（用户自由勾选启用；全选/清空见 settingsCheckAllModels）
+function settingsProviderModelChecks(models, checkedIds) {
+  const list = models || [];
+  const checked = new Set(checkedIds || []);
+  if (!list.length) return '<span class="set-muted">暂无模型，输入 API Key 后自动拉取，或点击「检测模型」</span>';
+  return `<div class="set-model-check-grid">${
+    list.map((m) => `
+      <label class="set-model-check">
+        <input type="checkbox" value="${escapeHtml(m)}" ${checked.has(m) ? 'checked' : ''}>
+        <span class="set-mono">${escapeHtml(m)}</span>
+      </label>`).join('')
+  }</div>`;
+}
+
+// 全选/清空启用模型勾选
+function settingsCheckAllModels(on) {
+  const box = $('#set-provider-models-box');
+  if (!box) return;
+  box.querySelectorAll('input[type="checkbox"]').forEach((c) => { c.checked = !!on; });
+}
+
+// 密钥输入防抖自动拉取（自定义/新建：密钥 + 基础信息齐备即自动检测；内置为静态列表无需网络）
+let settingsProvKeyTimer = null;
+function settingsOnProvKeyInput() {
+  clearTimeout(settingsProvKeyTimer);
+  settingsProvKeyTimer = setTimeout(() => { settingsAutoDetect(); }, 800);
+}
+
+async function settingsAutoDetect() {
+  const sel = $('#set-provider-form-select');
+  const id = sel ? sel.value : '';
+  if (!id || id === '__new__') {
+    // 新建：需 ID/名称/BaseURL + Key 齐备
+    const pid = ($('#set-provider-form-id') ? $('#set-provider-form-id').value.trim() : '');
+    const name = ($('#set-provider-form-name') ? $('#set-provider-form-name').value.trim() : '');
+    const baseURL = ($('#set-provider-form-url') ? $('#set-provider-form-url').value.trim() : '');
+    const key = ($('#set-provider-form-key') ? $('#set-provider-form-key').value.trim() : '');
+    if (pid && name && baseURL && key) await settingsDetectModels(true);
+    return;
+  }
+  const providers = settingsState('setProviders', []) || [];
+  const prov = providers.find((p) => p.id === id);
+  if (!prov || prov.builtin) return; // 内置：选择时已展示静态列表
+  const key = ($('#set-provider-form-key') ? $('#set-provider-form-key').value.trim() : '');
+  if (key || prov.hasKey) await settingsDetectModels(true);
+}
+
+// 检测模型：内置直接渲染静态列表（预勾已启用子集）；自定义/新建先按表单值落库再强制打 /models 拉取
+// auto=true 为密钥输入防抖触发的自动拉取：失败只在 hint 区提示，不弹 toast 打断输入
+async function settingsDetectModels(auto) {
+  const sel = $('#set-provider-form-select');
+  const id = sel ? sel.value : '';
+  const providers = settingsState('setProviders', []) || [];
+  const prov = providers.find((p) => p.id === id);
+  const key = ($('#set-provider-form-key') ? $('#set-provider-form-key').value : '').trim();
+  const hint = $('#set-provider-detect-hint');
+  if (id !== '__new__' && prov && prov.builtin) {
+    // 内置：静态模型，无需打端点；保留用户当前勾选，再并入已启用子集
+    try {
+      if (hint) hint.textContent = '检测中…';
+      const res = await apiCall('getLlmProviderModels', id);
+      const preChecked = Array.from(new Set([...settingsCollectedModels(), ...(prov.enabledModelIds || [])]));
+      const box = $('#set-provider-models-box');
+      if (box) box.innerHTML = settingsProviderModelChecks((res && res.modelIds) || [], preChecked);
+      if (hint) hint.textContent = `内置静态模型 ${((res && res.modelIds) || []).length} 个，勾选启用`;
+    } catch (e) { if (!auto) handleApiError(e); }
+    return;
+  }
+  // 新建/自定义：先按表单当前值落库（含密钥），再强制打 /models 拉取
+  const pid = id === '__new__' ? ($('#set-provider-form-id') ? $('#set-provider-form-id').value.trim() : '') : id;
+  const name = ($('#set-provider-form-name') ? $('#set-provider-form-name').value.trim() : '') || (prov && prov.name) || '';
+  const baseURL = ($('#set-provider-form-url') ? $('#set-provider-form-url').value.trim() : '') || (prov && prov.baseURL) || '';
+  if (!pid || !name || !baseURL) {
+    if (!auto) toast('请先填写 ID、名称与 Base URL 再检测', 'error');
+    return;
+  }
+  try {
+    if (hint) hint.textContent = '拉取模型列表中…';
+    // 已存在的自定义厂商可直接检测；新建需先落库基础信息（后端要求厂商存在才能 test）
+    if (id === '__new__' || !prov) {
+      await apiCall('saveLlmProvider',
+        { id: pid, name, baseURL, apiKind: 'openai-completions', modelIds: settingsCollectedModels(), fetchModels: false },
+        key || undefined);
+    } else if (key) {
+      await apiCall('setLlmKey', pid, key);
+    }
+    const res = await apiCall('testLlmProvider', pid);
+    if (!res || !res.ok) {
+      if (hint) hint.textContent = (res && res.error) || '拉取失败，请检查 Base URL 与 API Key';
+      if (!auto) toast((res && res.error) || '连通测试失败，请检查 Base URL 与 API Key', 'error');
+      return;
+    }
+    // 拉取成功：保留当前勾选，并预勾已启用模型（编辑场景不打断用户选择）
+    const preChecked = Array.from(new Set([...settingsCollectedModels(), ...((prov && prov.modelIds) || [])]));
+    const box = $('#set-provider-models-box');
+    if (box) box.innerHTML = settingsProviderModelChecks((res && res.modelIds) || [], preChecked);
+    if (hint) hint.textContent = `已拉取 ${((res && res.modelIds) || []).length} 个模型，勾选后保存启用`;
+  } catch (e) { if (!auto) handleApiError(e); }
+}
+
+// 收集当前勾选的模型
+function settingsCollectedModels() {
+  const box = $('#set-provider-models-box');
+  if (!box) return [];
+  return Array.from(box.querySelectorAll('input[type="checkbox"]:checked')).map((c) => c.value);
+}
+
+async function settingsSaveProvider() {
+  const sel = $('#set-provider-form-select');
+  const id = sel ? sel.value : '';
+  const providers = settingsState('setProviders', []) || [];
+  const prov = providers.find((p) => p.id === id);
+  const key = ($('#set-provider-form-key') ? $('#set-provider-form-key').value : '').trim();
+  const modelIds = settingsCollectedModels();
+  try {
+    if (id === '__new__') {
+      const pid = ($('#set-provider-form-id') ? $('#set-provider-form-id').value : '').trim();
+      const name = ($('#set-provider-form-name') ? $('#set-provider-form-name').value : '').trim();
+      const baseURL = ($('#set-provider-form-url') ? $('#set-provider-form-url').value : '').trim();
+      if (!pid || !name || !baseURL) { toast('请填写 ID、名称与 Base URL', 'error'); return; }
+      await apiCall('saveLlmProvider', { id: pid, name, baseURL, apiKind: 'openai-completions', modelIds, fetchModels: false }, key || undefined);
+    } else if (prov && prov.builtin) {
+      if (key) await apiCall('setLlmKey', id, key);
+      // 内置厂商：勾选集合 = 启用子集，持久化到 llm.providerModels
+      await apiCall('saveLlmProviderModels', id, modelIds);
+    } else if (prov) {
+      const name = ($('#set-provider-form-name') ? $('#set-provider-form-name').value.trim() : '') || prov.name;
+      const baseURL = ($('#set-provider-form-url') ? $('#set-provider-form-url').value.trim() : '') || prov.baseURL;
+      await apiCall('saveLlmProvider', { id, name, baseURL, apiKind: prov.apiKind || 'openai-completions', modelIds, fetchModels: prov.fetchModels === true }, key || undefined);
+    } else {
+      toast('请先选择或新建厂商', 'error'); return;
+    }
+  } catch (e) { handleApiError(e); return; }
+  closeModal();
+  toast(`已保存，启用 ${modelIds.length} 个模型`, 'success');
+  await settingsLoad();
+  renderView();
+}
+
+// 弹窗内密钥显示/隐藏
+function settingsToggleProvKey() {
+  const el = $('#set-provider-form-key');
   if (!el) return;
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
-function settingsToggleKeyVisible(i) {
-  const keys = (settingsState('setKeys', []) || []).slice();
-  if (!keys[i]) return;
-  keys[i] = { provider: keys[i].provider, value: keys[i].value, visible: !keys[i].visible };
-  setSettingsState('setKeys', keys);
-  renderView();
-}
-
-async function settingsSaveKey() {
-  const providerEl = $('#set-key-provider');
-  const valueEl = $('#set-key-value');
-  const provider = providerEl ? providerEl.value : '';
-  const value = valueEl ? valueEl.value : '';
-  if (!provider) { toast('请选择 Provider', 'error'); return; }
-  if (!value) { toast('请输入 API Key', 'error'); return; }
+// 测试连通：只验证可用性并提示，不再把完整模型列表写回（避免覆盖用户勾选的启用子集）
+async function settingsTestProvider(id) {
   try {
-    await apiCall('setLlmKey', provider, value);
-  } catch (e) { handleApiError(e); return; }
-  const keys = (settingsState('setKeys', []) || []).slice();
-  const idx = keys.findIndex((k) => k.provider === provider);
-  if (idx >= 0) keys[idx] = { provider, value, visible: false };
-  else keys.push({ provider, value, visible: false });
-  setSettingsState('setKeys', keys);
-  await settingsLoad(); // 同步 llmStatus 的 hasKey 显示
-  toast('密钥已保存', 'success');
-  renderView();
+    const res = await apiCall('testLlmProvider', id);
+    if (!res || !res.ok) {
+      toast((res && res.error) || '连通测试失败', 'error');
+      return;
+    }
+    const n = (res.modelIds || []).length;
+    toast(n ? `连通测试成功，端点共 ${n} 个模型` : '连通测试成功', 'success');
+  } catch (e) { handleApiError(e); }
 }
 
-function settingsDeleteKey(i) {
-  const keys = (settingsState('setKeys', []) || []).slice();
-  const k = keys[i];
-  if (!k) return;
-  openModal('删除密钥',
-    `<p>确定要删除「<strong>${escapeHtml(k.provider)}</strong>」的 API Key 吗？此操作不可撤销。</p>`,
+// 移除厂商（软移除，内置/自定义统一）：清除启用模型与密钥使其从列表消失；
+// 厂商定义本身不删除——内置为 pi-ai 静态表、自定义保留在 app-config，
+// 之后随时可通过「增加配置」弹窗选中同一厂商重新配置回来
+function settingsRemoveProvider(id) {
+  const providers = settingsState('setProviders', []) || [];
+  const prov = providers.find((p) => p.id === id);
+  const name = prov ? (prov.name || id) : id;
+  openModal('移除厂商',
+    `<p>确定要移除「<strong>${escapeHtml(name)}</strong>」吗？其启用模型与 API Key 将被清除。</p>
+     <p class="text-xs text-muted">厂商本身不会被删除，之后可通过「增加配置」重新配置回来。</p>`,
     `<button class="btn btn-ghost" onclick="closeModal()">取消</button>
-     <button class="btn btn-destructive" onclick="settingsConfirmDeleteKey(${i})">删除</button>`);
+     <button class="btn btn-destructive" onclick="settingsConfirmRemoveProvider(${settingsJs(id)})">移除</button>`);
 }
 
-async function settingsConfirmDeleteKey(i) {
-  const keys = (settingsState('setKeys', []) || []).slice();
-  const k = keys[i];
-  if (!k) { closeModal(); return; }
+async function settingsConfirmRemoveProvider(id) {
   closeModal();
+  const providers = settingsState('setProviders', []) || [];
+  const prov = providers.find((p) => p.id === id);
   try {
-    await apiCall('deleteLlmKey', k.provider);
+    await apiCall('saveLlmProviderModels', id, []);
+    if (prov && settingsProviderHasKey(prov)) await apiCall('deleteLlmKey', id);
   } catch (e) { handleApiError(e); return; }
-  keys.splice(i, 1);
-  setSettingsState('setKeys', keys);
   await settingsLoad();
-  toast('密钥已删除', 'info');
+  toast('已移除，可通过「增加配置」重新添加', 'info');
   renderView();
 }
 

@@ -15,6 +15,20 @@ function delay(ms = API_DELAY) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// —— 厂商管理（multi-provider-model-config Task 6）——
+// 内置厂商固定样例（只读），形如后端 ProviderView（kind:'builtin', builtin:true）
+const mockProviders = [
+  { id: 'deepseek', name: 'DeepSeek', kind: 'builtin', apiKind: 'openai-completions', modelIds: ['deepseek-chat', 'deepseek-reasoner'], builtin: true },
+  { id: 'openai', name: 'OpenAI', kind: 'builtin', apiKind: 'openai-completions', modelIds: ['gpt-4o', 'gpt-4o-mini'], builtin: true },
+  { id: 'anthropic', name: 'Anthropic', kind: 'builtin', apiKind: 'anthropic-messages', modelIds: ['claude-3-7-sonnet'], builtin: true },
+];
+// 内置厂商启用模型子集（providerId → 启用模型 ID 列表；默认空 = 未启用，对齐后端 llm.providerModels）
+const mockBuiltinEnabled = {};
+// 内置厂商密钥标记（providerId → true；对齐 auth.json hasKey 口径）
+const mockBuiltinKeys = {};
+// 自定义厂商（saveLlmProvider upsert / deleteLlmProvider 移除，可变）
+const customProviders = [];
+
 function requireActiveProject() {
   if (!activeProject) return fail('NO_ACTIVE_PROJECT', '没有活跃项目，请先激活项目', 409);
   return null;
@@ -358,6 +372,16 @@ const ApiMock = {
     return ok({ received: true });
   },
 
+  // mock 中断：不模拟流式，直接置 idle
+  async abortChat(sessionId) {
+    await delay();
+    const err = requireActiveProject();
+    if (err) return err;
+    const target = sessionId ? chatSessions.find((s) => s.id === sessionId) : chatSessions.find((s) => s.live);
+    if (target) target.status = 'idle';
+    return ok({ aborted: true, sessionId: target ? target.id : null });
+  },
+
   // mock 模式下 chat status 永远不 streaming（mock 不走真实 LLM 流式）
   // 返回与后端多 session 状态相同结构：active/isStreaming/sessionId/sessions[]/backgroundStreaming[]
   async getChatStatus() {
@@ -554,6 +578,9 @@ const ApiMock = {
 
   async setLlmKey(provider, apiKey) {
     await delay();
+    if (mockProviders.some((p) => p.id === provider)) mockBuiltinKeys[provider] = true;
+    const custom = customProviders.find((p) => p.id === provider);
+    if (custom) custom.hasKey = true;
     for (const slot of Object.keys(llmStatus)) {
       if (llmStatus[slot].configured?.provider === provider || llmStatus[slot].resolved?.provider === provider) {
         llmStatus[slot].hasKey = true;
@@ -564,12 +591,93 @@ const ApiMock = {
 
   async deleteLlmKey(provider) {
     await delay();
+    delete mockBuiltinKeys[provider];
+    const custom = customProviders.find((p) => p.id === provider);
+    if (custom) custom.hasKey = false;
     for (const slot of Object.keys(llmStatus)) {
       if (llmStatus[slot].configured?.provider === provider || llmStatus[slot].resolved?.provider === provider) {
         llmStatus[slot].hasKey = false;
       }
     }
     return ok({ deleted: true });
+  },
+
+  // —— 厂商管理（multi-provider-model-config Task 6）——
+  async getLlmProviders() {
+    await delay();
+    const builtin = mockProviders.map((p) => ({
+      ...p,
+      enabledModelIds: (mockBuiltinEnabled[p.id] || []).slice(),
+      hasKey: mockBuiltinKeys[p.id] === true,
+    }));
+    const custom = customProviders.map((p) => ({
+      id: p.id,
+      name: p.name,
+      kind: 'custom',
+      apiKind: p.apiKind,
+      modelIds: p.modelIds,
+      builtin: false,
+      baseURL: p.baseURL,
+      fetchModels: p.fetchModels,
+      enabledModelIds: p.modelIds.slice(),
+      hasKey: p.hasKey === true,
+    }));
+    return ok({ providers: [...builtin, ...custom] });
+  },
+
+  // 保存启用模型子集：内置写 mockBuiltinEnabled；自定义更新 modelIds（对齐 PUT providers/:id/models）
+  async saveLlmProviderModels(id, modelIds) {
+    await delay();
+    const ids = Array.isArray(modelIds) ? modelIds : [];
+    if (mockProviders.some((p) => p.id === id)) {
+      mockBuiltinEnabled[id] = ids.slice();
+      return ok({ id, modelIds: ids });
+    }
+    const custom = customProviders.find((p) => p.id === id);
+    if (!custom) return fail('PROVIDER_NOT_FOUND', `厂商不存在: ${id}`, 404);
+    custom.modelIds = ids.slice();
+    return ok({ id, modelIds: ids });
+  },
+
+  async saveLlmProvider(provider, apiKey) {
+    await delay();
+    const normalized = {
+      id: provider.id,
+      name: provider.name,
+      baseURL: provider.baseURL,
+      apiKind: provider.apiKind || 'openai-completions',
+      modelIds: Array.isArray(provider.modelIds) ? provider.modelIds : [],
+      fetchModels: provider.fetchModels === true,
+    };
+    const idx = customProviders.findIndex((p) => p.id === normalized.id);
+    const entry = { ...normalized, hasKey: true };
+    if (idx >= 0) customProviders[idx] = entry;
+    else customProviders.push(entry);
+    return ok({ provider: { ...normalized } });
+  },
+
+  async deleteLlmProvider(id) {
+    await delay();
+    const idx = customProviders.findIndex((p) => p.id === id);
+    if (idx < 0) return fail('PROVIDER_NOT_FOUND', `厂商不存在: ${id}`, 404);
+    customProviders.splice(idx, 1);
+    return ok({ deleted: id });
+  },
+
+  async testLlmProvider(id) {
+    await delay();
+    const provider = customProviders.find((p) => p.id === id);
+    if (!provider) return fail('PROVIDER_NOT_FOUND', `厂商不存在: ${id}`, 404);
+    return ok({ ok: true, modelIds: provider.modelIds, error: null });
+  },
+
+  async getLlmProviderModels(id) {
+    await delay();
+    const builtin = mockProviders.find((p) => p.id === id);
+    if (builtin) return ok({ modelIds: builtin.modelIds, fetched: false, fetchError: null });
+    const custom = customProviders.find((p) => p.id === id);
+    if (custom) return ok({ modelIds: custom.modelIds, fetched: false, fetchError: null, baseURL: custom.baseURL });
+    return fail('PROVIDER_NOT_FOUND', `厂商不存在: ${id}`, 404);
   },
 
   async getEmbedderStatus() {

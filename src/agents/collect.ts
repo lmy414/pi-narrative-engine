@@ -17,6 +17,22 @@
 
 import type { Agent } from "@earendil-works/pi-agent-core";
 
+/** 取 agent 最后一条 LLM 错误（assistant stopReason=error 的 errorMessage，如 "402 Insufficient Balance"） */
+function lastAgentLlmError(agent: Agent): string | undefined {
+  const messages = (((agent as { state?: { messages?: unknown[] } }).state?.messages) ?? []) as Array<{
+    role?: string;
+    stopReason?: string;
+    errorMessage?: string;
+  }>;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === "assistant" && (m.errorMessage || m.stopReason === "error")) {
+      return m.errorMessage || "LLM 调用失败";
+    }
+  }
+  return undefined;
+}
+
 /**
  * 订阅指定工具的产出提交
  *
@@ -71,7 +87,12 @@ export function collectSubmission<T>(
       resolve(details as T);
     } else if (event.type === "agent_end" && !done) {
       done = true;
-      reject(new Error(`${toolName} 未提交产出（agent 已终止）`));
+      // 附带底层 LLM 错误（如 402 余额不足）：旧文案只有「agent 已终止」，
+      // 排障时看不到真实原因（agent 首问即被 LLM 错误终结，无任何产出）
+      const llmError = lastAgentLlmError(agent);
+      reject(new Error(llmError
+        ? `${toolName} 未提交产出（agent 已终止）：${llmError}`
+        : `${toolName} 未提交产出（agent 已终止）`));
     }
   });
 

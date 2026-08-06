@@ -78,6 +78,11 @@ export interface UnifiedServerOptions {
   debugBus?: DebugBus | null;
   /** 应用配置目录（缺省为平台默认目录，测试注入临时目录） */
   appConfigDir?: string;
+  /**
+   * 共享 AuthStorage 实例（与 LlmConfigStore.apiKeyResolver 同源，保证 admin API
+   * 写入的自定义厂商密钥对子代理可见；缺省由本服务自建，读取同一 auth.json）。
+   */
+  authStorage?: AuthStorage | null;
   /** 主会话运行时上下文（注入后启用 /api/chat/*；null 时端点返回 503） */
   chatContext?: ChatContext | null;
 }
@@ -147,7 +152,7 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
       // 权限收紧失败不影响启动（读取仍由 AuthStorage 负责）
     }
   }
-  const authStorage = AuthStorage.create(authPath);
+  const authStorage = opts.authStorage ?? AuthStorage.create(authPath);
   const llmStore = opts.llmConfigStore ?? null;
   const piStatusDeps: PiStatusDeps = {
     authStorage,

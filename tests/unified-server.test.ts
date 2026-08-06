@@ -677,6 +677,76 @@ test("admin/llm: DELETE slot 恢复 env/none 解析并落盘", async () => {
   assert.equal(bad.status, 400);
 });
 
+test("admin/llm: GET providers 内置厂商带 enabledModelIds/hasKey（启用子集默认空）", async () => {
+  const r = await api("/admin/llm/providers");
+  assert.equal(r.ok, true);
+  const builtin = r.data.providers.filter((p: any) => p.builtin);
+  assert.ok(builtin.length > 0, "应有内置厂商");
+  for (const p of builtin) {
+    assert.deepEqual(p.enabledModelIds, [], `内置厂商 ${p.id} 启用子集默认空`);
+    assert.equal(typeof p.hasKey, "boolean");
+  }
+});
+
+test("admin/llm: PUT providers/:id/models 内置写启用子集，GET 回读并落盘", async () => {
+  const put = await sendJson("PUT", "/admin/llm/providers/deepseek/models", {
+    modelIds: ["deepseek-v4-flash"],
+  });
+  assert.equal(put.ok, true);
+  assert.deepEqual(put.data, { id: "deepseek", modelIds: ["deepseek-v4-flash"] });
+
+  // GET 回读：enabledModelIds 反映启用子集，modelIds 仍为静态全量
+  const r = await api("/admin/llm/providers");
+  const ds = r.data.providers.find((p: any) => p.id === "deepseek");
+  assert.deepEqual(ds.enabledModelIds, ["deepseek-v4-flash"]);
+  assert.ok(ds.modelIds.length >= 1, "静态模型列表不受影响");
+
+  // 落盘 app-config.json
+  const raw = JSON.parse(readFileSync(join(appConfigDir, "app-config.json"), "utf8"));
+  assert.deepEqual(raw.llm.providerModels.deepseek, ["deepseek-v4-flash"]);
+
+  // 清空子集
+  const clear = await sendJson("PUT", "/admin/llm/providers/deepseek/models", { modelIds: [] });
+  assert.equal(clear.ok, true);
+  const r2 = await api("/admin/llm/providers");
+  assert.deepEqual(r2.data.providers.find((p: any) => p.id === "deepseek").enabledModelIds, []);
+});
+
+test("admin/llm: PUT providers/:id/models 自定义更新 modelIds；未知厂商 404；非数组 400", async () => {
+  // 先建自定义厂商
+  const create = await sendJson("PUT", "/admin/llm/providers", {
+    provider: {
+      id: "my-groq",
+      name: "My Groq",
+      baseURL: "https://api.groq.com/openai/v1",
+      apiKind: "openai-completions",
+      modelIds: ["llama-3.3-70b"],
+      fetchModels: false,
+    },
+  });
+  assert.equal(create.ok, true);
+
+  const put = await sendJson("PUT", "/admin/llm/providers/my-groq/models", {
+    modelIds: ["llama-3.3-70b", "qwen-qwq-32b"],
+  });
+  assert.equal(put.ok, true);
+  const r = await api("/admin/llm/providers");
+  const groq = r.data.providers.find((p: any) => p.id === "my-groq");
+  assert.deepEqual(groq.modelIds, ["llama-3.3-70b", "qwen-qwq-32b"]);
+  assert.deepEqual(groq.enabledModelIds, ["llama-3.3-70b", "qwen-qwq-32b"], "自定义 enabledModelIds = modelIds");
+
+  const notFound = await sendJson("PUT", "/admin/llm/providers/no-such/models", { modelIds: [] });
+  assert.equal(notFound.status, 404);
+  assert.equal(notFound.error?.code, "PROVIDER_NOT_FOUND");
+
+  const badBody = await sendJson("PUT", "/admin/llm/providers/deepseek/models", { modelIds: "x" });
+  assert.equal(badBody.status, 400);
+  assert.equal(badBody.error?.code, "INVALID_BODY");
+
+  // 清理自定义厂商，避免影响其他用例
+  await fetch(`${base}api/admin/llm/providers/my-groq`, { method: "DELETE" });
+});
+
 // ============ /api/admin/app-config ============
 
 test("admin/app-config: 读取默认配置 → 更新 → 回读", async () => {

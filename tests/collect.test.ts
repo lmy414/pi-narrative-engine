@@ -63,3 +63,41 @@ test("collectSubmission: 正常提交在超时前 resolve，dispose 清除定时
   assert.deepEqual(out, { plan: "P1" });
   collected.dispose();
 });
+
+test("collectSubmission: agent_end 无产出时附带底层 LLM 错误（如 402）", async () => {
+  let listener: ((event: unknown) => void) | undefined;
+  const agent = {
+    state: {
+      messages: [
+        { role: "user" },
+        { role: "assistant", stopReason: "error", errorMessage: "402 Insufficient Balance" },
+      ],
+    },
+    subscribe(fn: (event: unknown) => void) {
+      listener = fn;
+      return () => { listener = undefined; };
+    },
+  };
+  const collected = collectSubmission(agent as never, "retrieval_plan");
+  listener?.({ type: "agent_end" });
+  await assert.rejects(
+    collected.promise,
+    /retrieval_plan 未提交产出（agent 已终止）：402 Insufficient Balance/,
+  );
+  collected.dispose();
+});
+
+test("collectSubmission: agent_end 无 LLM 错误时保持原文案", async () => {
+  let listener: ((event: unknown) => void) | undefined;
+  const agent = {
+    state: { messages: [{ role: "assistant", stopReason: "stop" }] },
+    subscribe(fn: (event: unknown) => void) {
+      listener = fn;
+      return () => { listener = undefined; };
+    },
+  };
+  const collected = collectSubmission(agent as never, "retrieval_plan");
+  listener?.({ type: "agent_end" });
+  await assert.rejects(collected.promise, /retrieval_plan 未提交产出（agent 已终止）$/);
+  collected.dispose();
+});

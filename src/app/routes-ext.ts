@@ -46,6 +46,7 @@ import {
   type EmbedderLike,
   type AppConfigUpdates,
   type LlmSlotName,
+  type CustomProvider,
 } from "@pi/admin";
 import {
   discoverProjects,
@@ -57,6 +58,15 @@ import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
 import type { LlmConfigStore, LlmSlot } from "../orchestrator/llm-config.ts";
 import type { ProjectRegistry } from "./project-registry.ts";
 import { getSlotStatus } from "./llm-resolver.ts";
+import {
+  listBuiltinProviders,
+  toCustomProviderView,
+  findProviderView,
+} from "./provider-catalog.ts";
+import {
+  resolveProviderModels,
+  fetchModelsFromEndpoint,
+} from "./provider-models.ts";
 
 /** /api/admin/llm 端点的装配依赖（null 时 llm 端点 503） */
 export interface LlmApiDeps {
@@ -91,6 +101,7 @@ const ERROR_STATUS: Record<string, number> = {
   INVALID_SLOT: 400,
   INVALID_MODEL: 400,
   PATH_ESCAPE: 403,
+  PROVIDER_NOT_FOUND: 404,
   FILE_NOT_FOUND: 404,
   NOT_A_FILE: 404,
   DIR_NOT_FOUND: 404,
@@ -157,6 +168,13 @@ function requireLlm(ctx: ExtApiContext): LlmApiDeps {
   return ctx.llm;
 }
 
+/** 取自定义厂商已存密钥明文（api_key 类型）；无凭据返回 undefined（供打端点/解析用） */
+function customApiKey(authStorage: AuthStorage, id: string): string | undefined {
+  if (!authStorage.hasAuth(id)) return undefined;
+  const cred = authStorage.get(id);
+  return cred && cred.type === "api_key" ? cred.key : undefined;
+}
+
 /** 校验 slot 名合法（5 个 LlmSlot 之一） */
 function assertLlmSlot(name: string): asserts name is LlmSlotName {
   if (!(LLM_SLOT_NAMES as readonly string[]).includes(name)) {
@@ -192,7 +210,7 @@ export async function handleExtApi(
   try {
     if (head === "files") await handleFiles(ctx, method, res, url, segments, body);
     else if (head === "projects") await handleProjects(ctx, method, res, url, segments, body);
-    else await handleAdmin(ctx, method, res, segments, body);
+    else await handleAdmin(ctx, method, res, url, segments, body);
   } catch (err) {
     const e = err as Error & { code?: string };
     const code = e.code ?? "INTERNAL_ERROR";
@@ -393,6 +411,7 @@ async function handleAdmin(
   ctx: ExtApiContext,
   method: string,
   res: ServerResponse,
+  url: URL,
   segments: string[],
   body: unknown,
 ): Promise<void> {
@@ -450,18 +469,42 @@ async function handleAdmin(
       err.code = "INVALID_BODY";
       throw err;
     }
-    // pi-ai 模型表校验（第二参数为字面量联合，运行时 string 无法静态匹配，同 llm-config.ts 的 as never 约定）
-    if (!getModel(provider as KnownProvider, modelId as never)) {
-      const err = new Error(
-        `模型不存在: provider=${provider} model=${modelId}`,
-      ) as Error & { code?: string };
-      err.code = "INVALID_MODEL";
-      throw err;
+    // 自定义厂商：用 findProviderView 校验存在 + 模型在解析结果内；内置厂商走 pi-ai 模型表校验
+    const config = await readAppConfig(ctx.appConfigDir);
+    const view = findProviderView(config.llm.providers, provider);
+    const isCustom = !!view && !view.builtin;
+    let setConfigCfg: Parameters<LlmConfigStore["setConfig"]>[1];
+    if (isCustom) {
+      const custom = config.llm.providers.find((p) => p.id === provider)!;
+      const resolved = await resolveProviderModels(
+        custom,
+        customApiKey(deps.authStorage, provider),
+      );
+      if (!resolved.modelIds.includes(modelId)) {
+        const err = new Error(
+          `自定义厂商模型不存在: provider=${provider} model=${modelId}`,
+        ) as Error & { code?: string };
+        err.code = "INVALID_MODEL";
+        throw err;
+      }
+      setConfigCfg = {
+        model: { provider, name: modelId },
+        baseURL: custom.baseURL,
+        apiKind: custom.apiKind,
+      };
+    } else {
+      // pi-ai 模型表校验（第二参数为字面量联合，运行时 string 无法静态匹配，同 llm-config.ts 的 as never 约定）
+      if (!getModel(provider as KnownProvider, modelId as never)) {
+        const err = new Error(
+          `模型不存在: provider=${provider} model=${modelId}`,
+        ) as Error & { code?: string };
+        err.code = "INVALID_MODEL";
+        throw err;
+      }
+      setConfigCfg = { model: { provider: provider as KnownProvider, name: modelId } };
     }
     await writeAppConfig({ llm: { slots: { [slot]: { provider, model: modelId } } } }, ctx.appConfigDir);
-    deps.store.setConfig(slot as LlmSlot, {
-      model: { provider: provider as KnownProvider, name: modelId },
-    });
+    deps.store.setConfig(slot as LlmSlot, setConfigCfg);
     deps.onChange?.();
     ok(res, getSlotStatus(deps.store, deps.authStorage, slot as LlmSlot));
     return;
@@ -508,6 +551,209 @@ async function handleAdmin(
     deps.authStorage.remove(provider);
     deps.onChange?.();
     ok(res, { provider, hasKey: false });
+    return;
+  }
+
+  // ===== 自定义厂商（providers CRUD / 连通测试 / 模型枚举）=====
+
+  // GET /api/admin/llm/providers — 内置（只读）+ 自定义（附 baseURL/fetchModels/hasKey）合并视图
+  if (sub === "llm" && name === "providers" && segments.length === 3 && method === "GET") {
+    const deps = requireLlm(ctx);
+    const config = await readAppConfig(ctx.appConfigDir);
+    const providers = [
+      ...listBuiltinProviders().map((bp) => ({
+        ...bp,
+        // 启用模型子集（缺省空 = 未启用；可用列表只展示启用模型，默认空）
+        enabledModelIds: config.llm.providerModels[bp.id] ?? [],
+        hasKey: deps.authStorage.hasAuth(bp.id),
+      })),
+      ...config.llm.providers.map((p) => ({
+        ...toCustomProviderView(p),
+        baseURL: p.baseURL,
+        fetchModels: p.fetchModels,
+        enabledModelIds: p.modelIds,
+        hasKey: deps.authStorage.hasAuth(p.id),
+      })),
+    ];
+    ok(res, { providers });
+    return;
+  }
+
+  // PUT /api/admin/llm/providers — body { provider, apiKey? }（按 id upsert；apiKey 可选写入 auth.json）
+  if (sub === "llm" && name === "providers" && segments.length === 3 && method === "PUT") {
+    const deps = requireLlm(ctx);
+    const obj = requireBody(body, ["provider"]);
+    const raw = obj.provider;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      const err = new Error("provider 必须是 JSON 对象") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    const p = raw as Record<string, unknown>;
+    const id = String(p.id ?? "").trim();
+    const provName = String(p.name ?? "").trim();
+    const baseURL = String(p.baseURL ?? "").trim();
+    if (!id || !provName || !baseURL) {
+      const err = new Error("provider 需含非空 id/name/baseURL") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    if (listBuiltinProviders().some((bp) => bp.id === id)) {
+      const err = new Error(`id 与内置厂商冲突: ${id}`) as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    const provider: CustomProvider = {
+      id,
+      name: provName,
+      baseURL,
+      apiKind: (p.apiKind as CustomProvider["apiKind"]) ?? "openai-completions",
+      modelIds: Array.isArray(p.modelIds) ? p.modelIds.map((m) => String(m)) : [],
+      fetchModels: p.fetchModels === true,
+    };
+    const current = (await readAppConfig(ctx.appConfigDir)).llm.providers;
+    const idx = current.findIndex((cp) => cp.id === id);
+    const newList = idx >= 0 ? [...current] : [...current, provider];
+    if (idx >= 0) newList[idx] = provider;
+    await writeAppConfig({ llm: { providers: newList } }, ctx.appConfigDir);
+    if (
+      obj.apiKey !== undefined &&
+      obj.apiKey !== null &&
+      String(obj.apiKey).trim() !== ""
+    ) {
+      deps.authStorage.set(id, { type: "api_key", key: String(obj.apiKey) });
+      deps.onChange?.();
+    }
+    ok(res, { provider });
+    return;
+  }
+
+  // PUT /api/admin/llm/providers/:id/models — body { modelIds }
+  // 内置厂商：写启用子集 llm.providerModels[id]；自定义厂商：更新其 modelIds
+  if (
+    sub === "llm" &&
+    name === "providers" &&
+    segments.length === 5 &&
+    segments[4] === "models" &&
+    method === "PUT"
+  ) {
+    requireLlm(ctx);
+    const id = segments[3];
+    const obj = requireBody(body, ["modelIds"]);
+    if (!Array.isArray(obj.modelIds)) {
+      const err = new Error("modelIds 必须是数组") as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
+    const modelIds = obj.modelIds.map((m: unknown) => String(m));
+    const config = await readAppConfig(ctx.appConfigDir);
+    if (listBuiltinProviders().some((bp) => bp.id === id)) {
+      await writeAppConfig(
+        { llm: { providerModels: { [id]: modelIds } } },
+        ctx.appConfigDir,
+      );
+      ok(res, { id, modelIds });
+      return;
+    }
+    const current = config.llm.providers;
+    const idx = current.findIndex((cp) => cp.id === id);
+    if (idx < 0) {
+      const err = new Error(`厂商不存在: ${id}`) as Error & { code?: string };
+      err.code = "PROVIDER_NOT_FOUND";
+      throw err;
+    }
+    const updated = [...current];
+    updated[idx] = { ...updated[idx], modelIds };
+    await writeAppConfig({ llm: { providers: updated } }, ctx.appConfigDir);
+    ok(res, { id, modelIds });
+    return;
+  }
+
+  // DELETE /api/admin/llm/providers/:id — 删除自定义厂商并清理其密钥
+  if (sub === "llm" && name === "providers" && segments.length === 4 && method === "DELETE") {
+    const deps = requireLlm(ctx);
+    const id = segments[3];
+    const current = (await readAppConfig(ctx.appConfigDir)).llm.providers;
+    if (!current.some((cp) => cp.id === id)) {
+      const err = new Error(`自定义厂商不存在: ${id}`) as Error & { code?: string };
+      err.code = "PROVIDER_NOT_FOUND";
+      throw err;
+    }
+    await writeAppConfig(
+      { llm: { providers: current.filter((cp) => cp.id !== id) } },
+      ctx.appConfigDir,
+    );
+    // 删除自定义厂商后，引用它的 slot 回退到 default/env 解析链：清空持久化配置与 store
+    const slotUpdates: NonNullable<AppConfigUpdates["llm"]>["slots"] = {};
+    for (const slot of LLM_SLOT_NAMES) {
+      const cfg = deps.store.peekConfig(slot as LlmSlot);
+      if (cfg && cfg.model.provider === id) {
+        slotUpdates[slot] = null;
+        deps.store.clear(slot as LlmSlot);
+      }
+    }
+    if (Object.keys(slotUpdates).length > 0) {
+      await writeAppConfig({ llm: { slots: slotUpdates } }, ctx.appConfigDir);
+    }
+    deps.authStorage.remove(id);
+    deps.onChange?.();
+    ok(res, { deleted: id });
+    return;
+  }
+
+  // POST /api/admin/llm/providers/:id/test — 测试连通（强制打 {baseURL}/models；业务字段表达成败，HTTP 200）
+  if (sub === "llm" && name === "providers" && segments[4] === "test" && method === "POST") {
+    const deps = requireLlm(ctx);
+    const id = segments[3];
+    const provider = (await readAppConfig(ctx.appConfigDir)).llm.providers.find(
+      (cp) => cp.id === id,
+    );
+    if (!provider) {
+      const err = new Error(`自定义厂商不存在: ${id}`) as Error & { code?: string };
+      err.code = "PROVIDER_NOT_FOUND";
+      throw err;
+    }
+    try {
+      const modelIds = await fetchModelsFromEndpoint(
+        provider.baseURL,
+        customApiKey(deps.authStorage, id),
+      );
+      ok(res, { ok: true, modelIds, error: null });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      ok(res, { ok: false, modelIds: [], error: msg });
+    }
+    return;
+  }
+
+  // GET /api/admin/llm/providers/models?id= — 枚举某厂商模型（内置只读；自定义走解析）
+  if (
+    sub === "llm" &&
+    name === "providers" &&
+    segments[3] === "models" &&
+    segments.length === 4 &&
+    method === "GET"
+  ) {
+    const deps = requireLlm(ctx);
+    const id = url.searchParams.get("id");
+    if (!id) {
+      const err = new Error("缺少必填参数 id") as Error & { code?: string };
+      err.code = "MISSING_FIELD";
+      throw err;
+    }
+    const config = await readAppConfig(ctx.appConfigDir);
+    const view = findProviderView(config.llm.providers, id);
+    if (!view) {
+      const err = new Error(`厂商不存在: ${id}`) as Error & { code?: string };
+      err.code = "PROVIDER_NOT_FOUND";
+      throw err;
+    }
+    if (view.builtin) {
+      ok(res, { modelIds: view.modelIds, fetched: false, fetchError: null });
+      return;
+    }
+    const provider = config.llm.providers.find((cp) => cp.id === id)!;
+    ok(res, await resolveProviderModels(provider, customApiKey(deps.authStorage, id)));
     return;
   }
 

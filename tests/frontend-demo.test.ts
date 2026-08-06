@@ -285,6 +285,40 @@ test("ApiMock: list and config endpoints preserve real data wrappers", async () 
   assert.equal(typeof env.data.values, "object");
 });
 
+test("ApiMock: provider management endpoints map to backend contract", async () => {
+  const api = createMockApi();
+
+  // 初始列表含内置厂商
+  const list1 = await api.getLlmProviders();
+  assert.ok(Array.isArray(list1.data.providers));
+  const builtins = list1.data.providers.filter((p: any) => p.builtin === true);
+  assert.ok(builtins.length >= 1);
+  assert.equal(builtins[0].kind, "builtin");
+
+  // 保存自定义厂商后再次列出，应含该自定义项
+  await api.saveLlmProvider(
+    { id: "my-groq", name: "My Groq", baseURL: "https://x/v1", apiKind: "openai-completions", modelIds: ["m1"], fetchModels: false },
+    "sk-xxx"
+  );
+  const list2 = await api.getLlmProviders();
+  const custom = list2.data.providers.find((p: any) => p.id === "my-groq");
+  assert.ok(custom, "saveLlmProvider 后应能在 providers 列表中找到自定义厂商");
+  assert.equal(custom.kind, "custom");
+  assert.equal(custom.builtin, false);
+  assert.equal(custom.baseURL, "https://x/v1");
+  assert.deepEqual(plain(custom.modelIds), ["m1"]);
+  assert.equal(custom.hasKey, true);
+
+  // 删除后从列表移除
+  await api.deleteLlmProvider("my-groq");
+  const list3 = await api.getLlmProviders();
+  assert.equal(list3.data.providers.find((p: any) => p.id === "my-groq"), undefined);
+
+  // 内置厂商模型枚举
+  const models = await api.getLlmProviderModels("deepseek");
+  assert.ok(Array.isArray(models.data.modelIds));
+});
+
 test("ApiMock: chat and debug fixtures use target field sets", async () => {
   const api = createMockApi();
   const messages = (await api.getChatMessages("session-03")).data.messages;

@@ -167,6 +167,114 @@ test("writeAppConfig: llm.slots 忽略未知 slot 名", async () => {
   }
 });
 
+// ============ llm.providers ============
+
+test("readAppConfig: llm.providers 缺省为空数组", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const cfg = await readAppConfig(d2);
+    assert.deepEqual(cfg.llm.providers, []);
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+test("writeAppConfig: llm.providers 全量替换/保留/置空", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const p1 = [
+      {
+        id: "my-groq",
+        name: "My Groq",
+        baseURL: "https://api.groq.com/openai/v1",
+        apiKind: "openai-completions",
+        modelIds: ["llama-3.3-70b"],
+        fetchModels: true,
+      },
+    ] as const;
+    const c1 = await writeAppConfig({ llm: { providers: p1 } }, d2);
+    assert.equal(c1.llm.providers.length, 1);
+    assert.equal(c1.llm.providers[0].name, "My Groq");
+
+    // 未提供 providers 时保留
+    const c2 = await writeAppConfig({ llm: { slots: { default: { provider: "deepseek", model: "deepseek-v4-flash" } } } }, d2);
+    assert.equal(c2.llm.providers.length, 1, "未提供 providers 时保留");
+
+    // 全量替换
+    const p2 = [
+      { id: "groq2", name: "Groq2", baseURL: "https://x/v1", apiKind: "openai-completions", modelIds: [], fetchModels: false },
+    ];
+    const c3 = await writeAppConfig({ llm: { providers: p2 } }, d2);
+    assert.equal(c3.llm.providers.length, 1);
+    assert.equal(c3.llm.providers[0].id, "groq2");
+
+    // 置空数组清空
+    const c4 = await writeAppConfig({ llm: { providers: [] } }, d2);
+    assert.deepEqual(c4.llm.providers, []);
+
+    // 回读验证落盘
+    const back = await readAppConfig(d2);
+    assert.deepEqual(back.llm.providers, []);
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+// ============ llm.providerModels（内置厂商启用模型子集） ============
+
+test("readAppConfig: llm.providerModels 缺省为空对象；非数组项被剔除", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const cfg = await readAppConfig(d2);
+    assert.deepEqual(cfg.llm.providerModels, {});
+
+    await writeFile(
+      join(d2, "app-config.json"),
+      JSON.stringify({ llm: { providerModels: { deepseek: ["a", "b"], bad: "x" } } }),
+    );
+    const cfg2 = await readAppConfig(d2);
+    assert.deepEqual(cfg2.llm.providerModels, { deepseek: ["a", "b"] }, "非数组项应被剔除");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+test("writeAppConfig: llm.providerModels 按键合并、null 删除、未提供保留", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    const c1 = await writeAppConfig(
+      { llm: { providerModels: { deepseek: ["deepseek-v4-flash"] } } },
+      d2,
+    );
+    assert.deepEqual(c1.llm.providerModels, { deepseek: ["deepseek-v4-flash"] });
+
+    // 合并另一厂商，不影响已有键
+    const c2 = await writeAppConfig({ llm: { providerModels: { openai: ["gpt-4o"] } } }, d2);
+    assert.deepEqual(c2.llm.providerModels, {
+      deepseek: ["deepseek-v4-flash"],
+      openai: ["gpt-4o"],
+    });
+
+    // 未提供 providerModels 时保留
+    const c3 = await writeAppConfig(
+      { llm: { slots: { default: { provider: "deepseek", model: "deepseek-v4-flash" } } } },
+      d2,
+    );
+    assert.deepEqual(c3.llm.providerModels.openai, ["gpt-4o"], "未提供时保留");
+
+    // null 删除该厂商子集
+    const c4 = await writeAppConfig({ llm: { providerModels: { openai: null } } }, d2);
+    assert.ok(!("openai" in c4.llm.providerModels), "null 应删除键");
+    assert.deepEqual(c4.llm.providerModels.deepseek, ["deepseek-v4-flash"]);
+
+    // 回读验证落盘
+    const back = await readAppConfig(d2);
+    assert.deepEqual(back.llm.providerModels, { deepseek: ["deepseek-v4-flash"] });
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
 // ============ launcher.lastProjectDir ============
 
 test("writeAppConfig: lastProjectDir 设置与显式置 null", async () => {

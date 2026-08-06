@@ -25,13 +25,20 @@ import type { KnownProvider, Model } from "@earendil-works/pi-ai";
 export interface LlmConfig {
   model: {
     /** 已查证：getModel 第一参数要求 KnownProvider 字面量联合（pi-ai types.d.ts:8） */
-    provider: KnownProvider;
+    provider: KnownProvider | string;
     /** 模型 ID（如 deepseek 分区 "deepseek-v4-flash"、openai 分区 "gpt-5.1"） */
     name: string;
   };
   /** 可省略：缺省时取 provider 标准环境变量（getEnvApiKey） */
   apiKey?: string;
   headers?: Record<string, string>;
+  /**
+   * 自定义厂商专用：设置后表示该 provider 为自定义 baseURL 厂商，
+   * getModel 构造带 baseURL 的 Model 对象（绕过 pi-ai 静态表），而非查表。
+   */
+  baseURL?: string;
+  /** 自定义厂商 apiKind（默认 openai-completions） */
+  apiKind?: string;
 }
 
 /** 缺省模型（无显式配置时） */
@@ -72,11 +79,45 @@ export type LlmSlot = "planner" | "role" | "reasoning" | "renderer" | "default";
 export const LLM_BUSINESS_SLOTS: LlmSlot[] = ["planner", "role", "reasoning", "renderer"];
 
 /**
+ * 构造自定义厂商的 Model 对象（对应 LangChain ChatOpenAI / LibreChat 的客户端构造）。
+ *
+ * 自定义厂商（baseURL + apiKind）不在 pi-ai 静态表内，getModel 查不到；
+ * streamSimple 通过 model.api 分发到对应 provider 处理器、再读 model.baseUrl，
+ * 因此只需构造一个带自定义 baseUrl 的 Model 对象即可绕过静态表。
+ */
+function buildCustomModel(cfg: LlmConfig): Model<any> {
+  const apiKind = cfg.apiKind ?? "openai-completions";
+  return {
+    id: cfg.model.name,
+    name: cfg.model.name,
+    api: apiKind,
+    provider: cfg.model.provider,
+    baseUrl: cfg.baseURL!,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 8192,
+    headers: cfg.headers,
+  };
+}
+
+/** LlmConfigStore 构造选项（均为可选，缺省走纯配置/env 解析） */
+export interface LlmConfigStoreOptions {
+  /**
+   * 自定义厂商密钥解析器：给定 provider id 返回其 api_key 明文，无则 undefined。
+   * 自定义厂商密钥权威存储为 AuthStorage（auth.json），store 不直接持有该实例，
+   * 由装配方注入解析回调（main.ts 以统一 authStorage 提供；缺省走 cfg.apiKey/env）。
+   */
+  apiKeyResolver?: (providerId: string) => string | undefined;
+}
+
+/**
  * LLM 配置中心（2026-08-01）——配置中心雏形，直接产出 pi-ai 原生 Model/apiKey
  *
  * - setConfig(slot, { provider, name, apiKey? })：注入 pi-ai 原生配置
  * - getModel(slot)：pi-ai Model（getModel 结果，未命中抛错）
- * - getApiKey(slot)：配置 apiKey → provider 标准 env（getEnvApiKey），均无抛错
+ * - getApiKey(slot)：配置 apiKey → AuthStorage（apiKeyResolver，内置/自定义均查）→ NE_LLM_API_KEY → provider 标准 env（getEnvApiKey），均无抛错
  *
  * 子代理工厂直接消费 Model + apiKey + streamSimple（pi-ai），无自造调用层。
  */
@@ -84,6 +125,11 @@ export class LlmConfigStore {
   private readonly configs = new Map<LlmSlot, LlmConfig>();
   private readonly modelCache = new Map<LlmSlot, Model<any>>();
   private envFallback?: LlmConfig;
+  private readonly apiKeyResolver?: (providerId: string) => string | undefined;
+
+  constructor(options: LlmConfigStoreOptions = {}) {
+    this.apiKeyResolver = options.apiKeyResolver;
+  }
 
   /** 注入某 slot 的 pi-ai 配置（apiKey 可省略，缺省走 provider 标准 env） */
   setConfig(slot: LlmSlot, config: LlmConfig): void {
@@ -126,7 +172,15 @@ export class LlmConfigStore {
     const cached = this.modelCache.get(slot);
     if (cached) return cached;
     const cfg = this.resolveConfig(slot);
-    const model = getModel(cfg.model.provider, cfg.model.name as never);
+
+    let model: Model<any>;
+    if (cfg.baseURL) {
+      // 自定义厂商：构造带 baseURL 的 Model 对象（绕过 pi-ai 静态表）
+      model = buildCustomModel(cfg);
+    } else {
+      model = getModel(cfg.model.provider as KnownProvider, cfg.model.name as never);
+    }
+
     if (!model) {
       throw new Error(
         `模型不存在: provider=${cfg.model.provider} model=${cfg.model.name}` +
@@ -149,11 +203,32 @@ export class LlmConfigStore {
    */
   getApiKey(slot: LlmSlot): string {
     const cfg = this.resolveConfig(slot);
-    const key = cfg.apiKey ?? process.env.NE_LLM_API_KEY ?? getEnvApiKey(cfg.model.provider);
+    // 自定义厂商：无标准 env 可查，密钥优先取配置 apiKey → AuthStorage（apiKeyResolver）→ NE_LLM_API_KEY 兜底
+    if (cfg.baseURL) {
+      const key = cfg.apiKey ??
+        this.apiKeyResolver?.(cfg.model.provider) ??
+        process.env.NE_LLM_API_KEY;
+      if (!key) {
+        throw new Error(
+          `slot=${slot} 自定义厂商缺 API Key：已尝试配置 apiKey、AuthStorage 与 NE_LLM_API_KEY（自定义厂商无标准环境变量兜底）`,
+        );
+      }
+      return key;
+    }
+    // 内置厂商：配置 apiKey → AuthStorage（apiKeyResolver，/api/admin/llm/key 落盘的 key）
+    // → NE_LLM_API_KEY → provider 标准 env。
+    // 旧实现不查 AuthStorage：UI 经 PUT /admin/llm/key 存进 auth.json 的内置厂商密钥
+    // 在这里取不到（getSlotStatus 显示 hasKey=true 但运行时抛错），
+    // 调用方（chat-context resolveModelConfig）静默兜底成 pi-agent 默认模型——
+    // 表现为「明明配了 opencode-go，实际却用 deepseek 发请求」。
+    const key = cfg.apiKey ??
+      this.apiKeyResolver?.(cfg.model.provider) ??
+      process.env.NE_LLM_API_KEY ??
+      getEnvApiKey(cfg.model.provider as KnownProvider);
     if (!key) {
       throw new Error(
-        `slot=${slot} 缺 API Key：已尝试 slot/default 配置、NE_LLM_API_KEY 与 ${cfg.model.provider} 标准 env` +
-          "（可 setConfig 注入 apiKey，或设置环境变量）",
+        `slot=${slot} 缺 API Key：已尝试 slot/default 配置、AuthStorage、NE_LLM_API_KEY 与 ${cfg.model.provider} 标准 env` +
+          "（可在设置页配置密钥，或设置环境变量）",
       );
     }
     return key;

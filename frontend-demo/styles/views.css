@@ -2693,6 +2693,21 @@ body .detail-drawer {
   border-radius: var(--radius-full);
 }
 
+.st-msg-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background-color: var(--error-50);
+  border: 1px solid var(--error-200, var(--error-100));
+  color: var(--error-600);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.st-msg-error svg { flex-shrink: 0; margin-top: 2px; }
+.dark .st-msg-error { background-color: var(--error-100); color: var(--error-700); }
+
 /* ---- Tool Call 卡片 ---- */
 .st-tool-list {
   display: flex;
@@ -2834,6 +2849,8 @@ body .detail-drawer {
 }
 .st-send-btn:hover { background-color: var(--brand-600); }
 .st-send-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.st-stop-btn { background-color: var(--error-500, #d64545); }
+.st-stop-btn:hover { background-color: var(--error-600, #b93a3a); }
 
 /* =================== 调试页（views/debug.js，视觉基准 debug.html） =================== */
 .dbg-workspace {
@@ -3324,7 +3341,7 @@ body .detail-drawer {
 .set-model-header,
 .set-model-row {
   display: grid;
-  grid-template-columns: 220px 100px 1fr 1fr 120px 110px;
+  grid-template-columns: 220px 100px 1fr 120px 110px;
   gap: 16px;
   align-items: center;
 }
@@ -3485,23 +3502,98 @@ body .detail-drawer {
 }
 .set-pw-toggle:hover { color: var(--text-600); background-color: var(--bg-200); }
 
-/* ---------- 密钥列表 ---------- */
-.set-key-list { display: flex; flex-direction: column; }
-.set-key-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-}
-.set-key-item:last-child { border-bottom: none; }
-.set-key-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; flex-wrap: wrap; }
-.set-key-name { font-size: 13px; font-weight: 600; color: var(--foreground); }
-.set-key-value { font-size: 12px; color: var(--text-500); font-family: var(--font-mono); }
 .set-key-status-row {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 12px; color: var(--success-600);
 }
 .set-key-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ---------- 厂商管理 ---------- */
+.set-provider-list { display: flex; flex-direction: column; gap: 12px; }
+.set-provider-card {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+}
+.set-provider-card-main { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.set-provider-card-title { font-size: 14px; font-weight: 600; color: var(--foreground); }
+.set-provider-card-desc { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-500); }
+.set-provider-card-models { display: flex; flex-wrap: wrap; gap: 6px; }
+.set-provider-tag {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  background-color: var(--bg-300); color: var(--text-500);
+}
+.set-provider-model-tag {
+  font-size: 11px; padding: 1px 8px; border-radius: 6px;
+  background-color: var(--bg-200); border: 1px solid var(--border); color: var(--text-500);
+  font-family: var(--font-mono);
+}
+.set-provider-key-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.set-provider-key-input { flex: 1; min-width: 160px; max-width: 260px; }
+.set-provider-tag-custom { background-color: var(--accent-muted, var(--bg-300)); color: var(--accent, var(--text-500)); }
+.set-field-full { flex: 1 1 100%; }
+.set-provider-models-box {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  max-height: 220px; overflow-y: auto; background-color: var(--bg-100);
+}
+.set-model-check-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.set-model-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background-color: var(--bg-200); cursor: pointer; font-size: 12px;
+}
+.set-model-check:hover { border-color: var(--accent); }
+.set-model-check input { accent-color: var(--accent); }
+.set-model-check-readonly { opacity: 0.75; cursor: default; }
+.set-model-check-readonly:hover { border-color: var(--border); }
+.set-models-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.set-models-head label { font-size: 12px; font-weight: 500; color: var(--text-600); }
+.set-models-tools { display: inline-flex; gap: 8px; }
+.set-link-btn {
+  border: none; background: none; padding: 0;
+  font-size: 12px; color: var(--brand-600); cursor: pointer;
+}
+.set-link-btn:hover { text-decoration: underline; }
+.set-form-modal { display: flex; flex-direction: column; gap: 14px; }
+.set-form-modal .set-field,
+.set-form-modal .set-form-row .set-field { margin-bottom: 0; }
+/* 厂商配置弹窗加宽（默认 .modal 480px 对表单过窄） */
+body .modal:has(.set-form-modal) { max-width: 640px; }
+.set-form-hint {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px;
+  background-color: var(--bg-100); border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-500);
+}
+.set-form-hint svg { flex-shrink: 0; color: var(--brand-500); }
+.set-muted { color: var(--text-500); font-size: 12px; }
+/* 覆盖 .set-key-status-row 的默认 success 色（其定义在 modifiers 之后导致优先级更高） */
+.set-key-status-row.set-key-status-has { color: var(--success-600); }
+.set-key-status-row.set-key-status-none { color: var(--error-500); }
+
+/* ---------- 页头（标题 + 主操作按钮） ---------- */
+.set-page-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  margin-bottom: 20px;
+}
+.set-page-head .set-page-desc { margin-bottom: 0; }
+
+/* ---------- 可用模型列表 ---------- */
+.set-avail-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.set-avail-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background-color: var(--bg-100); font-size: 12px;
+}
+.set-avail-provider {
+  color: var(--brand-600); font-weight: 600;
+}
+.set-avail-provider::after {
+  content: '·'; margin-left: 6px; color: var(--text-400); font-weight: 400;
+}
+.set-avail-model { font-family: var(--font-mono); color: var(--foreground); }
 
 /* ---------- 开关行 ---------- */
 .set-toggle-row {

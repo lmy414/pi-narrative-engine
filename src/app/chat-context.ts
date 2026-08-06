@@ -13,6 +13,7 @@
  * prompt 时由 PI SDK 报可读缺 key 错误。
  */
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { getModel } from "@earendil-works/pi-ai";
 import type { Model, Usage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -155,6 +156,8 @@ export interface HistoricalChatMessage {
   provider?: string;
   model?: string;
   usage?: UsageSummary;
+  /** LLM 错误（stopReason=error 时的 errorMessage，如 "402 Insufficient Balance"）；历史渲染错误气泡用 */
+  error?: string;
 }
 
 function nonNegativeFinite(value: unknown): number {
@@ -392,7 +395,26 @@ export class ChatContext {
   async listSessions(): Promise<SessionInfo[]> {
     const sessionDir = this.requireSessionDir();
     const active = this.opts.registry.getActive()!;
-    return SessionManager.list(active.dir, sessionDir);
+    const onDisk = await SessionManager.list(active.dir, sessionDir);
+    // 合并池中尚未落盘的新会话：newSession 懒写盘（首条消息才写 jsonl），
+    // 纯扫盘会漏掉刚创建的空会话，导致 createSession 的 findSessionInfo 误报
+    // "新建会话未出现在列表中"，且前端列表在首发消息前看不到该会话
+    const diskIds = new Set(onDisk.map((s) => s.id));
+    for (const handle of this.pool.getAll()) {
+      if (diskIds.has(handle.id)) continue;
+      const sm = handle.host.session.sessionManager;
+      onDisk.push({
+        id: handle.id,
+        path: sm.getSessionFile(),
+        cwd: active.dir,
+        created: new Date(handle.createdAt),
+        modified: new Date(handle.updatedAt),
+        messageCount: 0,
+        firstMessage: "",
+        allMessagesText: "",
+      });
+    }
+    return onDisk;
   }
 
   /**
@@ -515,6 +537,8 @@ export class ChatContext {
     if (!info) {
       throw new ChatContextError(`会话不存在: ${sessionId}`, "SESSION_NOT_FOUND");
     }
+    // 池中新建会话首条消息前未落盘（newSession 懒写），此时无历史可读
+    if (!existsSync(info.path)) return [];
     const manager = SessionManager.open(info.path, this.requireSessionDir());
     const entries = manager.getEntries();
     const toolResults = new Map<string, boolean>();
@@ -551,6 +575,13 @@ export class ChatContext {
         historical.model = message.model;
         if (message.usage && typeof message.usage === "object") {
           historical.usage = summarizeUsage(message.usage);
+        }
+        // 错误透出：stopReason=error 的 assistant 消息带 errorMessage（如余额不足 402），
+        // 不映射则历史回拉后错误气泡消失（用户只见空回复）
+        const stopReason = (message as { stopReason?: string }).stopReason;
+        const errorMessage = (message as { errorMessage?: string }).errorMessage;
+        if (stopReason === "error" || errorMessage) {
+          historical.error = errorMessage || "生成失败";
         }
       }
       messages.push(historical);
@@ -659,6 +690,26 @@ export class ChatContext {
     }
 
     return { preflightSucceeded: true, sessionId };
+  }
+
+  /**
+   * 中断会话生成（abort）。sessionId 缺省中断当前活跃会话；指定时可中断后台生成中的会话。
+   * 幂等：目标不在 streaming 返回 aborted=false（不抛错），前端停止按钮可放心连点。
+   * 状态收敛由 sendChatMessage 的 prompt promise 链负责（abort 后 promise 落定 → idle/error）。
+   */
+  async abortChat(sessionId?: string): Promise<{ aborted: boolean; sessionId: string }> {
+    const handle = sessionId ? this.pool.get(sessionId) : this.pool.getActive();
+    if (!handle) {
+      throw new ChatContextError(
+        sessionId ? `会话不存在: ${sessionId}` : "没有活跃会话",
+        "SESSION_NOT_FOUND",
+      );
+    }
+    if (!handle.host.session.isStreaming) {
+      return { aborted: false, sessionId: handle.id };
+    }
+    await handle.host.session.abort();
+    return { aborted: true, sessionId: handle.id };
   }
 
   /** 推送 background_complete 合成事件（后台生成完成） */

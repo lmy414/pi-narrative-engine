@@ -121,6 +121,8 @@ export type {
   AppConfigUpdates,
   LlmSlotName,
   LlmSlotConfig,
+  CustomProvider,
+  CustomProviderApiKind,
 } from "./app-config.ts";
 
 // ============ 公共类型与错误 ============

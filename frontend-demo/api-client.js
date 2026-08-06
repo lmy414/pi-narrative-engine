@@ -173,6 +173,7 @@
     // 切换到指定会话（live 转移）
     activateChatSession: function (sessionId) { return post('/chat/sessions/' + part(sessionId) + '/activate', {}); },
     sendChatMessage: function (text) { return post('/chat/message', { text: text }); },
+    abortChat: function (sessionId) { return post('/chat/abort', sessionId ? { sessionId: sessionId } : {}); },
     // 拉取主会话流式状态（isStreaming），用于会话切换保护与 busy 兜底
     getChatStatus: function () { return get('/chat/status'); },
 
@@ -193,6 +194,12 @@
     clearLlmSlot: function (slot) { return del('/admin/llm/slot/' + part(slot)); },
     setLlmKey: function (provider, apiKey) { return put('/admin/llm/key', { provider: provider, apiKey: apiKey }); },
     deleteLlmKey: function (provider) { return del('/admin/llm/key/' + part(provider)); },
+    getLlmProviders: function () { return get('/admin/llm/providers'); },
+    saveLlmProvider: function (provider, apiKey) { return put('/admin/llm/providers', { provider: provider, apiKey: apiKey }); },
+    saveLlmProviderModels: function (id, modelIds) { return put('/admin/llm/providers/' + part(id) + '/models', { modelIds: modelIds }); },
+    deleteLlmProvider: function (id) { return del('/admin/llm/providers/' + part(id)); },
+    testLlmProvider: function (id) { return post('/admin/llm/providers/' + part(id) + '/test'); },
+    getLlmProviderModels: function (id) { return get('/admin/llm/providers/models', { id: id }); },
     getEmbedderStatus: function () { return get('/admin/embedder/status'); },
     warmupEmbedder: function () { return post('/admin/embedder/warmup'); },
     clearEmbedderCache: function () { return post('/admin/embedder/cache/clear'); },
