@@ -1,4 +1,6 @@
 # crates.io 直连超时，走 rsproxy 镜像（仅本工程生效）
+# M27：本文件是开发者本机加速用，仅影响本 Tauri 工程的 crate 下载源。
+# 非中国网络环境下 rsproxy 可能更慢或不可达，可删除本文件以恢复 crates.io 直连。
 [source.crates-io]
 replace-with = "rsproxy-sparse"
 

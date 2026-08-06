@@ -30,8 +30,14 @@
   <div class="status" id="status">正在启动叙事引擎服务…</div>
   <script>
     // sidecar 就绪轮询：/api/projects/active 返回即跳转
-    // 端口与 sidecar.rs 一致（NE_PORT 缺省 7421）
+    // 端口与 sidecar.rs 一致（NE_PORT 缺省 7421）。
+    // M22：支持 ?port=N 覆盖（与 NE_PORT 保持一致时使用）；
+    // 默认 7421，与 sidecar.rs::sidecar_port() 的缺省一致。
     var PORT = 7421;
+    try {
+      var qp = new URLSearchParams(window.location.search).get("port");
+      if (qp && /^\d+$/.test(qp)) PORT = parseInt(qp, 10);
+    } catch (e) { /* 忽略解析失败，回退默认端口 */ }
     var BASE = "http://127.0.0.1:" + PORT;
     var deadline = Date.now() + 60000;
     var statusEl = document.getElementById("status");

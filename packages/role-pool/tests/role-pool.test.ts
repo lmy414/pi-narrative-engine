@@ -282,3 +282,87 @@ test("interact: user message 末尾包含 characterId 填写规则", async () =>
   assert.ok(calls[0].user.includes("relation_update.target 填对方角色的 characterId"), "应提示 target 填什么");
   assert.ok(calls[0].user.includes("不要填名字") || calls[0].user.includes("不是名字"), "应明确禁止填名字");
 });
+
+// ============================================================================
+// InteractHooks 测试（M13：调试钩子透传）
+// ============================================================================
+
+test("interact: onTurnStart 对每个角色调用，index 从 0 递增", async () => {
+  const mockLlm = makeMockLlm({ characterId: "x", actor: "x", action: "y" });
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "角色A"), makeMember("b", "角色B")],
+  };
+  const starts: Array<{ id: string; index: number }> = [];
+  await interact(cmd, { llm: mockLlm, ruleSet: "" }, {
+    onTurnStart(member, index) {
+      starts.push({ id: member.characterId, index });
+    },
+  });
+  assert.deepEqual(starts, [
+    { id: "a", index: 0 },
+    { id: "b", index: 1 },
+  ]);
+});
+
+test("interact: onTurnEnd 成功时透传 output 与 token", async () => {
+  const output: RoleAgentOutput = { characterId: "a", actor: "角色A", action: "作揖" };
+  const mockLlm = makeMockLlm(output);
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "角色A")],
+  };
+  const ends: Array<{ token: unknown; output?: RoleAgentOutput; error?: string }> = [];
+  await interact(cmd, { llm: mockLlm, ruleSet: "" }, {
+    onTurnStart() {
+      return "span-1";
+    },
+    onTurnEnd(token, _member, result) {
+      ends.push({ token, output: result.output, error: result.error });
+    },
+  });
+  assert.equal(ends.length, 1);
+  assert.equal(ends[0].token, "span-1", "token 应透传 onTurnStart 的返回值");
+  assert.equal(ends[0].output?.actor, "角色A");
+  assert.equal(ends[0].error, undefined, "成功时不应有 error");
+});
+
+test("interact: onTurnEnd 失败时透传 error 字符串", async () => {
+  let callIndex = 0;
+  const okOutput: RoleAgentOutput = { characterId: "b", actor: "角色B", action: "笑" };
+  const mockLlm: RoleLlmCaller = async () => {
+    callIndex++;
+    if (callIndex === 1) throw new Error("LLM 超时");
+    return okOutput;
+  };
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "A"), makeMember("b", "B")],
+  };
+  const ends: Array<{ token: unknown; output?: RoleAgentOutput; error?: string }> = [];
+  await interact(cmd, { llm: mockLlm, ruleSet: "" }, {
+    onTurnEnd(token, _member, result) {
+      ends.push({ token, output: result.output, error: result.error });
+    },
+  });
+  assert.equal(ends.length, 2, "成功与失败都应触发 onTurnEnd");
+  assert.ok(ends[0].error?.includes("LLM 超时"), "失败角色应携带 error");
+  assert.equal(ends[0].output, undefined, "失败时不应有 output");
+  assert.equal(ends[1].error, undefined, "成功角色不应有 error");
+  assert.equal(ends[1].output?.actor, "角色B");
+});
+
+test("interact: 未传 hooks 时正常运行（不抛错）", async () => {
+  const mockLlm = makeMockLlm({ characterId: "a", actor: "A", action: "y" });
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "A")],
+  };
+  const result = await interact(cmd, { llm: mockLlm, ruleSet: "" });
+  assert.equal(result.outputs.length, 1);
+  assert.equal(result.errors.length, 0);
+});

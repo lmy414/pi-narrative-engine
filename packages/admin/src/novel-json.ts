@@ -78,16 +78,9 @@ export function _normalizeNovelJson(
     return typeof v === type ? (v as string) : DEFAULTS[key];
   };
   return {
-    name,
-    engine: pick("engine", "string"),
-    engineVersion: pick("engineVersion", "string"),
-    worldGraphDir: pick("worldGraphDir", "string"),
-    chaptersDir: pick("chaptersDir", "string"),
-    storyTimeFormat: pick("storyTimeFormat", "string"),
-    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",
     // 保留未知字段（前端可能扩展）
     ...raw,
-    // 显式字段覆盖未知字段（避免上面展开覆盖已 normalize 的值）
+    // 显式 normalize 后的字段放在展开之后，覆盖 raw 中的同名键
     name,
     engine: pick("engine", "string"),
     engineVersion: pick("engineVersion", "string"),

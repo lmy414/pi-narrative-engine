@@ -1,4 +1,4 @@
-// main.rs — narrative-engine Tauri 应用入口（阶段 4）
+// lib.rs — narrative-engine Tauri 应用入口（阶段 4）
 //
 // 职责（应用化设计 §4.1）：
 // 1. 启动时 spawn Node sidecar（unified-server，仅 127.0.0.1）

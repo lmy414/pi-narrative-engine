@@ -95,7 +95,13 @@ async function main() {
 
 	const targetDir = resolve(args.target);
 	const projectName = args.name ?? basename(targetDir);
-	const vars = { name: projectName, date: new Date().toISOString().slice(0, 10) };
+	// M24 修复：engineVersion 与 package.json 同源，避免模板硬编码过期版本
+	const pkg = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
+	const vars = {
+		name: projectName,
+		date: new Date().toISOString().slice(0, 10),
+		engineVersion: pkg.version ?? "0.0.0",
+	};
 
 	console.log(`[init] 目标目录: ${targetDir}`);
 	console.log(`[init] 项目名: ${projectName}`);

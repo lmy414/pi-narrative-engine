@@ -222,12 +222,8 @@ export async function writeEnvFile(
     }
   }
 
-  // 过滤被删除的行（type 改为 blank 且 raw 为空的，且原本是 kv）
-  // 注意：保留原本就存在的空行，只删除"被改为空"的原 kv 行
-  lines = lines.filter((l) => l.type !== "blank" || l.raw !== "" || true);
-  // 上行 filter 恒真，等价于不过滤；改用显式标记法：
-  // 重新实现：遍历时收集被删除的行索引
-  // （上面这版保留所有行，删除的行变为空行——可接受，不破坏行号）
+  // 被删除的 kv 行（上面已把 type 置 blank、raw 置空）在此保留为空行，
+  // 以维持行号稳定（避免下游依赖行号/文件 diff 过大）。故这里无需再过滤。
 
   // 第二轮：追加文件中不存在的 KEY（带分组注释）
   if (pendingKeys.size > 0) {

@@ -587,18 +587,18 @@ function renderInline(text) {
 | M-Logic-3 CommitSummary.errors 丢 role 错误 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:464-468` 聚合 trace.roleErrors 到 errors 数组 |
 | M-Logic-4 yolo 空输出继续渲染 | ✅ fixed（批次 2 文档同步） | `orchestrator.ts:329-348` outputs 为空时跳过后半链路，返回含错误信息的 commit |
 | M-Logic-5 role-tools 缺 aborted 状态 | ✅ fixed（批次 3 文档同步） | `role-tools.ts:60` + `render-tools.ts:42` 处理 `stopReason === "aborted"` |
-| M-Logic-6 chat/world-tools source 无枚举校验 | ⏳ 复核 | 本批核对：`world_event_apply` 的 source 字段已用 `Type.Union([Type.Literal("engine"), Type.Literal("user")])`（world-tools.ts:88），审计可能针对其他字段，后续复核 |
+| M-Logic-6 chat/world-tools source 无枚举校验 | ✅ fixed（批次 4 复核确认） | `world-tools.ts:88` 已用 `Type.Union([...Literal("engine"), Literal("user")])` 枚举校验 |
 | M-Logic-7 debug/sse TCP 半开连接泄漏 | ✅ fixed（批次 3 文档同步） | `debug/sse.ts` markDead + TCP 半开探测（writableLength 持续非零超 60s 判死连接清理） |
 | M-Logic-8 navigate 替换 viewState 引用 | ✅ fixed（批次 2 文档同步） | `app.js:184-187` 浅合并 viewState，不替换整个 App.viewState 引用 |
 | M-Logic-11 events.js storyTime 竞态 | ✅ fixed（批次 2 文档同步） | `events.js:51` + `graph.js:51` 代际守卫（seq 检查），过期请求写入丢弃 |
 | M-Collab-2 message_end 未处理 | ✅ fixed（批次 2 新写） | `studio.js` stHandleChatEvent 处理 message_end，stopReason=error 时 live 消息标红 |
 | M-Collab-5 compareVersions git ls-remote 无超时 | ✅ fixed（批次 3 复核确认） | `updater.ts:67` `timeoutMs ?? 5000` 默认 5s 超时 + kill 子进程（BUG-009 修复时已加，本批复核确认） |
-| M-Sec-1 HTTP 安全头缺失 | ⏳ 待修 | 后续批次 |
+| M-Sec-1 HTTP 安全头缺失 | ✅ fixed（批次 4 复核确认） | `unified-server.ts:180-184` 统一 setHeader nosniff/DENY/no-referrer + `unified-server.test.ts:1377` 断言 |
 | M-Sec-2 chat 持久化日志未明示 | ✅ fixed（批次 3 复核确认） | `routes-chat.ts:91-96` M-Sec-2 修复：不落盘用户输入原文，仅记录 chars 长度等元信息 |
-| M-Sec-3 novel-json 无 schema | ⏳ 待修 | 批次 5 |
+| M-Sec-3 novel-json 无 schema | ✅ fixed（批次 4 复核确认） | `routes-ext.ts:583-595` 加表单校验（字符串字段 + 枚举），拒绝非法结构 |
 | M-Sec-4 auth.json 文件权限 | ✅ 已查证（§〇） | SDK 已设 0o600 |
-| M-Qual-5 串行角色注入多条 user message | ⏳ 待修 | 批次 5 |
-| M2/M6/M10/M13/M14 数据/工具层 | ⏳ 待修 | 批次 5 |
-| M17/M18/M19 admin 死代码 | ⏳ 待修 | 批次 6 |
-| M4b/M4c novel-importer | ⏳ 待修 | 批次 6 |
-| M20/M22/M24/M25/M27/M28 Tauri/构建残留 | ⏳ 待修 | 批次 6 |
+| M-Qual-5 串行角色注入多条 user message | ✅ fixed（批次 4 复核确认） | `orchestrator.ts:298-308` 单事件输出合并为单条 user message 注入渲染器 |
+| M2/M6/M10/M13/M14 数据/工具层 | 部分完成（批次 4） | M2 属独立仓库 underworld-graph（getAllDeclarationsAt/getAllDeclarations 缺 valueText），本任务不动该仓库，由 underworld-graph 侧自行发布处理；M6/M10 已随重构失效；M13 已补 4 个 hooks 用例；M14 设计张力保留（低影响） |
+| M17/M18/M19 admin 死代码 | ✅ fixed（批次 4） | updater.ts 已重构无 stderrTail；env-store.ts 移除恒真 filter；novel-json.ts 去重复赋值 |
+| M4b/M4c novel-importer | ✅ fixed（批次 4 复核确认） | `import-novel-v3.ts:104-108` 相对路径；`pipeline.ts:214-217` resume 重读 EPUB |
+| M20/M22/M24/M25/M27/M28 Tauri/构建残留 | 部分完成（批次 4） | M20 已失效（launchVisualizer 已删）；M22 启动页支持 ?port=；M24 模板 engineVersion 与 package.json 同源；M25 注释修正；M27 镜像加说明；M28 脚本已删 |
