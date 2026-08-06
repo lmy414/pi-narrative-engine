@@ -125,6 +125,10 @@ export interface PlanDetail {
   commitQueueId?: string;
   /** commit 错误信息（status=error 时有值） */
   commitError?: string;
+  /** BUG-028：commit 开始时间戳（status=committing 时有值，前端显示已耗时） */
+  commitStartedAt?: number;
+  /** BUG-028：commit 当前阶段（status=committing 时有值：reasoning/rendering） */
+  commitStage?: "reasoning" | "rendering";
   /** 后半链路结果：可见推理（diffusion） */
   diffusion?: DiffusionOutput;
   /** 后半链路结果：渲染正文（render） */
@@ -164,6 +168,10 @@ export class OrchestratorService {
       status: PlanStatus;
       commitQueueId?: string;
       commitError?: string;
+      /** BUG-028：commit 开始时间戳（前端显示已耗时） */
+      commitStartedAt?: number;
+      /** BUG-028：commit 当前阶段（reasoning/rendering） */
+      commitStage?: "reasoning" | "rendering";
       /** 后半链路完整结果（commit 成功后写回） */
       pipelineResult?: {
         diffusion: DiffusionOutput;
@@ -278,8 +286,19 @@ export class OrchestratorService {
     const { event, result } = plan;
     const eventId = result.eventId;
     const queueId = plan.commitQueueId ?? "";
+    // BUG-028：记录 commit 开始时间 + 阶段（前端轮询时展示进度，消除"一直处理中"误判）
+    plan.commitStartedAt = Date.now();
+    plan.commitStage = "reasoning";
     try {
-      const pipeline = await this.orchestrator.runPostRolePipeline(event, eventId, result.outputs);
+      const pipeline = await this.orchestrator.runPostRolePipeline(
+        event,
+        eventId,
+        result.outputs,
+        undefined,
+        (stage) => {
+          plan.commitStage = stage;
+        },
+      );
       return {
         ok: pipeline.commit.ok,
         planId,
@@ -320,9 +339,11 @@ export class OrchestratorService {
       }
       plan.status = "committed";
       plan.commitError = undefined;
+      plan.commitStage = undefined;
     } else {
       plan.status = "error";
       plan.commitError = result.error;
+      plan.commitStage = undefined;
     }
   }
 
@@ -341,7 +362,7 @@ export class OrchestratorService {
   getPlan(planId: string): PlanDetail | undefined {
     const plan = this.plans.get(planId);
     if (!plan) return undefined;
-    const { event, result, status, commitQueueId, commitError, pipelineResult } = plan;
+    const { event, result, status, commitQueueId, commitError, commitStartedAt, commitStage, pipelineResult } = plan;
     return {
       planId: result.planId,
       storyTime: event.storyTime,
@@ -355,6 +376,8 @@ export class OrchestratorService {
       status,
       ...(commitQueueId !== undefined ? { commitQueueId } : {}),
       ...(commitError !== undefined ? { commitError } : {}),
+      ...(commitStartedAt !== undefined ? { commitStartedAt } : {}),
+      ...(commitStage !== undefined ? { commitStage } : {}),
       ...(pipelineResult
         ? {
             diffusion: structuredClone(pipelineResult.diffusion),
@@ -450,8 +473,12 @@ export class OrchestratorService {
     commitQueueId?: string;
     /** commit 错误信息（status=error 时有值） */
     commitError?: string;
+    /** BUG-028：commit 开始时间戳（status=committing 时有值） */
+    commitStartedAt?: number;
+    /** BUG-028：commit 当前阶段（status=committing 时有值） */
+    commitStage?: "reasoning" | "rendering";
   }> {
-    return Array.from(this.plans.entries()).map(([planId, { event, result, status, commitQueueId, commitError }]) => ({
+    return Array.from(this.plans.entries()).map(([planId, { event, result, status, commitQueueId, commitError, commitStartedAt, commitStage }]) => ({
       planId,
       storyTime: event.storyTime,
       mode: result.mode,
@@ -461,6 +488,8 @@ export class OrchestratorService {
       status,
       ...(commitQueueId !== undefined ? { commitQueueId } : {}),
       ...(commitError !== undefined ? { commitError } : {}),
+      ...(commitStartedAt !== undefined ? { commitStartedAt } : {}),
+      ...(commitStage !== undefined ? { commitStage } : {}),
     }));
   }
 }

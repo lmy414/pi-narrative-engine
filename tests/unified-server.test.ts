@@ -1191,6 +1191,28 @@ test("POST /api/visibility 设置，/api/visibility/close 闭合", async () => {
   assert.equal(allHistory.data.visibility[0].validTo, "t4");
 });
 
+test("POST /api/visibility storyTime=null → 400 MISSING_FIELD（BUG-035 前端兜底的必要性）", async () => {
+  // App.storyTime 在项目切换/壳层重渲时被设为 null，前端若不兜底直接传 null
+  // 后端 requireFields 校验 obj[f] === null 抛 400，请求被 withLoading 静默吞掉
+  const setNull = await sendJson("POST", "/visibility", {
+    characterId: "viz1",
+    declarationId: "decl-viz1-mood-t2",
+    confidence: 0.8,
+    source: "informed",
+    storyTime: null,
+  });
+  assert.equal(setNull.status, 400);
+  assert.equal(setNull.error?.code, "MISSING_FIELD");
+
+  const closeNull = await sendJson("POST", "/visibility/close", {
+    characterId: "viz1",
+    declarationId: "decl-viz1-mood-t2",
+    storyTime: null,
+  });
+  assert.equal(closeNull.status, 400);
+  assert.equal(closeNull.error?.code, "MISSING_FIELD");
+});
+
 test("POST /api/entities/:id/summary 更新摘要", async () => {
   const r = await sendJson("POST", "/entities/viz2/summary", { summary: "主要场景" });
   assert.equal(r.ok, true);

@@ -40,6 +40,17 @@ function setGraphState(key, value) {
   App.viewState[key] = value;
 }
 
+/** BUG-029：角色视角模式的可见实体 ID 集——该角色 + 直接关系邻居（omniscient 返回 null 表示不过滤） */
+function characterViewNeighborIds(characterView, relations) {
+  if (!characterView || characterView === 'omniscient') return null;
+  const ids = new Set([characterView]);
+  (relations || []).forEach((r) => {
+    if (r.sourceId === characterView) ids.add(r.targetId);
+    if (r.targetId === characterView) ids.add(r.sourceId);
+  });
+  return ids;
+}
+
 // ==================== 数据加载 ====================
 
 /**
@@ -93,6 +104,8 @@ ViewRender.graph = () => {
   const graphData = graphState('graphData', { entities: [], relations: [] });
   const status = graphState('graphStatus', { entityCount: 0, eventCount: 0 });
   const entities = graphData.entities || [];
+  // BUG-029：角色视角模式——预计算邻居 ID 集，列表与 3D 场景共用
+  const viewNeighborIds = characterViewNeighborIds(characterView, graphData.relations);
 
   const matchesFilter = (e) => {
     if (typeFilter !== 'all' && e.entityType !== typeFilter) return false;
@@ -100,6 +113,7 @@ ViewRender.graph = () => {
       const hay = `${e.properties && e.properties.name ? e.properties.name : e.entityId} ${e.summary || ''} ${e.entityId}`.toLowerCase();
       if (!hay.includes(searchFilter)) return false;
     }
+    if (viewNeighborIds && !viewNeighborIds.has(e.entityId)) return false;
     return true;
   };
   const listEntities = entities.filter(matchesFilter);
@@ -336,6 +350,9 @@ function graphInit3D() {
   const searchFilter = (graphState('graphFilter', '') || '').toLowerCase();
   let entities = (data.entities || []).filter((e) => typeFilter === 'all' || e.entityType === typeFilter);
   if (searchFilter) entities = entities.filter((e) => ((e.properties && e.properties.name) || e.entityId).toLowerCase().includes(searchFilter));
+  // BUG-029：角色视角模式——仅保留该角色及其直接关系邻居
+  const viewNeighborIds = characterViewNeighborIds(graphState('characterView', 'omniscient'), data.relations);
+  if (viewNeighborIds) entities = entities.filter((e) => viewNeighborIds.has(e.entityId));
   const ids = new Set(entities.map((e) => e.entityId));
   const links = (data.relations || [])
     .filter((r) => ids.has(r.sourceId) && ids.has(r.targetId))
@@ -345,6 +362,18 @@ function graphInit3D() {
     name: (e.properties && e.properties.name) || e.entityId,
     type: e.entityType
   }));
+
+  // BUG-036：_graph3d 已存在时走增量更新——保留相机视角与已有节点位置，
+  // 仅更新 graphData + 重建标签层，不销毁 WebGL 实例、不触发 zoomToFit。
+  // StoryTime 步进、筛选、视角变更等数据变化均走此路径，避免"拉远再拉近"跳动。
+  // 用户可通过 resetSceneView() 按钮手动重新取景。
+  if (_graph3d) {
+    _graph3d.graphData({ nodes, links });
+    const oldLayer = container.querySelector('.graph-3d-labels');
+    if (oldLayer) oldLayer.remove();
+    graph3dLabelLayer(container, nodes);
+    return;
+  }
 
   graphDispose3D();
   container.innerHTML = ''; // 清掉旧 canvas / 标签层，避免重复初始化累积
@@ -443,8 +472,10 @@ function graph3dLabelLayer(container, nodes) {
     layer.appendChild(el);
     els[n.id] = el;
   });
-  _graph3d.onEngineTick(() => {
-    if (!_graph3d) return;
+  const updateLabels = () => {
+    // BUG-036：增量更新时旧标签层会被 remove()，但 onEngineTick/controls.change
+    // 回调无法注销。检查 layer.isConnected 后直接 return，避免旧回调操作已移除的 DOM。
+    if (!_graph3d || !layer.isConnected) return;
     const cam = _graph3d.camera();
     const w = container.clientWidth, h = container.clientHeight;
     const fovTan = Math.tan((cam.fov * Math.PI / 180) / 2);
@@ -463,7 +494,16 @@ function graph3dLabelLayer(container, nodes) {
       // 字号随相机距离缩放（120 为基准距离），避免拉远后标签喧宾夺主、推近后显得过小
       el.style.fontSize = (Math.min(16, Math.max(9, 11 * 120 / dist))).toFixed(1) + 'px';
     });
-  });
+  };
+  _graph3d.onEngineTick(updateLabels);
+  // BUG-034 修复：力模拟收敛后 onEngineTick 不再触发，相机旋转/缩放时标签不更新。
+  // 补充监听 OrbitControls 的 change 事件，相机变换时同步更新标签位置。
+  try {
+    const controls = _graph3d.controls();
+    if (controls && typeof controls.addEventListener === 'function') {
+      controls.addEventListener('change', updateLabels);
+    }
+  } catch (e) { /* controls 不可用时降级为仅 onEngineTick */ }
 }
 // ==================== 交互（新函数，不与 views.js 重名） ====================
 

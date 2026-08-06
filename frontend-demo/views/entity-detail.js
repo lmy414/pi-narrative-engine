@@ -85,6 +85,16 @@ function detailEntityName(entity) {
   return entity?.properties?.name || entity?.entityId || '';
 }
 
+/** 获取生效 StoryTime：App.storyTime 为空时兜底取 storyTimes 最后一项。
+ *  BUG-035：App.storyTime 在项目切换/壳层重渲等多处被设为 null，
+ *  直接传 null 给后端 requireFields 会抛 400（MISSING_FIELD），
+ *  导致可见性矩阵点击、声明/关系闭合、实体退场等操作静默失败。
+ *  mock 模式有 `|| currentStoryTime` 兜底不暴露此问题，真实后端必现。 */
+function detailEffectiveStoryTime() {
+  return App.storyTime
+    || (App.storyTimes && App.storyTimes.length ? App.storyTimes[App.storyTimes.length - 1] : null);
+}
+
 function detailOtherEntity(entityId) {
   return (App.viewState.entityIndex && App.viewState.entityIndex[entityId])
     || (ApiRuntime.isMock ? (MOCK_ENTITIES || []).find(e => e.entityId === entityId) : null)
@@ -520,7 +530,7 @@ async function detailSaveProperty(property) {
   closeModal();
   if (!value) { toast('属性值不能为空', 'error'); return; }
   await withLoading(async () => {
-    const res = await apiCall('addProperty', detailState.id, property, value, App.storyTime, 'fact');
+    const res = await apiCall('addProperty', detailState.id, property, value, detailEffectiveStoryTime(), 'fact');
     toast(res.closedDeclarationId ? '属性已更新（旧声明已闭合）' : '属性已添加', 'success');
     await reloadDetail({});
   });
@@ -541,7 +551,7 @@ async function detailSaveNewProperty() {
   closeModal();
   if (!name || !value) { toast('属性名与值不能为空', 'error'); return; }
   await withLoading(async () => {
-    const res = await apiCall('addProperty', detailState.id, name, value, App.storyTime, 'fact');
+    const res = await apiCall('addProperty', detailState.id, name, value, detailEffectiveStoryTime(), 'fact');
     toast(res.closedDeclarationId ? '属性已更新（旧声明已闭合）' : '属性已添加', 'success');
     await reloadDetail({});
   });
@@ -552,7 +562,7 @@ async function detailSaveNewProperty() {
 async function detailCloseDeclaration(declId) {
   if (!confirm('确认闭合该声明？闭合后该声明将不再生效。')) return;
   await withLoading(async () => {
-    await apiCall('closeDeclaration', declId, detailState.id, App.storyTime);
+    await apiCall('closeDeclaration', declId, detailState.id, detailEffectiveStoryTime());
     toast('声明已闭合', 'success');
     await reloadDetail({});
   });
@@ -561,7 +571,7 @@ async function detailCloseDeclaration(declId) {
 async function detailCloseRelation(sourceId, targetId, label) {
   if (!confirm('确认闭合该关系？')) return;
   await withLoading(async () => {
-    await apiCall('closeRelation', sourceId, targetId, label, App.storyTime);
+    await apiCall('closeRelation', sourceId, targetId, label, detailEffectiveStoryTime());
     toast('关系已闭合', 'success');
     await reloadDetail({});
   });
@@ -584,7 +594,7 @@ async function detailSaveNewRelation() {
   closeModal();
   if (!target || !label) { toast('目标实体与关系标签不能为空', 'error'); return; }
   await withLoading(async () => {
-    await apiCall('addRelation', detailState.id, target, label, st || App.storyTime);
+    await apiCall('addRelation', detailState.id, target, label, st || detailEffectiveStoryTime());
     toast('关系已创建', 'success');
     await reloadDetail({});
   });
@@ -597,9 +607,9 @@ async function detailVisibilityClick(characterId, declarationId) {
   const next = rec && rec.state === 'known' ? 'unknown' : 'known';
   await withLoading(async () => {
     if (next === 'unknown') {
-      await apiCall('closeVisibility', characterId, declarationId, App.storyTime);
+      await apiCall('closeVisibility', characterId, declarationId, detailEffectiveStoryTime());
     } else {
-      await apiCall('setVisibility', characterId, declarationId, 0.9, 'informed', App.storyTime);
+      await apiCall('setVisibility', characterId, declarationId, 0.9, 'informed', detailEffectiveStoryTime());
     }
     toast(next === 'unknown' ? '可见性已撤销（未知）' : `可见性已设为「${VIS_STATE_LABELS[next]}」`, 'success');
     await reloadDetail({});
@@ -617,7 +627,7 @@ async function detailRetireEntity(id) {
   if (!confirm('确认让该实体退场？此操作不可撤销。')) return;
   closeDrawer();
   await withLoading(async () => {
-    await apiCall('killEntity', id, App.storyTime);
+    await apiCall('killEntity', id, detailEffectiveStoryTime());
     toast('实体已退场', 'info');
     // 服务端数据已变更，重新拉取图数据
     renderView({ reload: true });

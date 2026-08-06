@@ -479,13 +479,14 @@ body .launcher-wrap .launcher-menu-btn {
   flex-direction: column;
 }
 .status-bar {
-  height: 44px;
+  min-height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 14px;
+  padding: 4px 14px;
   border-bottom: 1px solid var(--border);
   background-color: var(--bg-50);
 }

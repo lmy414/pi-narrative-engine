@@ -229,6 +229,9 @@ body .modal {
   border-radius: var(--radius-xl);
   max-width: 480px;
   width: 100%;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-xl);
 }
 body .modal-header {
@@ -237,10 +240,11 @@ body .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 body .modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
-body .modal-body { padding: 1.25rem; }
-body .modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.75rem; }
+body .modal-body { padding: 1.25rem; overflow-y: auto; flex: 1; min-height: 0; }
+body .modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.75rem; flex-shrink: 0; }
 
 /* ---------- Drawer ---------- */
 body .drawer-overlay {

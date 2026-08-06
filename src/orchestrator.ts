@@ -18,7 +18,7 @@
  */
 
 import type { StructuredEvent } from "@pi/scheduler";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
 import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
 import type { OrchestratorPorts } from "./orchestrator/assembly.ts";
@@ -36,6 +36,54 @@ import type { DebugBus, DebugSpan } from "./debug/types.ts";
 import { startSpan, newTraceId } from "./debug/bus.ts";
 // 软隔离导出：_buildPlannerSystemPrompt / _buildPlannerUserMessage（prompts.ts 非跨包稳定 API）
 import { _buildPlannerSystemPrompt, _buildPlannerUserMessage } from "@pi/scheduler";
+
+/**
+ * BUG-028 修复：子代理 prompt + 产出收集的整体超时兜底
+ *
+ * 问题：`await agent.prompt("")` 若 LLM 偶发无响应则永不 resolve；
+ * collect.ts 的产出超时只 reject 产出 promise、不取消 prompt，
+ * 导致 commit worker 永久 running、plan 永久 committing、无 error。
+ *
+ * 修复：Promise.race 整体超时，超时后 agent.abort() 中断子代理并抛错，
+ * 让 runCommitPipeline catch → plan 转 error（可重试/丢弃），不再永久卡死。
+ *
+ * @param agent 子代理实例（pi Agent 暴露 abort() 能力）
+ * @param toolName 产出提交工具名（透传 collectSubmission）
+ * @param timeoutMs 整体超时（默认 300s；正常 commit 链路 60~70s，留足余量）
+ * @param label 超时错误信息中的代理标签
+ */
+async function promptAndCollectWithTimeout<T>(
+  agent: Agent,
+  toolName: string,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const collected = collectSubmission<T>(agent, toolName);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const result = await Promise.race<T>([
+      (async () => {
+        await agent.prompt("");
+        return await collected.promise;
+      })(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          // 中断子代理执行循环，释放底层 LLM 连接
+          try {
+            agent.abort();
+          } catch {
+            /* abort 失败不阻塞超时抛错 */
+          }
+          reject(new Error(`${label} 整体超时（${timeoutMs}ms，已中断子代理）`));
+        }, timeoutMs);
+      }),
+    ]);
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+    collected.dispose();
+  }
+}
 
 /** 角色可见性分配（planner 产出 → 编排器注入角色上下文） */
 export interface VisibilityAssignment {
@@ -377,6 +425,8 @@ export class Orchestrator {
     eventId: string,
     outputs: RoleAgentOutput[],
     trace?: { traceId: string; parentId?: string; roleErrors?: { characterId: string; error: string }[] },
+    /** BUG-028：commit 阶段进度回调（reasoning/rendering），供 service 层更新 plan.commitStage */
+    onStage?: (stage: "reasoning" | "rendering") => void,
   ): Promise<{ diffusion: DiffusionOutput; render: RenderOutput; commit: CommitSummary }> {
     const bus = this.opts.debugBus ?? null;
     const traceId = trace?.traceId ?? newTraceId();
@@ -396,6 +446,7 @@ export class Orchestrator {
       const appliedSink: string[] = [];
 
       // 1. 可见推理代理：注入世界图只读+写工具，自主裁决并写入
+      onStage?.("reasoning");
       const reasoningSpan = startSpan(bus, "reasoner", traceId, { slot: "reasoning" }, parentId);
       let diffusion: DiffusionOutput;
       try {
@@ -429,6 +480,7 @@ export class Orchestrator {
       }
 
       // 2. 渲染器代理：注入章节工具，读上下文并写章节
+      onStage?.("rendering");
       const rendererSpan = startSpan(bus, "renderer", traceId, { slot: "renderer" }, parentId);
       let render: RenderOutput;
       try {
@@ -509,14 +561,14 @@ export class Orchestrator {
       ],
       tools,
     );
-    const collected = collectSubmission<{ diffusion: DiffusionOutput }>(reasoning, "diffusion_result");
-    try {
-      await reasoning.prompt("");
-      const result = await collected.promise;
-      return result.diffusion;
-    } finally {
-      collected.dispose();
-    }
+    // BUG-028：整体超时兜底（300s），超时后 abort 子代理并抛错
+    const result = await promptAndCollectWithTimeout<{ diffusion: DiffusionOutput }>(
+      reasoning,
+      "diffusion_result",
+      300_000,
+      "reasoning 子代理",
+    );
+    return result.diffusion;
   }
 
   /** 渲染器子代理（阶段 A：注入章节工具，自主写章节） */
@@ -543,14 +595,14 @@ export class Orchestrator {
       ],
       tools,
     );
-    const collected = collectSubmission<{ render: RenderOutput }>(renderer, "render_result");
-    try {
-      await renderer.prompt("");
-      const result = await collected.promise;
-      return result.render;
-    } finally {
-      collected.dispose();
-    }
+    // BUG-028：整体超时兜底（300s），超时后 abort 子代理并抛错
+    const result = await promptAndCollectWithTimeout<{ render: RenderOutput }>(
+      renderer,
+      "render_result",
+      300_000,
+      "renderer 子代理",
+    );
+    return result.render;
   }
 
   /**

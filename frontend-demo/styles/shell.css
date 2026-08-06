@@ -105,42 +105,6 @@ body { background-color: var(--bg-100); color: var(--foreground); }
 }
 .top-nav .nav-item.disabled { opacity: 0.4; pointer-events: none; }
 
-/* StoryTime 选择器 */
-.storytime-selector {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  background-color: var(--brand-50);
-  border: 1px solid var(--brand-200);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-.storytime-selector:hover {
-  background-color: var(--brand-100);
-  border-color: var(--brand-300);
-}
-.storytime-selector > [data-lucide] { color: var(--brand-500); flex-shrink: 0; }
-.storytime-label {
-  font-size: 11px;
-  color: var(--brand-600);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  line-height: 1.2;
-}
-.storytime-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--brand-700);
-  font-family: var(--font-mono);
-  line-height: 1.2;
-}
-.storytime-selector .dropdown-menu { top: calc(100% + 4px); right: 0; min-width: 180px; max-height: 320px; overflow: auto; }
-
 /* 图标按钮 */
 .icon-btn {
   width: 28px;

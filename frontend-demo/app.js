@@ -229,7 +229,6 @@ function startStoryTimeWatcher() {
       const prev = App.storyTime;
       syncStoryTime(status.storyTimes || []);
       if (App.storyTime !== prev) {
-        refreshShellStoryTime();
         renderView({ reload: true });
       }
     } catch (e) { /* 状态拉取失败静默忽略，下个周期重试 */ }
@@ -237,21 +236,6 @@ function startStoryTimeWatcher() {
 }
 function stopStoryTimeWatcher() {
   if (storyTimeWatcher) { clearInterval(storyTimeWatcher); storyTimeWatcher = null; }
-}
-
-// 顶栏 StoryTime 选择器联动：watcher 触发 renderView({reload:true}) 只重渲 #view-root，
-// 壳层选择器不重建（BUG-005 修复），这里就地更新当前值与下拉选项
-function refreshShellStoryTime() {
-  const container = $('.top-nav .storytime-selector');
-  if (!container) return;
-  const value = container.querySelector('.storytime-value');
-  if (value) value.innerHTML = escapeHtml(App.storyTime || '—');
-  const dropdown = container.querySelector('#storytime-dropdown');
-  if (dropdown) {
-    dropdown.innerHTML = App.storyTimes.map(st =>
-      `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime=${q(st)};render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
-    ).join('');
-  }
 }
 
 // =================== 项目切换状态清理（BUG-003） ===================
@@ -329,33 +313,12 @@ function workspaceShellHtml(active) {
       </div>
       <div class="flex items-center gap-1">${nav}</div>
       <div class="flex items-center gap-2">
-        ${storyTimeSelectorHtml()}
         <button class="icon-btn" title="帮助" onclick="toast('Demo 版帮助中心暂未开放', 'info')">${icon('circle-help', 'w-4 h-4')}</button>
         <button class="icon-btn" title="切换主题" onclick="toggleTheme()">${icon(App.theme === 'light' ? 'moon' : 'sun', 'w-4 h-4')}</button>
         <div class="avatar" title="Demo 用户">Z</div>
       </div>
     </nav>
     <div id="view-root" class="app-main"></div>
-  `;
-}
-
-// StoryTime 全局选择器（点击展开下拉，选择后切换当前故事时间）
-// 仅世界图页显示：目前只有 graphLoadData（getGraph）消费 storyTime，其他页面显示无意义
-function storyTimeSelectorHtml() {
-  if (routeId() !== 'graph') return '';
-  if (!App.activeProject || !App.storyTimes.length) return '';
-  const options = App.storyTimes.map(st =>
-    `<div class="dropdown-item ${App.storyTime === st ? 'active' : ''}" onclick="App.storyTime=${q(st)};render()"><span class="font-mono">${escapeHtml(st)}</span></div>`
-  ).join('');
-  return `
-    <div class="storytime-selector dropdown" onclick="toggleNavStoryTime(event)">
-      <div class="flex flex-col leading-tight">
-        <span class="storytime-label">StoryTime</span>
-        <span class="storytime-value">${escapeHtml(App.storyTime || '—')}</span>
-      </div>
-      ${icon('chevron-down', 'w-3.5 h-3.5')}
-      <div id="storytime-dropdown" class="dropdown-menu hidden">${options}</div>
-    </div>
   `;
 }
 
@@ -394,7 +357,6 @@ function toggleDropdown(id) {
   if (willShow) el.classList.remove('hidden');
 }
 function toggleNavProjectMenu(e) { if (e) e.stopPropagation(); toggleDropdown('project-dropdown'); }
-function toggleNavStoryTime(e) { if (e) e.stopPropagation(); toggleDropdown('storytime-dropdown'); }
 
 // 页面其他区域点击时关闭所有下拉（幂等绑定一次）
 let shellClickGuardBound = false;

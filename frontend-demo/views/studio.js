@@ -1061,7 +1061,7 @@ function stOrDetailHtml() {
     if (detail.render) parts.push(stOrStageRenderHtml(detail.render));
     if (detail.commit) parts.push(stOrStageCommitHtml(detail.commit));
   } else if (detail.status === 'committing') {
-    parts.push(stOrCommittingHtml());
+    parts.push(stOrCommittingHtml(detail));
   } else if (detail.status === 'error') {
     // error 时保留前半链路，显示错误
     if (detail.commitError) {
@@ -1182,12 +1182,20 @@ function stOrStageCommitHtml(commitData) {
   </div>`;
 }
 
-/** committing 占位（后半链路统一显示） */
-function stOrCommittingHtml() {
+/** BUG-028：committing 占位（显示阶段 + 已耗时，消除"一直处理中"误判） */
+function stOrCommittingHtml(detail) {
+  const stage = detail && detail.commitStage;
+  const startedAt = detail && detail.commitStartedAt;
+  const stageLabel = stage === 'rendering' ? '渲染中' : '推理中';
+  let elapsed = '';
+  if (startedAt) {
+    const secs = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    elapsed = ` · 已进行 ${secs}s`;
+  }
   return `<div class="st-or-stage">
     <div class="st-or-stage-header">后半链路</div>
     <div class="st-or-stage-content st-or-committing-placeholder">
-      ${icon('loader', 'w-4 h-4 spin')} 提交处理中，请稍候…
+      ${icon('loader', 'w-4 h-4 spin')} ${stageLabel}…${elapsed}
     </div>
   </div>`;
 }
@@ -1271,7 +1279,12 @@ async function stOrPollStatus(gen) {
     const selectedId = stOrState('selectedPlanId', null);
     if (!selectedId || !plans.some((p) => p.planId === selectedId)) {
       const defaultId = stOrResolveDefaultPlan(plans);
-      if (defaultId) stOrFetchDetail(defaultId, gen);
+      if (defaultId) {
+        // BUG-028 附带：default 选择时需同步设 selectedPlanId（stOrFetchDetail 只拉 detail，
+        // 不设 selectedPlanId，否则 stOrDetailHtml 因 selectedPlanId=null 显示空态）
+        setStOrState('selectedPlanId', defaultId);
+        stOrFetchDetail(defaultId, gen);
+      }
     } else {
       // 检查选中 plan 是否需要刷新详情（设计文档 §8.2）
       const selected = plans.find((p) => p.planId === selectedId);
@@ -1279,6 +1292,11 @@ async function stOrPollStatus(gen) {
         const cached = stOrState('detail', null);
         if (cached && (cached.status !== selected.status || cached.commitQueueId !== selected.commitQueueId)) {
           stOrFetchDetail(selectedId, gen);
+        } else if (cached && selected.status === 'committing') {
+          // BUG-028：committing 期间实时同步阶段 + 开始时间到 detail 缓存
+          //（detail 在 committing 期间不重拉，但 plans 列表每 2s 带 commitStage）
+          cached.commitStage = selected.commitStage;
+          cached.commitStartedAt = selected.commitStartedAt;
         }
       }
     }

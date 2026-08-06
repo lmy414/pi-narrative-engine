@@ -303,3 +303,123 @@ test("ApiMock: chat and debug fixtures use target field sets", async () => {
     assert.ok(["start", "end", "error"].includes(event.status));
   }
 });
+
+// ============ BUG-035: detailEffectiveStoryTime 兜底逻辑 ============
+
+const entityDetailCode = readFileSync(new URL("../frontend-demo/views/entity-detail.js", import.meta.url), "utf-8");
+
+/** 用 vm 沙箱加载 entity-detail.js（仅函数声明 + 常量，加载时不执行函数体），提供 mock App */
+function loadEntityDetail(App: any): any {
+  const context: any = {
+    console, setTimeout, clearTimeout,
+    App,
+    // entity-detail.js 函数体引用的全局符号，加载时不会执行，仅调用时需要
+    $: () => null, $$: () => [],
+    apiCall: async () => ({}), icon: () => "", escapeHtml: (s: string) => s,
+    q: (s: string) => "'" + String(s) + "'",
+    withLoading: async (fn: Function) => fn(), toast: () => {},
+    openDrawer: () => {}, closeDrawer: () => {}, openModal: () => {}, closeModal: () => {},
+    refreshIcons: () => {}, navigate: () => {}, renderView: () => {}, render: () => {},
+    confirm: () => true,
+    ENTITY_TYPES: {}, MOCK_ENTITIES: [], ApiRuntime: { isMock: false },
+    DemoUtils: { compareStoryTime: () => 0 },
+  };
+  createContext(context);
+  runInContext(entityDetailCode, context);
+  return context;
+}
+
+test("BUG-035: detailEffectiveStoryTime 在 App.storyTime 为 null 时回退到 storyTimes 末项", () => {
+  const ctx = loadEntityDetail({ storyTime: null, storyTimes: ["ch001.ev001", "ch002.ev003"], viewState: {} });
+  assert.equal(ctx.detailEffectiveStoryTime(), "ch002.ev003");
+});
+
+test("BUG-035: detailEffectiveStoryTime 在 App.storyTime 有值时直接返回", () => {
+  const ctx = loadEntityDetail({ storyTime: "ch001.ev001", storyTimes: ["ch001.ev001", "ch002.ev003"], viewState: {} });
+  assert.equal(ctx.detailEffectiveStoryTime(), "ch001.ev001");
+});
+
+test("BUG-035: detailEffectiveStoryTime 在 storyTime 和 storyTimes 均空时返回 null", () => {
+  const ctx = loadEntityDetail({ storyTime: null, storyTimes: [], viewState: {} });
+  assert.equal(ctx.detailEffectiveStoryTime(), null);
+});
+
+test("BUG-035: detailEffectiveStoryTime 在 storyTimes 为 undefined 时不抛错", () => {
+  const ctx = loadEntityDetail({ storyTime: null, viewState: {} });
+  assert.equal(ctx.detailEffectiveStoryTime(), null);
+});
+
+// ============ BUG-036: graphInit3D 增量更新 ============
+
+const graphCode = readFileSync(new URL("../frontend-demo/views/graph.js", import.meta.url), "utf-8");
+
+/** 用 vm 沙箱加载 graph.js，mock ForceGraph3D/THREE/DOM，返回沙箱与调用计数 */
+function loadGraphView(): { context: any; stats: { created: number; graphData: number; zoomToFit: number } } {
+  const stats = { created: 0, graphData: 0, zoomToFit: 0 };
+  const mockInstance: any = {
+    graphData: (d?: any) => { if (d) stats.graphData++; return mockInstance; },
+    width: () => mockInstance, height: () => mockInstance, backgroundColor: () => mockInstance,
+    nodeThreeObject: () => mockInstance, nodeLabel: () => mockInstance, linkLabel: () => mockInstance,
+    linkColor: () => mockInstance, linkWidth: () => mockInstance, linkOpacity: () => mockInstance,
+    linkDirectionalArrowLength: () => mockInstance, linkDirectionalArrowRelPos: () => mockInstance,
+    linkDirectionalArrowColor: () => mockInstance, onNodeClick: () => mockInstance, onBackgroundClick: () => mockInstance,
+    d3Force: () => ({ strength: () => ({}), distance: () => ({}) }),
+    onEngineTick: () => mockInstance, controls: () => ({ addEventListener: () => {} }),
+    camera: () => ({ fov: 60, position: { distanceTo: () => 100 } }),
+    pauseAnimation: () => {}, _destructor: () => {},
+    zoomToFit: () => { stats.zoomToFit++; },
+  };
+  const container: any = {
+    clientWidth: 800, clientHeight: 600, innerHTML: "",
+    querySelector: () => null, appendChild: () => {},
+  };
+  const fakeDocEl: any = {};
+  const context: any = {
+    console,
+    setTimeout: (fn: Function) => { fn(); return 0; }, // 立即执行（含 zoomToFit 延时）
+    clearTimeout: () => {},
+    App: { viewState: {}, storyTime: "ch001.ev001", storyTimes: ["ch001.ev001"] },
+    viewState: (routeId: string) => {
+      if (!context.App.viewState[routeId]) context.App.viewState[routeId] = {};
+      return context.App.viewState[routeId];
+    },
+    $: () => container, $$: () => [],
+    ForceGraph3D: () => (container: any) => { stats.created++; return mockInstance; },
+    THREE: {
+      Group: function () { this.add = () => {}; },
+      SphereGeometry: function () {}, BoxGeometry: function () {},
+      OctahedronGeometry: function () {}, TetrahedronGeometry: function () {},
+      MeshLambertMaterial: function () {},
+    },
+    escapeHtml: (s: string) => s, q: (s: string) => "'" + String(s) + "'",
+    icon: () => "", ENTITY_TYPES: { character: { label: "角色", color: "#f00" } },
+    getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
+    document: { documentElement: fakeDocEl, createElement: () => ({ className: "", textContent: "", style: {}, appendChild: () => {} }) },
+    ViewRender: {}, ViewAfterRender: {}, viewLoaders: {},
+  };
+  createContext(context);
+  runInContext(graphCode, context);
+  return { context, stats };
+}
+
+test("BUG-036: graphInit3D 首次调用创建实例并 zoomToFit，第二次走增量更新不重建不取景", () => {
+  const { context, stats } = loadGraphView();
+  // 注入测试数据
+  context.setGraphState("graphData", {
+    entities: [{ entityId: "e1", entityType: "character", properties: { name: "A" } }],
+    relations: [],
+  });
+  // 第一次：_graph3d 为 null → 走创建路径
+  context.graphInit3D();
+  assert.equal(stats.created, 1, "首次调用应创建 ForceGraph3D 实例");
+  assert.ok(stats.zoomToFit >= 1, "首次调用应触发 zoomToFit（setTimeout 立即执行）");
+
+  const createdAfterFirst = stats.created;
+  const zoomAfterFirst = stats.zoomToFit;
+
+  // 第二次：_graph3d 已存在 → 走增量更新路径
+  context.graphInit3D();
+  assert.equal(stats.created, createdAfterFirst, "第二次调用不应创建新 ForceGraph3D 实例");
+  assert.ok(stats.graphData >= 1, "第二次调用应通过 graphData 增量更新");
+  assert.equal(stats.zoomToFit, zoomAfterFirst, "第二次调用不应触发 zoomToFit");
+});
