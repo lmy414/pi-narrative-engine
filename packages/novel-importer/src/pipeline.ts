@@ -522,6 +522,7 @@ export async function runImportPipeline(
           deduplicatedFacts: 0,
           skippedRelations: 0,
           skippedEvents: 0,
+          birthedEntityIds: [],
         },
         wg,
       },

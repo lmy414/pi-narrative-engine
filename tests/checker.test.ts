@@ -46,7 +46,7 @@ test("checkNarrative: 返回结构化检查结果", async () => {
 
     const result = await checkNarrative(
       { target: "chapter", chapterPath },
-      { llm: mockLlm, ruleSet: "禁止词：手机" },
+      { llm: mockLlm, ruleSet: "禁止词：手机", cwd: dir },
     );
 
     assert.ok(result.violations);
@@ -92,7 +92,7 @@ test("checkNarrative: target=latest 只检查最新事件", async () => {
 
     await checkNarrative(
       { target: "latest", chapterPath },
-      { llm: mockLlm, ruleSet: "无特殊规则" },
+      { llm: mockLlm, ruleSet: "无特殊规则", cwd: dir },
     );
 
     assert.equal(calls.length, 1);
@@ -136,7 +136,7 @@ test("checkNarrative: target=range 检查区间", async () => {
 
     await checkNarrative(
       { target: "range", chapterPath, startEventId: "evt_001", endEventId: "evt_003" },
-      { llm: mockLlm, ruleSet: "无特殊规则" },
+      { llm: mockLlm, ruleSet: "无特殊规则", cwd: dir },
     );
 
     assert.equal(calls.length, 1);
@@ -149,14 +149,19 @@ test("checkNarrative: target=range 检查区间", async () => {
 });
 
 test("checkNarrative: target=full 无 chapterPath 时抛错", async () => {
-  const mockLlm = makeMockLlm(JSON.stringify({ violations: [], suggestions: [] }));
-  await assert.rejects(
-    checkNarrative(
-      { target: "full" },
-      { llm: mockLlm, ruleSet: "" },
-    ),
-    /target=full 时需要 chapterPath/,
-  );
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const mockLlm = makeMockLlm(JSON.stringify({ violations: [], suggestions: [] }));
+    await assert.rejects(
+      checkNarrative(
+        { target: "full" },
+        { llm: mockLlm, ruleSet: "", cwd: dir },
+      ),
+      /target=full 时需要 chapterPath/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("checkNarrative: target=range 缺 startEventId 时抛错", async () => {
@@ -179,7 +184,7 @@ test("checkNarrative: target=range 缺 startEventId 时抛错", async () => {
     await assert.rejects(
       checkNarrative(
         { target: "range", chapterPath },
-        { llm: mockLlm, ruleSet: "" },
+        { llm: mockLlm, ruleSet: "", cwd: dir },
       ),
       /target=range 时需要 startEventId/,
     );
@@ -208,7 +213,7 @@ test("checkNarrative: LLM 返回非 JSON 时返回空结果带 error 字段", as
 
     const result = await checkNarrative(
       { target: "chapter", chapterPath },
-      { llm: mockLlm, ruleSet: "无特殊规则" },
+      { llm: mockLlm, ruleSet: "无特殊规则", cwd: dir },
     );
 
     assert.deepEqual(result.violations, []);
@@ -248,13 +253,32 @@ test("checkNarrative: target=latest 文件无锚点时返回全文", async () =>
 
     await checkNarrative(
       { target: "latest", chapterPath },
-      { llm: mockLlm, ruleSet: "无特殊规则" },
+      { llm: mockLlm, ruleSet: "无特殊规则", cwd: dir },
     );
 
     assert.equal(calls.length, 1);
     assert.ok(calls[0].includes("这是第一段"), "无锚点时应返回全文（含第一段）");
     assert.ok(calls[0].includes("这是第二段"), "无锚点时应返回全文（含第二段）");
     assert.ok(calls[0].includes("这是第三段"), "无锚点时应返回全文（含第三段）");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkNarrative: 越界 chapterPath 拒绝（🔴-A）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const mockLlm = makeMockLlm(JSON.stringify({ violations: [], suggestions: [] }));
+    await assert.rejects(
+      checkNarrative(
+        { target: "chapter", chapterPath: "../outside.md" },
+        { llm: mockLlm, ruleSet: "", cwd: dir },
+      ),
+      (err: Error & { code?: string }) => {
+        assert.equal(err.code, "PATH_ESCAPE", `应抛 PATH_ESCAPE，实际: ${err.message}`);
+        return true;
+      },
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

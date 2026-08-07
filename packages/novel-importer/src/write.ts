@@ -109,6 +109,12 @@ export interface WriteResult {
   skippedRelations: number;
   /** 跳过的 death 事件数（entity 未 birth 或已 dead） */
   skippedEvents: number;
+  /**
+   * 本次导入曾 birth 的 entityId 集合（🔴-D 2026-08-08）
+   * P0 校验按"曾 birth"语义做存在性判断——死亡/退场实体的 change Fact
+   * 仍合法，不能用终态存活快照（getAllEntities 按 validTo 过滤）。
+   */
+  birthedEntityIds: string[];
 }
 
 /**
@@ -140,6 +146,11 @@ export async function writeToGraph(
   const seenFactKeys = new Set<string>();
   // 跟踪已 birth 的 entityId（关系/可见性引用时校验存在性）
   const birthedEntityIds = new Set<string>();
+  // 🔴-C（2026-08-08）：最近一个实际写入 events.jsonl 的 eventId。
+  // 被跳过的事件（entity_hint 未解析 / 重复 birth / 未 birth death）不写日志，
+  // 后续事件的 causedBy 必须重链到它——否则日志出现悬空前驱
+  // （内核 0.1.2 traceBack 静默截断因果链，0.2.0 起直接抛错）。
+  let lastWrittenEventId: string | undefined = undefined;
   // 用于跟踪每章最后一个事件，便于调用 inferVisibility
   let lastChapterId: number | null = null;
   let lastStoryTimeOfChapter: string | null = null;
@@ -202,8 +213,9 @@ export async function writeToGraph(
           entityType: event.entity_type,
           summary: event.summary,
           newFacts: newFacts.length > 0 ? newFacts : undefined,
-          causedBy,
+          causedBy: lastWrittenEventId,
         });
+        lastWrittenEventId = eventId;
         break;
       }
 
@@ -259,8 +271,9 @@ export async function writeToGraph(
           entityId,
           invalidated: invalidated.length > 0 ? invalidated : undefined,
           newFacts: newFactsRaw.length > 0 ? newFactsRaw : undefined,
-          causedBy,
+          causedBy: lastWrittenEventId,
         });
+        lastWrittenEventId = eventId;
         break;
       }
 
@@ -279,8 +292,9 @@ export async function writeToGraph(
             type: "death",
             storyTime: event.storyTime,
             entityId,
-            causedBy,
+            causedBy: lastWrittenEventId,
           });
+          lastWrittenEventId = eventId;
         } catch (err) {
           warn(`death 事件 ${eventId} 失败（可能已 dead）: ${(err as Error).message}`);
           skippedEvents++;
@@ -375,6 +389,7 @@ export async function writeToGraph(
     deduplicatedFacts,
     skippedRelations,
     skippedEvents,
+    birthedEntityIds: [...birthedEntityIds],
   };
 }
 
@@ -385,8 +400,11 @@ export async function writeToGraph(
 /**
  * 通过 entity_hint name 解析 canonical entityId
  * 支持 name 本身或别名映射
+ *
+ * export（🔴-D 2026-08-08）：validate.ts 复用同一解析语义（含别名兜底），
+ * 避免校验与写入两侧对同一数据产生不一致假设。
  */
-function resolveEntityId(
+export function resolveEntityId(
   hint: string,
   resolveResult: ResolveResult,
 ): string | null {

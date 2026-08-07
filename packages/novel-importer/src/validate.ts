@@ -34,6 +34,7 @@ import type {
 } from "./types.ts";
 import type { Chapter } from "./epub.ts";
 import type { EventWithChain, WriteResult } from "./write.ts";
+import { resolveEntityId } from "./write.ts";
 import { isValidStoryTime } from "./storytime.ts";
 
 // ============================================================================
@@ -261,7 +262,7 @@ function runP0Checks(ctx: ValidationContext): string[] {
 async function runP0ChecksAsync(ctx: ValidationContext): Promise<string[]> {
   const syncErrors = runP0Checks(ctx);
   const asyncErrors: string[] = [];
-  const { chain, resolveResult, wg } = ctx;
+  const { chain, resolveResult, writeResult, wg } = ctx;
 
   // 取所有 storyTime 中"最新"的实体集合（合并所有时刻）
   // 简单方案：用最后一个事件的 storyTime 查询所有实体
@@ -278,6 +279,10 @@ async function runP0ChecksAsync(ctx: ValidationContext): Promise<string[]> {
     );
   }
   const existingEntityIds = new Set(allEntities.map((e) => e.entityId));
+  // 🔴-D（2026-08-08）：曾 birth 集合（write.ts 运行时实际集合，随 WriteResult 返回）。
+  // getAllEntities 只返回存活实体（内核按 validTo > storyTime 过滤），死亡/退场
+  // 实体的 change Fact 若按终态快照判断必然假阳性——改为"现存 ∪ 曾 birth"。
+  const birthedEntityIds = new Set(writeResult.birthedEntityIds);
 
   // ---- 5. Fact.entityId 存在（内核 processEvent change 分支不校验，导入器责任） ----
   // 检查所有 change 事件的 newFacts[].entityId 是否在 Entity 表中
@@ -287,16 +292,41 @@ async function runP0ChecksAsync(ctx: ValidationContext): Promise<string[]> {
     for (let i = 0; i < facts.length; i++) {
       const f = facts[i]!;
       const targetHint = f.target_hint ?? item.event.entity_hint;
-      const factEntityId = resolveResult.canonicalMap.get(targetHint);
+      // 与 write.ts L227-229 同语义：target_hint 优先，缺省回落事件主体 entity_hint
+      // （resolveEntityId 含别名兜底，与写入侧一致，避免漏报）
+      const factEntityId =
+        resolveEntityId(targetHint, resolveResult)
+        ?? resolveEntityId(item.event.entity_hint, resolveResult);
       if (!factEntityId) {
         // 这本来在 sync 部分已报错（entity_hint 未在 canonicalMap），这里跳过避免重复
         continue;
       }
-      if (!existingEntityIds.has(factEntityId)) {
+      if (!existingEntityIds.has(factEntityId) && !birthedEntityIds.has(factEntityId)) {
         asyncErrors.push(
-          `P0: 事件 ${item.eventId} 的 new_facts[${i}].entityId "${factEntityId}"（来自 target_hint "${targetHint}"）在 Entity 表中不存在`,
+          `P0: 事件 ${item.eventId} 的 new_facts[${i}].entityId "${factEntityId}"（来自 target_hint "${targetHint}"）既不在 Entity 表中也不在本导入曾 birth 集合中`,
         );
       }
+    }
+  }
+
+  // ---- 6. 日志 causedBy 完整性（🔴-C 2026-08-08） ----
+  // 跳过事件（entity_hint 未解析/重复 birth/未 birth death）不写 events.jsonl，
+  // 若后续事件 causedBy 仍指向被跳事件则日志出现悬空前驱——写循环已重链，
+  // 这里独立复查日志，防止回归（内核 0.2.x 起遇悬空前驱直接抛错，必须前置拦截）。
+  let logEvents: Array<{ eventId: string; causedBy?: string }> = [];
+  try {
+    logEvents = await wg.getAllEvents();
+  } catch (err) {
+    asyncErrors.push(
+      `P0: getAllEvents() 失败: ${(err as Error).message}`,
+    );
+  }
+  const logEventIds = new Set(logEvents.map((e) => e.eventId));
+  for (const ev of logEvents) {
+    if (ev.causedBy !== undefined && !logEventIds.has(ev.causedBy)) {
+      asyncErrors.push(
+        `P0: 日志事件 ${ev.eventId} 的 causedBy="${ev.causedBy}" 悬空（events.jsonl 中不存在该前驱）`,
+      );
     }
   }
 

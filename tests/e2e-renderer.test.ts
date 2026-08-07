@@ -180,7 +180,7 @@ test("e2e: append → append → modify → check 完整流程", async () => {
     // 4. check 最新事件
     const checkResult = await checkNarrative(
       { target: "latest", chapterPath },
-      { llm: checkLlm, ruleSet },
+      { llm: checkLlm, ruleSet, cwd: dir },
     );
     assert.ok(Array.isArray(checkResult.violations), "应返回 violations 数组");
     assert.ok(Array.isArray(checkResult.suggestions), "应返回 suggestions 数组");

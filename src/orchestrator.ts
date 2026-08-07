@@ -47,12 +47,16 @@ import { _buildPlannerSystemPrompt, _buildPlannerUserMessage } from "@pi/schedul
  * 修复：Promise.race 整体超时，超时后 agent.abort() 中断子代理并抛错，
  * 让 runCommitPipeline catch → plan 转 error（可重试/丢弃），不再永久卡死。
  *
+ * 🔴-B（2026-08-08）：planner/role 前半链路同样复用本函数——此前两处
+ * 裸 `await agent.prompt("")`，LLM 无响应时编排器整体死锁（与 BUG-028
+ * 修复前行为一致）。
+ *
  * @param agent 子代理实例（pi Agent 暴露 abort() 能力）
  * @param toolName 产出提交工具名（透传 collectSubmission）
  * @param timeoutMs 整体超时（默认 300s；正常 commit 链路 60~70s，留足余量）
  * @param label 超时错误信息中的代理标签
  */
-async function promptAndCollectWithTimeout<T>(
+export async function promptAndCollectWithTimeout<T>(
   agent: Agent,
   toolName: string,
   timeoutMs: number,
@@ -249,10 +253,14 @@ export class Orchestrator {
           [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
           createPlannerTools(this.opts.ports),
         );
-        const plannerCollected = collectSubmission<{ plan: RetrievalPlan }>(planner, "retrieval_plan");
-        await planner.prompt("");
-        plannerResult = await plannerCollected.promise;
-        plannerCollected.dispose();
+        // 🔴-B（2026-08-08）：planner 接入整体超时（此前裸 await prompt 永久挂起时
+        // 阻塞 EventQueue 单消费者 → 编排器死锁；collect 的 180s 只 reject 产出不取消 prompt）
+        plannerResult = await promptAndCollectWithTimeout<{ plan: RetrievalPlan }>(
+          planner,
+          "retrieval_plan",
+          300_000,
+          "planner 子代理",
+        );
         plannerSpan.end({
           provider: plannerModel.provider,
           model: plannerModel.id,
@@ -315,10 +323,16 @@ export class Orchestrator {
             userMessages,
             createRoleLimitedTools(this.opts.ports, characterId),
           );
-          const roleCollected = collectSubmission<{ action: RoleAgentOutput }>(roleAgent, "character_action");
+          // 🔴-B（2026-08-08）：role 接入整体超时——超时抛错落入 per-role catch
+          // 记入 errors 不阻断流程（与「单角色失败不阻断」语义一致）；LLM 无响应
+          // 不再无限阻塞整条串行角色链
           try {
-            await roleAgent.prompt("");
-            const roleOut = await roleCollected.promise;
+            const roleOut = await promptAndCollectWithTimeout<{ action: RoleAgentOutput }>(
+              roleAgent,
+              "character_action",
+              300_000,
+              `role 子代理 (${characterId})`,
+            );
             outputs.push(roleOut.action);
             priorOutputs.push(roleOut.action);
             cast.push({
@@ -331,8 +345,6 @@ export class Orchestrator {
               characterId,
               error: err instanceof Error ? err.message : String(err),
             });
-          } finally {
-            roleCollected.dispose();
           }
         }
         // 单角色失败不阻断流程（记入 errors），role span 仍算结束

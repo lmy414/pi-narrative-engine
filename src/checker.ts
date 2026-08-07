@@ -18,6 +18,7 @@ import {
   EVENT_ANCHOR_PREFIX,
   type RenderLlmCaller,
 } from "@pi/renderer";
+import { assertPathInside } from "./path-guard.ts";
 
 /** 检验目标 */
 export type CheckTarget = "latest" | "chapter" | "range" | "full";
@@ -58,6 +59,8 @@ export interface CheckCtx {
   llm: RenderLlmCaller;
   /** 规则集.md 全文（由调用方通过 loadRuleSet 读取后传入） */
   ruleSet: string;
+  /** 项目根目录（chapterPath 必须落在其内；LLM 可控输入，防止任意文件读取） */
+  cwd: string;
 }
 
 /** 检验员系统提示词 */
@@ -96,6 +99,12 @@ export async function checkNarrative(
   cmd: CheckCommand,
   ctx: CheckCtx,
 ): Promise<CheckResult> {
+  // 🔴-A（2026-08-08）：chapterPath 是 LLM 可控输入，读写前必须落在项目根内
+  // （对齐子代理版 agents/chapter-tools.ts 的 assertPathInside 先例）
+  if (cmd.chapterPath) {
+    cmd = { ...cmd, chapterPath: assertPathInside(ctx.cwd, cmd.chapterPath, "章节文件路径") };
+  }
+
   // 1. 读取目标文本
   const text = await readCheckTarget(cmd);
 

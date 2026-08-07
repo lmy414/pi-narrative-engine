@@ -28,6 +28,7 @@ import {
   getSchedulerDefaultMode,
   setSchedulerDefaultMode,
 } from "../chat/scheduler-tools.ts";
+import { assertPathInside } from "../path-guard.ts";
 import { _ok as ok, _fail as fail } from "../visualizer/routes.ts";
 import type { ProjectRegistry } from "./project-registry.ts";
 
@@ -48,6 +49,7 @@ const SCHED_ERROR_STATUS: Record<string, number> = {
   MISSING_FIELD: 400,
   INVALID_BODY: 400,
   INVALID_STORY_TIME: 400,
+  PATH_ESCAPE: 403,
   PLAN_NOT_FOUND: 404,
   NO_ACTIVE_PROJECT: 409,
   COMMIT_FAILED: 409,
@@ -158,6 +160,11 @@ export async function handleSchedulerApi(
     if (segment === "/dispatch" && method === "POST") {
       const cwd = requireActiveDir(ctx);
       const event = parseDispatchBody(body);
+      // 🔴-A 纵深防御（2026-08-08）：chapterPath 入队前校验，避免队列执行时才失败；
+      // 下游 orchestrator.resolveChapterPath 仍有同规则兜底（双重防护）
+      if (event.chapterPath) {
+        assertPathInside(cwd, event.chapterPath, "章节文件路径");
+      }
       const service = await ctx.getService(cwd);
       ok(res, service.dispatch(event));
       return true;
