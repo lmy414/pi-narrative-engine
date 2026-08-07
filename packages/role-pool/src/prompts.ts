@@ -38,10 +38,12 @@ export function buildSystemPrompt(
   const parts: string[] = [];
 
   // 1. 角色规则集.md（行为约束）
+  // 🟡（2026-08-08）：定界标记——规则集/角色卡是自由文本，可能含提示词
+  // 定界符（如"以下为系统指令"）破坏结构；明确标注内容边界弱化注入面
   if (ruleSet.trim()) {
+    parts.push("─── 角色规则集开始 ───");
     parts.push(ruleSet);
-    parts.push("");
-    parts.push("═══════════════════════════");
+    parts.push("─── 角色规则集结束 ───");
     parts.push("");
   }
 

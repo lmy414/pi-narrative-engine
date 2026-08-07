@@ -425,3 +425,22 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试**：+2 新用例（跨模块 insert+append 并发、混合路径拼写同锁链），766 全绿。
 
 **遗留**：🟡 全部（批次 4）+ 批次 3c 附带的 `world_relation_add` 零校验登记项。
+
+---
+
+## 16. 批次 4a/4b/4c 修复闭环（2026-08-08，🟡 低严重度 30 项批量清理 —— 全部闭环）
+
+> 三个分支：`20260808-audit-fix-batch4a`（76e7fe3，服务层 9 项）/ `4b`（1b0e001，admin+importer 14 项）/ `4c`（本批，role-pool+前端 10 项）→ master ff-only。全量测试 769 项：767 pass / 0 fail / 2 skip。
+> **审计纪律（组级）**：每批独立子代理审计，共修正 9 处真实缺陷：4a session-pool 新 handle 被自身 set 淘汰、4b 错误掩码白名单（fs code 仍直出）+ 4 处编译错误 + 抽样公式排除首章、4c onTurnEnd 成功路径未包 try + insert 新 ID 防重 + debug 真实流未套上限。
+
+| 组 | 修复内容 |
+|---|---|
+| 服务层（4a，9 项） | slot 先内存后落盘；provider-models 缓存键含 baseURL/key；meta 套 scan 白名单；路径段安全解码（routes-ext/visualizer/routes-chat 畸形 % 不再 500）；sendChatMessage 同步抛错复位 status；apiKind 枚举校验；SessionPool LRU 上限 10（淘汰时 dispose host）；openProject in-flight 单飞；Search embedder 可空兜底 fulltext。登记：scheduler 全局单例保持现状 |
+| admin/launcher（4b，7 项） | 模板替换改回调（$&/$' 特殊序列）；defaultScanRoots 三层归一；错误消息脱敏（INTERNAL_ERROR 白名单掩码 + doctor/pi-status/warmup）；unquoteValue 反转义对称；_dirSize 并行；files 删除冲突 409 |
+| importer/renderer（4b，7 项） | renderer modify 锚点区间上下文；chapter-io 锚点间隔空行 + append appendFile + modify 原子写；resolve LLM canonical_name 应用；prompts 抽样上限（含首章均匀 30 章）；import-card 畸形守卫；onProgress done 计数；chapter-index 实际写入数 |
+| role-pool/scheduler（4c，4 项） | onTurnStart 移入 try + onTurnEnd 双路径包 try；规则集定界标记；insert 锚点重复 + 新 ID 防重；清理 scheduler/role-pool dist 陈旧产物 |
+| 前端（4c，6 项） | files 双击防重（flOpeningPaths）；debug 日志上限 500（含真实 SSE 流）；api-client 非 JSON 容错；stLoadData 代际守卫；plan 空元素防御；projects menuId 确认 2b 已闭环 |
+
+**测试**：+2 新用例（warmup 脱敏断言更新、insert 防重 2 断言）。769 全绿。前端测试轮：`frontend-test-runs/2026-08-08-batch4c-frontend.md`。
+
+**至此审计报告全部发现闭环**：🔴 4/4 · 🟠 27/27 · 🟡 30 项（4a/4b/4c）· BUG 系列 37 项（含 BUG-037）。基线遗留：全量 tsc 6 处既有类型错误（novel-json/write/chat-context 等，非审计引入，行未在修复 diff 内）。

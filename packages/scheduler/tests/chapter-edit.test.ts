@@ -186,8 +186,7 @@ test("insertChapterSection: 失败 insert 不断链（🟠-21）", async () => {
   }
 });
 
-test("insertChapterSection: 与 renderer append 并发（跨模块共享锁）双写入共存（🟠-21）", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+test("insertChapterSection: 与 renderer append 并发（跨模块共享锁）双写入共存（🟠-21）", async () => {  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
   try {
     const filePath = path.join(dir, "第1章.md");
     await writeFile(
@@ -228,6 +227,37 @@ test("insertChapterSection: 混合路径拼写（正/反斜杠）共享同一锁
     const content = await readFile(filePath, "utf8");
     assert.ok(content.includes("<!-- event: evt_002 -->"), "正斜杠拼写 insert 应保留");
     assert.ok(content.includes("<!-- event: evt_003 -->"), "反斜杠拼写 insert 应保留");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("insertChapterSection: 重复锚点/新 ID 防重（🟡 4c 审计修正）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+  try {
+    const dupPath = path.join(dir, "第1章.md");
+    await writeFile(
+      dupPath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", "", "<!-- event: evt_001 -->", "", "重复锚点。", ""].join("\n"),
+      "utf8",
+    );
+    // afterEventId 锚点重复 → 拒绝（indexOf 首处错位防护）
+    await assert.rejects(
+      () => insertChapterSection(dupPath, "evt_001", "evt_002", "第二段。"),
+      /重复出现/,
+    );
+
+    // 新 ID 已存在 → 拒绝（双锚点孤儿防护）：文件中 evt_001 唯一 + evt_002 已存在
+    const dupIdPath = path.join(dir, "第2章.md");
+    await writeFile(
+      dupIdPath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", "", "<!-- event: evt_002 -->", "", "既有段。", ""].join("\n"),
+      "utf8",
+    );
+    await assert.rejects(
+      () => insertChapterSection(dupIdPath, "evt_001", "evt_002", "重复 ID"),
+      /已在章节中存在锚点/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

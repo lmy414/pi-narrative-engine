@@ -29,6 +29,8 @@ const FL_DEFAULT_FONT_SIZE = 16;
 const FL_FONT_MIN = 12;
 const FL_FONT_MAX = 24;
 const FL_READABLE_EXTS = ['.md', '.txt', '.json'];   // api-mock readFile 允许的类型
+/** 🟡（2026-08-08）：正在打开中的文件路径集合（防快速双击重复 tab） */
+const flOpeningPaths = new Set();
 const FL_EXT_ICON = { md: 'file-text', json: 'braces', db: 'database', txt: 'file-text' };
 const FL_EXT_COLOR = { md: '#2563eb', json: '#059669', db: '#6b7280', txt: '#6b7280' }; // 类型语义色（同 debug 级别色先例）
 const FL_FOLDER_COLOR = '#d97706';
@@ -419,9 +421,13 @@ async function flOpenFile(path) {
     toast('该文件类型暂不支持编辑（' + (ext || '未知类型') + '）', 'info');
     return;
   }
+  // 🟡（2026-08-08）：防重入——快速双击时第一次 readFile 未完成（tab 未 push），
+  // 第二次会重复发起并产生双 tab；in-flight 期间直接复用
+  if (flOpeningPaths.has(path)) return;
   const tabs = flState('flTabs', []);
   let tab = tabs.find((t) => t.path === path);
   if (!tab) {
+    flOpeningPaths.add(path);
     try {
       const data = await apiCall('readFile', path);
       tab = { path, name: flBasename(path), content: data.content, mtime: data.mtime, dirty: false, baseMtime: data.mtime };
@@ -430,6 +436,8 @@ async function flOpenFile(path) {
     } catch (e) {
       handleApiError(e);
       return;
+    } finally {
+      flOpeningPaths.delete(path);
     }
   }
   setFlState('flActivePath', path);

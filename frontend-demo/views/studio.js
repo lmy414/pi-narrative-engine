@@ -95,8 +95,14 @@ function stResolveSessionId(sessions, currentId) {
   return list[0] ? list[0].id : null;
 }
 
+/** 🟡（2026-08-08）：stLoadData 代际守卫计数（防旧响应覆盖新数据） */
+let stLoadDataSeq = 0;
+
 async function stLoadData() {
+  // 🟡（2026-08-08）：代际守卫——快速切换项目/路由时旧响应不得覆盖新数据
+  const seq = ++stLoadDataSeq;
   const sessionData = await apiCall('getChatSessions');
+  if (seq !== stLoadDataSeq) return;
   const sessions = sessionData.sessions || [];
   setStState('studioSessions', sessions || []);
 
@@ -108,10 +114,12 @@ async function stLoadData() {
   setStState('sessionStatus', statusMap);
 
   const currentId = stResolveSessionId(sessions, stState('currentSessionId', null));
+  if (seq !== stLoadDataSeq) return;
   setStState('currentSessionId', currentId);
 
   if (currentId) {
     const messageData = await apiCall('getChatMessages', currentId);
+    if (seq !== stLoadDataSeq) return;
     setStState('studioMessages', messageData.messages || []);
   } else {
     setStState('studioMessages', []);
@@ -1061,7 +1069,8 @@ function stOrFilterHtml() {
 /** 按筛选条件过滤后的 Plan 列表 */
 function stOrFilteredPlansHtml(plans) {
   const filter = stOrState('filter', null);
-  const filtered = filter ? plans.filter((p) => p.status === filter) : plans;
+  // 🟡（2026-08-08）：防御空元素（后端数据异常时不再 TypeError 炸整个列表）
+  const filtered = (plans || []).filter((p) => p && (filter === null || p.status === filter));
   const selectedId = stOrState('selectedPlanId', null);
   return filtered.map((p) => stOrPlanSummaryHtml(p, p.planId === selectedId)).join('');
 }

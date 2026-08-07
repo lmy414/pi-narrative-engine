@@ -61,6 +61,20 @@ export async function insertChapterSection(
         `锚点 ${anchor} 未找到，无法在该事件之后插入`,
       );
     }
+    // 🟡（2026-08-08）：锚点重复时拒绝（此前 indexOf 取首处静默错位——往
+    // 错误区块后插入，用户以为插在目标事件后）
+    if (content.indexOf(anchor, anchorIdx + anchor.length) !== -1) {
+      throw new Error(
+        `锚点 ${anchor} 在文件中重复出现，无法确定插入位置`,
+      );
+    }
+    // 🟡 审计修正：新锚点 newEventId 防重（与 append 的 🟠-13 对称——insert
+    // 复用既有 evt_ id 会制造双锚点孤儿区块）
+    if (content.includes(`<!-- event: ${newEventId} -->`)) {
+      throw new Error(
+        `新事件 ID ${newEventId} 已在章节中存在锚点，拒绝重复插入: ${chapterPath}`,
+      );
+    }
 
     // 锚点之后开始查找下一个锚点
     const afterAnchor = anchorIdx + anchor.length;

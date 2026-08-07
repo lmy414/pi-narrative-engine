@@ -1,6 +1,8 @@
 /** 调试视图：只消费真实 DebugEvent 字段。 */
 
 const DBG_STATUSES = ['all', 'start', 'end', 'error'];
+/** 🟡（2026-08-08）：日志缓冲上限（防无限增长） */
+const DBG_MAX_LOGS = 500;
 const DBG_SIM_SCRIPT = [
   { traceId: 'trace-sim-01', stage: 'planner', status: 'start', input: { storyTime: 'ch008.ev002' } },
   { traceId: 'trace-sim-01', stage: 'planner', status: 'end', output: { candidateCount: 3 }, durationMs: 1300 },
@@ -166,7 +168,10 @@ function dbgSimulateLog() {
   const template = DBG_SIM_SCRIPT[cursor % DBG_SIM_SCRIPT.length];
   const event = { id: `sim-${String(cursor + 1).padStart(3, '0')}`, ts: Date.now(), ...template };
   setDbgState('dbgSimCursor', cursor + 1);
-  setDbgState('dbgLogs', (dbgState('dbgLogs', []) || []).concat(event));
+  // 🟡（2026-08-08）：日志上限截断（防状态数组无限增长 + 每次全量 O(n) 过滤）
+  const logs = dbgState('dbgLogs', []) || [];
+  const next = logs.concat(event);
+  setDbgState('dbgLogs', next.length > DBG_MAX_LOGS ? next.slice(next.length - DBG_MAX_LOGS) : next);
   dbgRenderLogList();
   dbgUpdateBuffer();
   if (dbgState('dbgAutoScroll', true)) dbgScrollToBottom();
@@ -201,7 +206,9 @@ function dbgHandleStreamEvent(event) {
   if (!event || typeof event !== 'object' || !event.id) return;
   const logs = dbgState('dbgLogs', []) || [];
   if (logs.some((item) => item.id === event.id)) return;
-  setDbgState('dbgLogs', logs.concat(event));
+  // 🟡 审计修正：真实 SSE 流同样套用上限（长会话日志不再无限增长）
+  const next = logs.concat(event);
+  setDbgState('dbgLogs', next.length > DBG_MAX_LOGS ? next.slice(next.length - DBG_MAX_LOGS) : next);
   dbgRenderLogList();
   dbgUpdateBuffer();
   if (dbgState('dbgAutoScroll', true)) dbgScrollToBottom();

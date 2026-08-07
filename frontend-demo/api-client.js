@@ -35,7 +35,19 @@
       options.body = JSON.stringify(body);
     }
     var response = await root.fetch(API_ROOT + path, options);
-    var envelope = await response.json();
+    // 🟡（2026-08-08）：非 JSON 响应（如网关 HTML 错误页）容错——此前
+    // response.json() 抛 SyntaxError TypeError 噪音，无法定位真实错误
+    var envelope;
+    try {
+      envelope = await response.json();
+    } catch {
+      envelope = {
+        ok: false,
+        data: null,
+        error: { code: 'BAD_RESPONSE', message: '服务端返回非 JSON 响应（HTTP ' + response.status + '）' },
+        _status: response.status,
+      };
+    }
     if (transform && envelope && envelope.ok) envelope.data = transform(envelope.data);
     if (!response.ok && envelope && envelope._status === undefined) envelope._status = response.status;
     return envelope;

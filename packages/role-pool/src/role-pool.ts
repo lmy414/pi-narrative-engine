@@ -110,8 +110,11 @@ export async function interact(
 
   let turnIndex = 0;
   for (const member of cmd.cast) {
-    const token = hooks?.onTurnStart?.(member, turnIndex++);
+    // 🟡（2026-08-08）：onTurnStart 移入 try——此前钩子在 try 外，钩子抛错
+    // 直接中断整个 interact（后续角色全部缺席且无错误记录）
+    let token: unknown;
     try {
+      token = hooks?.onTurnStart?.(member, turnIndex++);
       // 透传 executionHints 到 system prompt（让角色也遵守用户特殊要求）
       const systemPrompt = buildSystemPrompt(member, ctx.ruleSet, cmd.executionHints);
       const userMessage = buildUserMessage(cmd, member, priorActions);
@@ -126,11 +129,21 @@ export async function interact(
         action: output.action,
         ...(output.target !== undefined ? { target: output.target } : {}),
       });
-      hooks?.onTurnEnd?.(token, member, { output });
+      // 🟡 审计修正：成功路径 onTurnEnd 独立 try——钩子抛错不得给已成功的角色
+      // 记虚假 error 或二次调用 onTurnEnd（此前落入外层 catch 双重问题）
+      try {
+        hooks?.onTurnEnd?.(token, member, { output });
+      } catch (hookErr) {
+        console.error(`[role-pool] onTurnEnd 钩子抛错（已忽略）: ${(hookErr as Error).message}`);
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       errors.push({ characterId: member.characterId, error });
-      hooks?.onTurnEnd?.(token, member, { error });
+      try {
+        hooks?.onTurnEnd?.(token, member, { error });
+      } catch (hookErr) {
+        console.error(`[role-pool] onTurnEnd 钩子抛错（已忽略）: ${(hookErr as Error).message}`);
+      }
       // 跳过失败角色，继续后续角色
     }
   }
