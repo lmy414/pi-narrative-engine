@@ -138,3 +138,50 @@ test("insertChapterSection: 不影响其他锚点区间的内容", async () => {
   assert.ok(content.includes("第二段正文。"), "evt_002 正文应保留");
   assert.ok(content.includes("第三段正文。"), "evt_003 正文应保留");
 });
+
+// ============ 🟠-21 并发写锁（2026-08-08） ============
+
+test("insertChapterSection: 同文件并发插入双区块共存（🟠-21）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+  try {
+    const filePath = path.join(dir, "第1章.md");
+    await writeFile(
+      filePath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", ""].join("\n"),
+      "utf8",
+    );
+    // 两个并发 insert（基于同一初始内容）——per-file 锁保证串行读-改-写
+    await Promise.all([
+      insertChapterSection(filePath, "evt_001", "evt_002", "第二段。"),
+      insertChapterSection(filePath, "evt_001", "evt_003", "第三段。"),
+    ]);
+    const content = await readFile(filePath, "utf8");
+    assert.ok(content.includes("<!-- event: evt_002 -->"), "evt_002 锚点应保留");
+    assert.ok(content.includes("<!-- event: evt_003 -->"), "evt_003 锚点应保留");
+    assert.ok(content.includes("第二段。") && content.includes("第三段。"), "两区块正文都应保留（无覆盖丢失）");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("insertChapterSection: 失败 insert 不断链（🟠-21）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+  try {
+    const filePath = path.join(dir, "第1章.md");
+    await writeFile(
+      filePath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", ""].join("\n"),
+      "utf8",
+    );
+    // 失败的 insert（锚点不存在）与成功的 insert 并发——失败不阻塞后续
+    await Promise.all([
+      insertChapterSection(filePath, "evt_nonexistent", "evt_bad", "坏").catch(() => "failed"),
+      insertChapterSection(filePath, "evt_001", "evt_002", "第二段。"),
+    ]);
+    const content = await readFile(filePath, "utf8");
+    assert.ok(content.includes("<!-- event: evt_002 -->"), "失败后成功 insert 仍应落地");
+    assert.ok(!content.includes("<!-- event: evt_bad -->"), "失败 insert 不应写入");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -392,3 +392,20 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试**：13 个新用例（pipeline 幂等 3、append 防重 2、storyTime 唯一性 2、多闭合 1、章节完整性 2、epub fixture 3）。759 全绿。
 
 **遗留（下一批）**：🟠-20/21/22 + 🟡 全部 + BUG-037（用户决策）。
+
+---
+
+## 14. 批次 3c 修复闭环（2026-08-08，第三梯队 role-pool/scheduler 3 项 —— 🟠 全部闭环）
+
+> 分支：`20260808-audit-fix-batch3c` → master（ff-only）。全量测试 764 项：762 pass / 0 fail / 2 skip（符号链接环境限制）。
+> **审计纪律**：3 项修复每项独立子代理审计，修正：🟠-22 头注释未同步（仍描述 ch-N 旧行为）+ ch000 章号越界边界（补 1-999 范围校验）；🟠-20/21 补测试缺项。
+
+| 编号 | 修复内容 | 审计修正 |
+|---|---|---|
+| 🟠-20 | extractRelations 零校验过滤：空 source/target/label 跳过 + ID 格式校验（`^[A-Za-z0-9_.:-]+$`，不断言 ent_ 前缀防误杀自定义 ID） | ✅ 无功能缺陷（label 自由文本不做格式限制合理；trim 规范化正确）；补 3 测试（空值/畸形 ID/trim）；附带发现：rel 元素本身 null 会抛 TypeError（前置问题）、world_relation_add 工具路径仍零校验（登记） |
+| 🟠-21 | insertChapterSection 整文件读-改-写加 per-file 写锁（进程内 Map，同 admin serialize 模式） | ✅ 锁语义正确（per-path 串行 + tail 吞 rejection + 无泄漏风险）；🔴 跨模块竞态未关闭（主会话 render_append 与队列 insert 并发仍可静默丢区块——队列内单消费者已串行，真正并发源是主会话工具；完整修复需 renderer 层共享锁，与包约束冲突，**登记遗留**）；补 2 测试（并发双区块共存/失败不断链） |
+| 🟠-22 | resolveChapterPath 只接受 `^ch\d{3}\.ev\d{3}$`（与 validateStoryTime 统一）+ 解析失败抛错（不兜底第 1 章） | 🔴 头注释仍描述 ch-N 旧行为 → 全文件重写同步；🔴 ch000 产出 `第0章-未命名.md` → 补 1-999 范围校验（与 importer parseStoryTime 对齐）；补边界测试（ch000 拒绝/ch999 通过/ch2 拒绝） |
+
+**测试**：+5 新用例（transforms 3、chapter-edit 2）+ resolver 测试改写（旧行为→新预期 + 边界）。764 全绿。
+
+**遗留**：🟡 全部（约 30 项，批次 4 批量清理）+ BUG-037（用户决策）+ 批次 3c 登记的跨模块并发写锁（renderer 层共享锁，待决策）。

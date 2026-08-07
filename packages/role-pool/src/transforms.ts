@@ -78,10 +78,19 @@ export function extractRelations(outputs: RoleAgentOutput[]): RelationUpdate[] {
   for (const out of outputs) {
     if (out.relation_update) {
       for (const rel of out.relation_update) {
+        // 🟠-20（2026-08-08）：零校验过滤——LLM 漏填 source/target/label 时
+        // 经非 strict addRelation 静默写入 `rel--label-...` 垃圾关系；
+        // 空值跳过 + ID 格式校验（防空白/引号注入类畸形 ID，不断言 ent_ 前缀
+        // 以免误杀自定义 entityId）
+        const source = out.characterId?.trim();
+        const target = rel.target?.trim();
+        const label = rel.label?.trim();
+        if (!source || !target || !label) continue;
+        if (!/^[A-Za-z0-9_.:-]+$/.test(source) || !/^[A-Za-z0-9_.:-]+$/.test(target)) continue;
         rels.push({
-          source: out.characterId,
-          target: rel.target,
-          label: rel.label,
+          source,
+          target,
+          label,
         });
       }
     }

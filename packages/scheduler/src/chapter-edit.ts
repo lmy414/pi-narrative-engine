@@ -21,6 +21,24 @@ import {
   EVENT_ANCHOR_PREFIX,
 } from "@pi/renderer";
 
+// 🟠-21（2026-08-08）：进程内 per-file 写锁——insertChapterSection 是整文件
+// 读-改-写，与事件队列 append/modify 另一路径并发时后写者基于旧内容整体覆盖、
+// 先写者区块整块丢失（静默）。按文件路径串行化读写（同 admin serialize 模式）。
+const fileLocks = new Map<string, Promise<unknown>>();
+
+function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const prev = fileLocks.get(filePath) ?? Promise.resolve();
+  const run = prev.then(fn);
+  fileLocks.set(
+    filePath,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
+
 /**
  * 在指定锚点之后插入新事件区块
  *
@@ -46,50 +64,53 @@ export async function insertChapterSection(
   newEventId: string,
   text: string,
 ): Promise<void> {
-  await ensureChapterFile(chapterPath);
-  const content = await readChapter(chapterPath);
+  // 🟠-21：整文件读-改-写包进 per-file 锁（并发 append/modify/insert 串行化）
+  return withFileLock(chapterPath, async () => {
+    await ensureChapterFile(chapterPath);
+    const content = await readChapter(chapterPath);
 
-  const anchor = `<!-- event: ${afterEventId} -->`;
-  const anchorIdx = content.indexOf(anchor);
-  if (anchorIdx === -1) {
-    throw new Error(
-      `锚点 ${anchor} 未找到，无法在该事件之后插入`,
-    );
-  }
-
-  // 锚点之后开始查找下一个锚点
-  const afterAnchor = anchorIdx + anchor.length;
-  const nextAnchorIdx = content.indexOf(EVENT_ANCHOR_PREFIX, afterAnchor);
-
-  // 标准化新文本（确保末尾换行）
-  const normalizedText = text.endsWith("\n") ? text : text + "\n";
-  const newBlock = `<!-- event: ${newEventId} -->\n\n${normalizedText}`;
-
-  let newContent: string;
-  if (nextAnchorIdx === -1) {
-    // 无下一锚点：在文件末尾追加新区块（与 appendToChapter 分隔逻辑一致）
-    const separator = content.endsWith("\n\n")
-      ? ""
-      : content.endsWith("\n")
-      ? "\n"
-      : "\n\n";
-    newContent = content + separator + newBlock;
-  } else {
-    // 有下一锚点：在下一锚点之前插入新区块
-    const before = content.slice(0, nextAnchorIdx);
-    const after = content.slice(nextAnchorIdx);
-    // 确保 before 末尾有空行分隔（before 末尾可能是 \n、\n\n 或无 \n）
-    let sep: string;
-    if (before.endsWith("\n\n")) {
-      sep = "";
-    } else if (before.endsWith("\n")) {
-      sep = "\n";
-    } else {
-      sep = "\n\n";
+    const anchor = `<!-- event: ${afterEventId} -->`;
+    const anchorIdx = content.indexOf(anchor);
+    if (anchorIdx === -1) {
+      throw new Error(
+        `锚点 ${anchor} 未找到，无法在该事件之后插入`,
+      );
     }
-    // 新区块和下一锚点之间用 \n 分隔（使下一锚点前有空行）
-    newContent = before + sep + newBlock + "\n" + after;
-  }
 
-  await fs.writeFile(chapterPath, newContent, "utf8");
+    // 锚点之后开始查找下一个锚点
+    const afterAnchor = anchorIdx + anchor.length;
+    const nextAnchorIdx = content.indexOf(EVENT_ANCHOR_PREFIX, afterAnchor);
+
+    // 标准化新文本（确保末尾换行）
+    const normalizedText = text.endsWith("\n") ? text : text + "\n";
+    const newBlock = `<!-- event: ${newEventId} -->\n\n${normalizedText}`;
+
+    let newContent: string;
+    if (nextAnchorIdx === -1) {
+      // 无下一锚点：在文件末尾追加新区块（与 appendToChapter 分隔逻辑一致）
+      const separator = content.endsWith("\n\n")
+        ? ""
+        : content.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+      newContent = content + separator + newBlock;
+    } else {
+      // 有下一锚点：在下一锚点之前插入新区块
+      const before = content.slice(0, nextAnchorIdx);
+      const after = content.slice(nextAnchorIdx);
+      // 确保 before 末尾有空行分隔（before 末尾可能是 \n、\n\n 或无 \n）
+      let sep: string;
+      if (before.endsWith("\n\n")) {
+        sep = "";
+      } else if (before.endsWith("\n")) {
+        sep = "\n";
+      } else {
+        sep = "\n\n";
+      }
+      // 新区块和下一锚点之间用 \n 分隔（使下一锚点前有空行）
+      newContent = before + sep + newBlock + "\n" + after;
+    }
+
+    await fs.writeFile(chapterPath, newContent, "utf8");
+  });
 }

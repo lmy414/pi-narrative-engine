@@ -252,3 +252,43 @@ test("extractRelations: source 不再是 actor 名字（回归保护）", () => 
   assert.notEqual(rels[0].source, "林冲", "source 不应是 actor 名字");
   assert.equal(rels[0].source, "linchong", "source 应是 characterId");
 });
+
+// ============ 🟠-20 零校验过滤（2026-08-08） ============
+
+test("extractRelations: 空 source/target/label 整条跳过（🟠-20）", () => {
+  const outputs: RoleAgentOutput[] = [
+    // 各类缺失组合：undefined / 空串 / 纯空白
+    { characterId: "", actor: "A", action: "x", relation_update: [{ target: "b", label: "L" }] },
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: "   ", label: "L" }] },
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: "b", label: "" }] },
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: "b", label: undefined as never }] },
+    { characterId: "a", actor: "A", action: "x" }, // 无 relation_update
+  ];
+  const rels = extractRelations(outputs);
+  assert.equal(rels.length, 0, "空值关系应全部跳过（防 rel--label- 垃圾关系）");
+});
+
+test("extractRelations: 畸形 ID（中文/引号/空白）跳过，合法自定义 ID 保留（🟠-20）", () => {
+  const outputs: RoleAgentOutput[] = [
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: "陆谦", label: "仇敌" }] },
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: 'b" onmouseover="x', label: "L" }] },
+    { characterId: "a", actor: "A", action: "x", relation_update: [{ target: "b c", label: "L" }] },
+    // 合法自定义 ID（非 ent_ 前缀）不误杀
+    { characterId: "linchong", actor: "林冲", action: "x", relation_update: [{ target: "master", label: "师徒" }] },
+  ];
+  const rels = extractRelations(outputs);
+  assert.equal(rels.length, 1, "畸形 ID 跳过，仅合法自定义 ID 保留");
+  assert.equal(rels[0].source, "linchong");
+  assert.equal(rels[0].target, "master");
+});
+
+test("extractRelations: 首尾空白被 trim 后推入（🟠-20）", () => {
+  const outputs: RoleAgentOutput[] = [
+    { characterId: "  linchong  ", actor: "林冲", action: "x", relation_update: [{ target: " master ", label: " 师徒 " }] },
+  ];
+  const rels = extractRelations(outputs);
+  assert.equal(rels.length, 1);
+  assert.equal(rels[0].source, "linchong", "source 应 trim");
+  assert.equal(rels[0].target, "master", "target 应 trim");
+  assert.equal(rels[0].label, "师徒", "label 应 trim");
+});
