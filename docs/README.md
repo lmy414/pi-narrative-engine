@@ -27,6 +27,12 @@
 |------|------|
 | [audits/frontend-bug-backlog.md](audits/frontend-bug-backlog.md) | 前端缺陷 backlog（BUG-001~010 全 fixed） |
 | [plans/2026-08-04-phase2-plan.md](plans/2026-08-04-phase2-plan.md) | 第二阶段开发目标计划（批次 1-3 已实施，G2-G6 待执行） |
+| [plans/2026-08-08-live-stage-visibility.md](plans/2026-08-08-live-stage-visibility.md) | 编排过程实时可见性需求记录（用户提出，已记录未实施） |
+| [plans/2026-08-08-novel-project-structure-v3.md](plans/2026-08-08-novel-project-structure-v3.md) | 小说工程结构 v3 重新约定需求记录（章节/事件粒度 + 额外文件区域，已记录未实施） |
+| [plans/2026-08-08-underworld-graph-api-change-preparedness.md](plans/2026-08-08-underworld-graph-api-change-preparedness.md) | underworld-graph API 变更应对预案（依赖面盘点 + 契约金丝雀等准备措施，已记录未实施） |
+| [plans/2026-08-08-prompt-engineering-audit.md](plans/2026-08-08-prompt-engineering-audit.md) | 提示词工程审计与同类产品调研规划（现状=0 盘点 + 调研范围，已记录未实施） |
+| [plans/2026-08-08-floating-chat-module-coupling.md](plans/2026-08-08-floating-chat-module-coupling.md) | 模块割裂治理：跨视图悬浮对话与结果直达（排期：尚早，持续优化） |
+| [plans/2026-08-08-rust-shell-packaging.md](plans/2026-08-08-rust-shell-packaging.md) | Rust 前端壳层打包（后续建议，排期：尚早；区别于已弃用的 Rust 重写前端方案） |
 | [2026-08-04-documentation-inventory.md](2026-08-04-documentation-inventory.md) | 文档盘点与分类（本索引的底稿） |
 
 ## 设计归档（已实施/已决策，冻结保存）
