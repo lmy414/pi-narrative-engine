@@ -136,7 +136,7 @@ ViewRender.graph = () => {
       .filter((e) => e.entityType === 'character')
       .map((e) => ({ id: e.entityId, label: `${(e.properties && e.properties.name) || e.entityId} 视角` })),
   ]
-    .map((o) => `<option value="${o.id}"${o.id === characterView ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
+    .map((o) => `<option value="${escapeHtml(o.id)}"${o.id === characterView ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
     .join('');
 
   return `
@@ -215,7 +215,7 @@ function graphEntityItemHtml(e, selectedId) {
   const type = ENTITY_TYPES[e.entityType] || { label: e.entityType, color: '#8a8a8a' };
   const name = (e.properties && e.properties.name) || e.entityId;
   return `
-  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity(${q(e.entityId)})" data-entity-id="${e.entityId}">
+  <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity(${q(e.entityId)})" data-entity-id="${escapeHtml(e.entityId)}">
     <span class="entity-dot" style="background:${type.color}"></span>
     <div class="entity-info">
       <div class="entity-name">${escapeHtml(name)}</div>

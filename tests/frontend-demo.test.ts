@@ -385,6 +385,16 @@ test("BUG-035: detailEffectiveStoryTime 在 storyTimes 为 undefined 时不抛�
 
 // ============ BUG-036: graphInit3D 增量更新 ============
 
+/**
+ * 与 app.js escapeHtml 同语义的 5 转义（🟠-23 2026-08-08）。
+ * 测试注入用真实现（原恒等 stub 使渲染转义不可测）；
+ * app.js 本体一致性由代码审查与浏览器测试轮覆盖。
+ */
+const REAL_ESCAPE_HTML = (s: string) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c],
+  );
+
 const graphCode = readFileSync(new URL("../frontend-demo/views/graph.js", import.meta.url), "utf-8");
 
 /** 用 vm 沙箱加载 graph.js，mock ForceGraph3D/THREE/DOM，返回沙箱与调用计数 */
@@ -425,7 +435,7 @@ function loadGraphView(): { context: any; stats: { created: number; graphData: n
       OctahedronGeometry: function () {}, TetrahedronGeometry: function () {},
       MeshLambertMaterial: function () {},
     },
-    escapeHtml: (s: string) => s, q: (s: string) => "'" + String(s) + "'",
+    escapeHtml: REAL_ESCAPE_HTML, q: (s: string) => "'" + String(s) + "'",
     icon: () => "", ENTITY_TYPES: { character: { label: "角色", color: "#f00" } },
     getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
     document: { documentElement: fakeDocEl, createElement: () => ({ className: "", textContent: "", style: {}, appendChild: () => {} }) },
@@ -456,4 +466,46 @@ test("BUG-036: graphInit3D 首次调用创建实例并 zoomToFit，第二次走�
   assert.equal(stats.created, createdAfterFirst, "第二次调用不应创建新 ForceGraph3D 实例");
   assert.ok(stats.graphData >= 1, "第二次调用应通过 graphData 增量更新");
   assert.equal(stats.zoomToFit, zoomAfterFirst, "第二次调用不应触发 zoomToFit");
+});
+
+// ============ 🟠-23: 转义族回归（2026-08-08） ============
+// flJs（files.js）/ settingsJs（settings.js）与 q() 同一实现模式，
+// 转义一致性由子代理代码审计 + 浏览器测试轮覆盖（此处 q() 为唯一可
+// 直接注入的公共实现，测试其 `"` 转义即代表该模式）。
+
+test("q(): 输出经 HTML 属性解析安全——双引号/与号走实体层（🟠-23）", () => {
+  const q = sandbox.q as (s: string) => string;
+  // 双引号 → &quot;（实体层：HTML 属性值内解码为字面字符、不闭合属性；
+  // 反斜杠在 HTML 属性解析中无转义语义，\" 里的 " 仍会闭合 onclick="..." 注入处理器）
+  const payload = 'a" onmouseover="alert(1)';
+  const out = q(payload);
+  assert.ok(!out.includes('"'), `q() 输出不得含裸双引号: ${out}`);
+  assert.ok(out.includes("&quot;"), `应包含 &quot; 实体: ${out}`);
+  // 与号先转：输入含 &quot; 字面时不得二次解码为裸引号
+  assert.equal(q('a&b'), "'a&amp;b'");
+  assert.equal(q('&quot;x'), "'&amp;quot;x'", "输入含 &quot; 字面时不得二次解码绕过");
+  // 既有 JS 层转义不回归（单引号/反斜杠/换行）
+  assert.equal(q("it's"), "'it\\'s'");
+  assert.equal(q("a\\b"), "'a\\\\b'");
+  assert.equal(q("a\nb"), "'a\\nb'");
+});
+
+test("graph.js: data-entity-id 属性经 escapeHtml 转义，无属性注入（🟠-23）", () => {
+  const { context } = loadGraphView();
+  const html = context.graphEntityItemHtml(
+    {
+      entityId: 'evil" onmouseover="alert(1)',
+      entityType: "character",
+      properties: { name: "测试实体" },
+      summary: "",
+    },
+    null,
+  );
+  // 属性值中的双引号必须被转义为 &quot;（否则可注入 onmouseover 处理器）
+  assert.ok(html.includes("&quot;"), `data-entity-id 应转义双引号: ${html}`);
+  assert.ok(
+    !/data-entity-id="[^"]*"[^>]*onmouseover=/.test(html),
+    "不应存在属性注入（onmouseover 被注入）",
+  );
+  assert.ok(html.includes('data-entity-id="evil&quot; onmouseover=&quot;alert(1)"'), "转义后的属性值应完整保留");
 });

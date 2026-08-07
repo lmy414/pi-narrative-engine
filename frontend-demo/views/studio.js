@@ -19,7 +19,8 @@
  *
  * 流式文本使用固定步长模拟；真实模式走 SSE 订阅。
  *
- * 注入安全：onclick 内联参数一律单引号 + escapeHtml（禁止裸 JSON.stringify 双引号注入）
+ * 注入安全：onclick 内联参数一律单引号 + q()（q 已转义 `" ' \ \n \r`，
+ * 见 demo-utils.js；禁止裸 JSON.stringify 双引号注入）
  *
  * 变更记录（2026-08-05）：移除「新建议程」按钮、派发表单、Plan 卡片、scheduler 状态轮询、
  * @提及功能、变更摘要/章节预览/执行状态栏。后端 scheduler 端点保留不动。统一到对话框内输入意图。
@@ -372,7 +373,7 @@ function stToolCardHtml(tc) {
   const status = tc.status || 'done';
   const statusLabel = { running: '执行中', done: '完成', error: '失败' }[status] || status;
   return `
-  <div class="st-tool-card st-tool-${status}" data-tool-call-id="${escapeHtml(tc.id || '')}">
+  <div class="st-tool-card st-tool-${escapeHtml(status)}" data-tool-call-id="${escapeHtml(tc.id || '')}">
     <div class="st-tool-header">
       <span class="st-tool-name">${escapeHtml(tc.name || '工具')}</span>
       <span class="st-tool-status">${statusLabel}</span>
@@ -1065,7 +1066,8 @@ function stOrPlanSummaryHtml(plan, isSelected) {
 /** 状态徽章 */
 function stOrStatusBadgeHtml(status) {
   const labels = { confirmed: '待确认', committing: '处理中', committed: '已完成', error: '失败' };
-  return `<span class="st-or-badge st-or-badge-${status}">${escapeHtml(labels[status] || status)}</span>`;
+  // 🟠-23（2026-08-08）：status 来自后端 scheduler 数据，class 插值包 escapeHtml（与 st-tool-${status} 同款）
+  return `<span class="st-or-badge st-or-badge-${escapeHtml(status)}">${escapeHtml(labels[status] || status)}</span>`;
 }
 
 /** 当前选中 Plan 的五阶段详情 */

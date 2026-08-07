@@ -264,7 +264,7 @@ function eventTypeTagsHtml() {
     { type: 'death', label: 'death 退场' }
   ];
   return tags.map(t =>
-    `<span class="ev-type-tag${active === t.type ? ' active' : ''}" data-type="${t.type}" onclick="eventSelectType(${q(t.type)})">${escapeHtml(t.label)}</span>`
+    `<span class="ev-type-tag${active === t.type ? ' active' : ''}" data-type="${escapeHtml(t.type)}" onclick="eventSelectType(${q(t.type)})">${escapeHtml(t.label)}</span>`
   ).join('');
 }
 
@@ -402,7 +402,9 @@ function eventSelectEvent(eventId) {
   }
   // 定向更新（不做整视图重建）：保留滚动位置，避免点击后跳回列表顶部
   document.querySelectorAll('.ev-event-card.selected').forEach((el) => el.classList.remove('selected'));
-  const card = $('.ev-event-card[data-event-id="' + eventId + '"]');
+  // 🟠-23（2026-08-08）：eventId 是自由文本（可含 `"`/`\`），CSS.escape 防选择器
+  // SyntaxError 使点击处理整体失效（先例 debug.js:159）
+  const card = $('.ev-event-card[data-event-id="' + CSS.escape(eventId) + '"]');
   if (card) {
     card.classList.add('selected');
     if (!card.classList.contains('expanded')) {
@@ -427,7 +429,8 @@ function eventToggleExpand(eventId) {
   if (i >= 0) arr.splice(i, 1);
   else arr.push(eventId);
   setEventState('eventExpanded', arr);
-  const card = $('.ev-event-card[data-event-id="' + eventId + '"]');
+  // 🟠-23：同 eventSelectEvent，CSS.escape 防选择器解析失败
+  const card = $('.ev-event-card[data-event-id="' + CSS.escape(eventId) + '"]');
   if (card) {
     card.classList.toggle('expanded');
     const t = card.querySelector('.ev-event-expand-text');
@@ -442,7 +445,8 @@ function eventToggleEntity(entityId) {
   else arr.push(entityId);
   setEventState('eventEntityFilter', arr);
   eventRefreshTimeline();
-  const row = $('.ev-entity-item[data-entity-filter-id="' + entityId + '"]');
+  // 🟠-23：同 eventSelectEvent，CSS.escape 防选择器解析失败
+  const row = $('.ev-entity-item[data-entity-filter-id="' + CSS.escape(entityId) + '"]');
   if (row) row.classList.toggle('checked');
 }
 

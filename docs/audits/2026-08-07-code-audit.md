@@ -327,3 +327,23 @@ plannerResult = await plannerCollected.promise;  // 走不到
 - `tests/chat-routes.test.ts`（+2）：ensureHost 并发单飞只建 1 host；activateSession 前缀命中不重复创建 host
 
 **遗留（下一批）**：🟠-1/6/9/10/11/12/13/14/15/16/17/18/20/21/22/24/25/26/27 + 🟡 全部；其中 🟠-23 等前端项按前端测试纪律在批次 2b 处理。
+
+---
+
+## 11. 批次 2b 修复闭环（2026-08-08，前端 🟠-23）
+
+> 分支：`20260808-audit-fix-batch2b` → master（ff-only）。全量测试 739 项：737 pass / 0 fail / 2 skip（符号链接环境限制）。前端测试轮已跑（AGENTS.md 纪律），文档：`docs/audits/frontend-test-runs/2026-08-08-esc-attr-escaping.md`。
+> **审计纪律**：修复完成后开子代理独立审计，发现核心缺陷（`\"` 非 HTML 属性转义——反斜杠在 HTML tokenizer 中无转义语义，`\"` 里的 `"` 仍闭合属性注入处理器，headless Chrome 实测复现）后改实体层转义，复核代理二次实证 7 场景注入消除。
+
+| 修复点 | 内容 | 证据 |
+|---|---|---|
+| 🟠-23 核心 | `q()`（demo-utils.js）/ `flJs()`（files.js）/ `settingsJs()`（settings.js）双引号与与号走 **HTML 实体层转义**：`&`→`&amp;`（先）、`"`→`&quot;`（后），保留 JS 层 `\ ' \n \r`——实体在属性值内解码为字面字符、不闭合属性；`&` 先转防 `&quot;` 输入二次解码绕过 | headless Chrome 7 场景实测（含原始注入 payload `x" onmouseover=alert(1)//`）属性注入消除 |
+| 属性裸插值 | app.js:538-539/579/582（弹窗 value）、graph.js:139（option value）/218（data-entity-id）、projects.js（menuId 渲染 id）、events.js:267（data-type）统一包 `escapeHtml`（5 转义，含 `&` 先转，无二次解码问题） | 测试轮 DOM 属性实测：data-entity-id/option value/弹窗预填全部正确 |
+| querySelector | events.js:405/430/445 原始 id 拼接改 `CSS.escape()`（debug.js:159 先例）；app.js toggleProjectMenu 选择器同步加固 | 测试轮事件卡展开/实体过滤无 SyntaxError |
+| class 插值 | debug.js:110/112/113、studio.js:376/1069 外部状态值进 class 属性包 escapeHtml（审计发现遗漏点补全） | 审计复核全量 grep 无遗漏 |
+| 注释 | studio.js:22 约定注释与实际实现对齐 | - |
+| 测试 | `tests/frontend-demo.test.ts` 新增：q() 输出级断言（无裸 `"`、含 `&quot;`、`&` 先转、JS 层不回归）+ graph 渲染转义断言（data-entity-id 无属性注入）；loadGraphView 的 escapeHtml stub 升级为真实现 | 739 全绿 |
+
+**测试轮结论**：🟠-23 涉及的全部可达交互路径通过（世界图实体选择/视角切换/快速弹窗、事件链展开/类型筛选/实体过滤、文件特殊字符路径打开、设置页签切换、工作室会话切换）；登记 1 个与本修复无关的既有缺陷 **BUG-037**（launcher 扫描 loading 不收敛，待用户决策）；2 个环境限制（服务未加 --embed 编排器不可用、模型不支持图像输入截图无法自动核验）。
+
+**遗留（下一批）**：🟠-1/6/9/10/11/12/13/14/15/16/17/18/20/21/22/24/25/26/27 + 🟡 全部 + BUG-037（用户决策）。

@@ -503,7 +503,9 @@ async function closeProject(dir) {
 
 function toggleProjectMenu(dir) {
   const id = 'menu-' + dir.replace(/[\\/:]/g,'-');
-  const el = $('#' + id);
+  // 🟠-23（2026-08-08）：menuId 可能含空格等 CSS 特殊字符（来自项目路径），
+  // CSS.escape 防选择器解析失败（与 debug.js 先例一致）
+  const el = $('#' + CSS.escape(id));
   if (!el) return;
   document.querySelectorAll('.dropdown-menu').forEach(m => { if (m !== el) m.classList.add('hidden'); });
   el.classList.toggle('hidden');
@@ -535,8 +537,8 @@ function openQuickEvent() {
       <div><label class="text-sm text-muted">类型</label><select id="qe-type" class="select" onchange="onQuickEventTypeChange()"><option value="birth">birth</option><option value="change">change</option><option value="death">death</option></select></div>
       <div id="qe-etype-row"><label class="text-sm text-muted">实体类型</label><select id="qe-etype" class="select"><option value="character">character（角色）</option><option value="location">location（地点）</option><option value="item">item（物品）</option><option value="concept">concept（概念）</option></select></div>
       <div><label class="text-sm text-muted">实体名称</label><input id="qe-name" class="input" placeholder="如：艾莉亚（birth 事件填写）" spellcheck="false"></div>
-      <div><label class="text-sm text-muted">故事时间</label><input id="qe-st" class="input" value="${App.storyTime || ''}"></div>
-      <div><label class="text-sm text-muted">实体 ID</label><input id="qe-entity" class="input" value="${App.viewState.selectedEntityId || ''}"></div>
+      <div><label class="text-sm text-muted">故事时间</label><input id="qe-st" class="input" value="${escapeHtml(App.storyTime || '')}"></div>
+      <div><label class="text-sm text-muted">实体 ID</label><input id="qe-entity" class="input" value="${escapeHtml(App.viewState.selectedEntityId || '')}"></div>
       <div><label class="text-sm text-muted">摘要</label><textarea id="qe-summary" class="textarea" rows="3"></textarea></div>
     </div>`,
     `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickEvent()">保存</button>`);
@@ -576,10 +578,10 @@ async function submitQuickEvent() {
 function openQuickRelation() {
   openModal('快速加关系',
     `<div class="space-y-3">
-      <div><label class="text-sm text-muted">源实体 ID</label><input id="qr-source" class="input" value="${App.viewState.selectedEntityId || ''}"></div>
+      <div><label class="text-sm text-muted">源实体 ID</label><input id="qr-source" class="input" value="${escapeHtml(App.viewState.selectedEntityId || '')}"></div>
       <div><label class="text-sm text-muted">目标实体 ID</label><input id="qr-target" class="input"></div>
       <div><label class="text-sm text-muted">关系标签</label><input id="qr-label" class="input" value="关联"></div>
-      <div><label class="text-sm text-muted">故事时间</label><input id="qr-st" class="input" value="${App.storyTime || ''}"></div>
+      <div><label class="text-sm text-muted">故事时间</label><input id="qr-st" class="input" value="${escapeHtml(App.storyTime || '')}"></div>
     </div>`,
     `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickRelation()">保存</button>`);
 }

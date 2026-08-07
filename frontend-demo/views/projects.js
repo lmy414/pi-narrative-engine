@@ -150,6 +150,8 @@ function toggleNewProjectForm() {
 function projectCardHtml(p) {
   const isActive = App.activeProject && App.activeProject.dir === p.dir;
   const name = p.meta?.name || p.relativePath;
+  // 🟠-23（2026-08-08）：menuId 含用户路径（可含引号/空格/CSS 特殊字符），
+  // 渲染进 id 属性需 escapeHtml；选择器侧（app.js toggleProjectMenu）用 CSS.escape 匹配
   const menuId = 'menu-' + p.dir.replace(/[\\/:]/g, '-');
   const menuItems = [
     p.needsMigration ? `<div class="dropdown-item" onclick="migrateProject(${q(p.dir)})">${icon('archive-restore', 'w-4 h-4')} 迁移项目</div>` : '',
@@ -182,7 +184,7 @@ function projectCardHtml(p) {
         <button class="btn btn-primary launcher-enter-btn" onclick="event.stopPropagation();activateProject(${q(p.dir)})">进入 ${icon('arrow-right', 'w-3.5 h-3.5')}</button>
         <div class="dropdown" onclick="event.stopPropagation()">
           <button class="btn btn-secondary launcher-menu-btn" onclick="toggleProjectMenu(${q(p.dir)})" title="更多操作">${icon('more-vertical', 'w-4 h-4')}</button>
-          <div id="${menuId}" class="dropdown-menu hidden">${menuItems}</div>
+          <div id="${escapeHtml(menuId)}" class="dropdown-menu hidden">${menuItems}</div>
         </div>
       </div>
     </article>

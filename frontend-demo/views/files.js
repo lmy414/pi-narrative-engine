@@ -50,9 +50,13 @@ function setFlState(key, value) {
 // ==================== 转义（onclick 内联参数） ====================
 
 // JS 字面量转义（语义同 views.js 的 q()，但本地定义、不依赖 views.js）：
-// 转义反斜杠 / 单引号 / 换行，使路径等用户可编辑文本可安全内联到 onclick 单引号串中
+// 转义反斜杠 / 单引号 / 换行，使路径等用户可编辑文本可安全内联到 onclick 单引号串中。
+// 🟠-23（2026-08-08）：双引号与与号走 HTML 实体层转义（&amp; 先、&quot; 后）——
+// 反斜杠在 HTML 属性解析中无转义语义，\" 里的 " 仍闭合 onclick="..." 属性注入处理器
 function flJs(str) {
   return "'" + String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
     .replace(/\n/g, '\\n')

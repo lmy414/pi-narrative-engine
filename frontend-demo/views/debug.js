@@ -107,10 +107,10 @@ function dbgLogItemHtml(event, density) {
   const expanded = (dbgState('dbgExpanded', []) || []).includes(event.id);
   const summary = event.error || dbgEventSummary(event.output) || dbgEventSummary(event.input) || event.status;
   return `
-    <div class="dbg-log-item dbg-lv-${event.status}${event.status === 'error' ? ' dbg-error-row' : ''}${expanded ? ' dbg-expanded' : ''}" data-id="${escapeHtml(event.id)}" onclick="dbgToggleExpand(${q(event.id)})">
+    <div class="dbg-log-item dbg-lv-${escapeHtml(event.status)}${event.status === 'error' ? ' dbg-error-row' : ''}${expanded ? ' dbg-expanded' : ''}" data-id="${escapeHtml(event.id)}" onclick="dbgToggleExpand(${q(event.id)})">
       <div class="dbg-log-meta"><span class="dbg-log-timestamp">${dbgFormatTime(event.ts)}</span>${density === 'detailed' ? `<span class="dbg-log-trace"><span class="dbg-trace-id">${escapeHtml(event.traceId || '')}</span></span>` : ''}</div>
-      <span class="dbg-span-mark dbg-span-${event.status || 'start'}"></span>
-      <span class="dbg-log-level dbg-lv-${event.status}" title="${escapeHtml(event.status || '')}"></span>
+      <span class="dbg-span-mark dbg-span-${escapeHtml(event.status || 'start')}"></span>
+      <span class="dbg-log-level dbg-lv-${escapeHtml(event.status)}" title="${escapeHtml(event.status || '')}"></span>
       <span class="dbg-log-module">${escapeHtml(event.stage || '')}</span>
       <span class="dbg-log-message">${event.status === 'error' ? icon('circle-alert', 'dbg-error-icon') : ''}${escapeHtml(summary)}</span>
       <span class="dbg-log-expand">${icon('chevron-down', 'dbg-chevron')}</span>

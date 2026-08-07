@@ -17,8 +17,17 @@ const viewLoaders = {};
 // 用于 inline event handler 的单引号字符串转义（解决 Windows 路径反斜杠问题）。
 // 被 views/projects.js / views/debug.js 引用；
 // views/files.js / views/settings.js 各有本地转义函数（flJs / settingsJs），不依赖此函数。
+// 🟠-23（2026-08-08）：双引号与与号走 HTML 实体层转义（&amp; 先、&quot; 后）——
+// 反斜杠在 HTML 属性解析中无转义语义（\" 里的 " 仍闭合属性，可注入新事件处理器）；
+// 实体层转义在属性值内解码为字面字符、不闭合属性，且 & 先转防止 &quot; 二次解码绕过。
 function q(str) {
-  return "'" + String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r') + "'";
+  return "'" + String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r') + "'";
 }
 
 (function (root, factory) {
