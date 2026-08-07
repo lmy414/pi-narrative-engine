@@ -175,6 +175,16 @@ function customApiKey(authStorage: AuthStorage, id: string): string | undefined 
   return cred && cred.type === "api_key" ? cred.key : undefined;
 }
 
+/** 🟡（2026-08-08）：安全解码路径段——畸形 % 编码（如 /%）返回原样，
+ * 路由不匹配走 404，而非在 try 外抛 URIError 得 500 */
+function safeDecodeSegment(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 /** 校验 slot 名合法（5 个 LlmSlot 之一） */
 function assertLlmSlot(name: string): asserts name is LlmSlotName {
   if (!(LLM_SLOT_NAMES as readonly string[]).includes(name)) {
@@ -184,6 +194,22 @@ function assertLlmSlot(name: string): asserts name is LlmSlotName {
     err.code = "INVALID_SLOT";
     throw err;
   }
+}
+
+/** 🟡（2026-08-08）：scan/meta 共用白名单校验——app-config defaultScanRoots 非空时
+ * dir 必须落在某个白名单根（或其子目录）内；白名单为空（首次配置）放行 */
+async function isWithinAllowedRoots(dir: string, appConfigDir?: string): Promise<boolean> {
+  if (!appConfigDir) return true;
+  const appConfig = await readAppConfig(appConfigDir);
+  const allowedRoots = appConfig?.launcher.defaultScanRoots ?? [];
+  if (allowedRoots.length === 0) return true;
+  const resolved = resolve(dir);
+  return allowedRoots.some((allowed) => {
+    const rel = relative(resolve(allowed), resolved);
+    // rel === "" 表示 dir 恰等于白名单根本身（应放行）；
+    // 其余需为根下的相对子路径（不以 .. 开头且非绝对路径）
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  });
 }
 
 /**
@@ -202,7 +228,7 @@ export async function handleExtApi(
     .slice("/api".length)
     .split("/")
     .filter(Boolean)
-    .map((s) => decodeURIComponent(s));
+    .map((s) => safeDecodeSegment(s));
   const [head] = segments;
   if (head !== "files" && head !== "projects" && head !== "admin") return false;
 
@@ -299,25 +325,14 @@ async function handleProjects(
       fail(res, 400, "MISSING_FIELD", "缺少必填参数 root");
       return;
     }
-    const appConfig = ctx.appConfigDir ? await readAppConfig(ctx.appConfigDir) : null;
-    const allowedRoots = appConfig?.launcher.defaultScanRoots ?? [];
-    if (allowedRoots.length > 0) {
-      const resolved = resolve(root);
-      const within = allowedRoots.some((allowed) => {
-        const rel = relative(resolve(allowed), resolved);
-        // rel === "" 表示 root 恰等于白名单根本身（应放行）；
-        // 其余需为根下的相对子路径（不以 .. 开头且非绝对路径）
-        return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-      });
-      if (!within) {
-        fail(
-          res,
-          403,
-          "SCAN_ROOT_NOT_ALLOWED",
-          `扫描根目录不在白名单内（app-config launcher.defaultScanRoots），已拒绝：${resolved}`,
-        );
-        return;
-      }
+    if (!(await isWithinAllowedRoots(root, ctx.appConfigDir))) {
+      fail(
+        res,
+        403,
+        "SCAN_ROOT_NOT_ALLOWED",
+        `扫描根目录不在白名单内（app-config launcher.defaultScanRoots），已拒绝：${resolve(root)}`,
+      );
+      return;
     }
     const maxDepthRaw = url.searchParams.get("maxDepth");
     // 🟠-10（2026-08-08）：maxDepth 必须是 1-10 的整数——NaN 此前直达
@@ -342,6 +357,17 @@ async function handleProjects(
     const dir = url.searchParams.get("dir");
     if (!dir) {
       fail(res, 400, "MISSING_FIELD", "缺少必填参数 dir");
+      return;
+    }
+    // 🟡（2026-08-08）：meta 与 scan 同口径白名单校验——此前 dir 任意路径可读元信息
+    // （纵深防御缺口，与 M-Collab-4 口径不一致）
+    if (!(await isWithinAllowedRoots(dir, ctx.appConfigDir))) {
+      fail(
+        res,
+        403,
+        "SCAN_ROOT_NOT_ALLOWED",
+        `目录不在白名单内（app-config launcher.defaultScanRoots），已拒绝：${resolve(dir)}`,
+      );
       return;
     }
     ok(res, { meta: await getProjectMeta(dir) });
@@ -513,8 +539,10 @@ async function handleAdmin(
       }
       setConfigCfg = { model: { provider: provider as KnownProvider, name: modelId } };
     }
-    await writeAppConfig({ llm: { slots: { [slot]: { provider, model: modelId } } } }, ctx.appConfigDir);
+    // 🟡（2026-08-08）：先应用内存再落盘——原顺序（先 writeAppConfig 后 setConfig）
+    // 若 setConfig 抛错则磁盘已写入新配置而内存未应用（分叉，重启后重放失败）
     deps.store.setConfig(slot as LlmSlot, setConfigCfg);
+    await writeAppConfig({ llm: { slots: { [slot]: { provider, model: modelId } } } }, ctx.appConfigDir);
     deps.onChange?.();
     ok(res, getSlotStatus(deps.store, deps.authStorage, slot as LlmSlot));
     return;
@@ -613,11 +641,21 @@ async function handleAdmin(
       err.code = "INVALID_BODY";
       throw err;
     }
+    // 🟡（2026-08-08）：apiKind 枚举校验——此前非法值经 as 强制转换落盘，
+    // 到调用时才炸（错误延迟且难排查）
+    const apiKind = p.apiKind ?? "openai-completions";
+    if (apiKind !== "openai-completions") {
+      const err = new Error(
+        `apiKind 不支持: ${String(apiKind)}（当前仅支持 openai-completions）`,
+      ) as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
     const provider: CustomProvider = {
       id,
       name: provName,
       baseURL,
-      apiKind: (p.apiKind as CustomProvider["apiKind"]) ?? "openai-completions",
+      apiKind,
       modelIds: Array.isArray(p.modelIds) ? p.modelIds.map((m) => String(m)) : [],
       fetchModels: p.fetchModels === true,
     };

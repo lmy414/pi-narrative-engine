@@ -706,7 +706,18 @@ export class ChatContext {
     this.pool.updateStatus(sessionId, "streaming");
 
     const preflightSucceeded = await new Promise<boolean>((resolve) => {
-      const promptPromise = host.session.prompt(text, { preflightResult: resolve });
+      // 🟡（2026-08-08）：prompt 同步抛错（如 session 状态异常）时复位 status——
+      // 此前 status=streaming 永不复位（前端 spinner 卡死）
+      let promptPromise: Promise<unknown>;
+      try {
+        promptPromise = host.session.prompt(text, { preflightResult: resolve });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.pool.updateStatus(sessionId, "error", msg);
+        this.notifyBackgroundError(sessionId, msg);
+        resolve(false);
+        return;
+      }
       // prompt promise 在生成+后置处理完成后 resolve/reject
       promptPromise
         .then(() => {

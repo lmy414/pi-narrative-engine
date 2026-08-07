@@ -18,6 +18,9 @@ import type { MainSessionHost } from "./main-session.ts";
 
 export type SessionStatus = "idle" | "streaming" | "error";
 
+/** 🟡（2026-08-08）：池上限（超过时 LRU 淘汰最旧非活跃 handle） */
+export const MAX_SESSIONS = 10;
+
 export interface SessionHandle {
   /** sessionId（PI session.id） */
   id: string;
@@ -96,6 +99,25 @@ export class SessionPool {
   /** 注入 handle（创建后由 ChatContext 调用） */
   set(handle: SessionHandle): void {
     this.handles.set(handle.id, handle);
+    // 🟡（2026-08-08）：池上限 LRU 淘汰——超过 MAX_SESSIONS 时淘汰最旧的
+    // 非活跃 handle（streaming 后台生成中的不淘汰），防止长期运行只增不减
+    // （此前无上限，每个 session 一个完整 runtime）；被淘汰 handle 的 host
+    // 在此 dispose（仅淘汰 idle/error 的，不中断生成）
+    if (this.handles.size > MAX_SESSIONS) {
+      // 🟡 审计修正：淘汰候选必须排除刚插入的 handle——池满且受保护
+      // （活跃+streaming）≥9 时，新 handle 是唯一可淘汰项，会被自身 set 立即
+      // 淘汰并 dispose，随后 setActive 抛「session 不存在」（POST /api/chat/sessions 500）
+      const evictable = this.getAll()
+        .filter((h) => h.id !== this.activeId && h.id !== handle.id && h.status !== "streaming")
+        .sort((a, b) => a.createdAt - b.createdAt);
+      for (const victim of evictable) {
+        if (this.handles.size <= MAX_SESSIONS) break;
+        this.handles.delete(victim.id);
+        void victim.host.dispose().catch(() => {
+          // dispose 失败不阻塞池操作
+        });
+      }
+    }
   }
 
   /** 切换活跃指针（不 dispose 旧 host，生成继续后台） */

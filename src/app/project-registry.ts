@@ -55,6 +55,8 @@ export interface ProjectRegistryOptions {
 
 export class ProjectRegistry {
   private readonly handles = new Map<string, ProjectHandle>();
+  /** 🟡（2026-08-08）：openProject in-flight 单飞（并发同目录打开共享同一创建 promise） */
+  private readonly opening = new Map<string, Promise<ProjectHandle>>();
   private activeDir: string | null = null;
   private readonly embedder: Embedder | null;
 
@@ -74,7 +76,22 @@ export class ProjectRegistry {
     const abs = resolve(dir);
     const cached = this.handles.get(abs);
     if (cached) return cached;
+    // 🟡（2026-08-08）：in-flight 单飞——并发同目录打开共享同一创建 promise，
+    // 此前两个并发请求都通过缓存检查 → 各建一个 WorldGraph（db 句柄泄漏，
+    // 后建者覆盖 map 条目）
+    const inFlight = this.opening.get(abs);
+    if (inFlight) return inFlight;
+    const pending = this.openProjectInner(abs, options).finally(() => {
+      this.opening.delete(abs);
+    });
+    this.opening.set(abs, pending);
+    return pending;
+  }
 
+  private async openProjectInner(
+    abs: string,
+    options?: { allowInit?: boolean },
+  ): Promise<ProjectHandle> {
     let meta: NovelProjectMeta;
     try {
       meta = await getProjectMeta(abs);

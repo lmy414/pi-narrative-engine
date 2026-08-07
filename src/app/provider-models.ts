@@ -66,14 +66,17 @@ export async function resolveProviderModels(
   }
 
   // fetch 来源：命中缓存直接返回
-  const cached = fetchCache.get(provider.id);
+  // 🟡（2026-08-08）：缓存键含 baseURL/apiKey——此前仅按 provider.id 键控，
+  // 更新 baseURL/Key 后 60s 内仍返回旧模型列表
+  const cacheKey = `${provider.id}|${provider.baseURL}|${apiKey ?? ""}`;
+  const cached = fetchCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < FETCH_TTL_MS) {
     return { fetched: true, fetchError: null, modelIds: cached.ids };
   }
 
   try {
     const ids = await fetchModelsFromEndpoint(provider.baseURL, apiKey);
-    fetchCache.set(provider.id, { ts: Date.now(), ids });
+    fetchCache.set(cacheKey, { ts: Date.now(), ids });
     return { fetched: true, fetchError: null, modelIds: ids };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

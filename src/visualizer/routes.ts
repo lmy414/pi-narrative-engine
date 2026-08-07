@@ -99,11 +99,19 @@ export async function handleApi(
   const { wg, search } = ctx;
   const method = req.method ?? "GET";
   // 去掉 /api 前缀后的路径段
+  // 🟡（2026-08-08）：畸形 % 编码（如 /%）安全解码返回原样——路由不匹配走 404，
+  // 而非在 try 外抛 URIError 得 500
   const segments = url.pathname
     .slice("/api".length)
     .split("/")
     .filter(Boolean)
-    .map((s) => decodeURIComponent(s));
+    .map((s) => {
+      try {
+        return decodeURIComponent(s);
+      } catch {
+        return s;
+      }
+    });
 
   // /api/debug/* 路由特殊处理：SSE 流不能进入常规 try/catch（res 不能 end）
   const [head] = segments;

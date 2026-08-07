@@ -18,7 +18,7 @@ export interface EntitySearchResult {
 export class Search {
   constructor(
     private wg: WorldGraph,
-    private embedder: Embedder,
+    private embedder: Embedder | null,
   ) {}
 
   async search(query: string, opts?: {
@@ -29,6 +29,10 @@ export class Search {
   }): Promise<EntitySearchResult[]> {
     const mode = opts?.mode ?? "hybrid";
     if (mode === "fulltext") return this.fulltext(query, opts);
+    // 🟡（2026-08-08）：embedder 缺失（forceFulltext 模式）时 hybrid/vector 兜底
+    // fulltext——防御性（当前 world_query 仅在有 embedder 的主会话注册，理论不可达，
+    // 但 registry 可能以 null embedder 构造 Search）
+    if (!this.embedder) return this.fulltext(query, opts);
     if (mode === "vector") return this.vector(query, opts);
     return this.hybrid(query, opts);
   }

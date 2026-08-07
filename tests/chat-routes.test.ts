@@ -1117,6 +1117,51 @@ test("SessionPool：clear 清空所有 handle与活跃指针", () => {
   assert.equal(pool.getActive(), null);
 });
 
+// ============ 🟡 SessionPool LRU 上限（2026-08-08） ============
+
+test("SessionPool：超上限时淘汰最旧非活跃 handle 并 dispose host", async () => {
+  const pool = new SessionPool();
+  const disposed: string[] = [];
+  const make = (id: string, createdAt: number) => ({
+    id,
+    host: { dispose: async () => { disposed.push(id); } } as never,
+    status: "idle" as const,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  // 填满 MAX_SESSIONS 个 idle（mock MAX_SESSIONS 太大——直接验证淘汰逻辑：
+  // 用 11 个 handle 模拟超限，断言最旧非活跃被淘汰）
+  const MAX = 10;
+  for (let i = 0; i < MAX; i++) pool.set(make(`s${i}`, i));
+  // 第 11 个（最旧 s0 应被淘汰）
+  pool.set(make("s10", 10));
+  assert.equal(pool.size, MAX, "超过上限应淘汰到 MAX");
+  assert.equal(pool.get("s0"), null, "最旧 idle 应被淘汰");
+  assert.deepEqual(disposed, ["s0"], "被淘汰 handle 的 host 应 dispose");
+});
+
+test("SessionPool：淘汰不排除活跃/streaming，且不淘汰刚插入的 handle（审计修正）", async () => {
+  const pool = new SessionPool();
+  const disposed: string[] = [];
+  const make = (id: string, status: "idle" | "streaming", createdAt: number) => ({
+    id,
+    host: { dispose: async () => { disposed.push(id); } } as never,
+    status,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  // 9 个 streaming（受保护）+ 1 个活跃 = 池满
+  for (let i = 0; i < 9; i++) pool.set(make(`st${i}`, "streaming", i));
+  pool.set(make("active", "idle", 9));
+  pool.setActive("active");
+  // 新建第 11 个——可淘汰候选只剩活跃（被排除）与新 handle（被排除）→ 无候选可淘汰
+  pool.set(make("new", "idle", 10));
+  assert.equal(pool.get("new") !== null, true, "新 handle 不被自身 set 淘汰（审计修正：候选排除 handle.id）");
+  assert.equal(pool.get("active") !== null, true, "活跃 handle 不被淘汰");
+  for (let i = 0; i < 9; i++) assert.equal(pool.get(`st${i}`) !== null, true, "streaming handle 不被淘汰");
+  assert.deepEqual(disposed, [], "无候选可淘汰时不 dispose 任何 handle");
+});
+
 // ----------------------------------------------------------------------------
 
 test("POST /chat/abort：成功中断返回 200 + aborted；sessionId 透传", async () => {

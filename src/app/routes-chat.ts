@@ -226,9 +226,16 @@ export async function handleChatApi(
     // GET /api/chat/sessions/:id/messages（历史消息 {role,text,ts}）
     if (segment.startsWith("/sessions/") && segment.endsWith("/messages") && method === "GET") {
       requireActiveDir(ctx);
-      const id = decodeURIComponent(
-        segment.slice("/sessions/".length, segment.length - "/messages".length),
-      );
+      // 🟡（2026-08-08）：安全解码——畸形 % 编码（如 /%E0）不再抛 URIError 500
+      let id: string;
+      try {
+        id = decodeURIComponent(
+          segment.slice("/sessions/".length, segment.length - "/messages".length),
+        );
+      } catch {
+        fail(res, 404, "NOT_FOUND", "会话 ID 编码非法");
+        return true;
+      }
       ok(res, { id, messages: await ctx.chatContext.getSessionMessages(id) });
       return true;
     }
