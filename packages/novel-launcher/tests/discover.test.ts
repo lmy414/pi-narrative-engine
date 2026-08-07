@@ -269,3 +269,64 @@ test("discoverProjects includeStats：world.db 探测（stats 计数 + needsMigr
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// ============ 🟠-9/10 容错回归（2026-08-08） ============
+
+test("_readNovelJson 顶层 null/数组/原始值抛 INVALID_NOVEL_JSON（🟠-9）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
+  try {
+    for (const [content, label] of [
+      ["null", "null"],
+      ["[1,2]", "数组"],
+      ['"hello"', "字符串"],
+      ["42", "数字"],
+      ["true", "布尔"],
+    ] as Array<[string, string]>) {
+      const dir = join(root, `proj-${label}`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "novel.json"), content, "utf8");
+      await assert.rejects(
+        () => _readNovelJson(dir),
+        (err: Error) =>
+          err instanceof NovelLauncherError && err.code === "INVALID_NOVEL_JSON",
+        `${label} 顶层应抛 INVALID_NOVEL_JSON`,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects 坏项目被隔离，兄弟/深层好项目仍列出（🟠-9）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
+  try {
+    await makeProject(root, "goodA", "好项目A");
+    // 坏项目：novel.json 顶层为 null（修复前 _readNovelJson 抛 TypeError 中断整个扫描）
+    await mkdir(join(root, "bad"), { recursive: true });
+    await writeFile(join(root, "bad", "novel.json"), "null", "utf8");
+    await makeProject(root, "nested/deep/goodB", "深项目B");
+
+    const projects = await discoverProjects(root);
+    const names = projects.map((p) => p.meta.name);
+    assert.ok(!names.includes("坏项目"), "坏项目不应被列出");
+    assert.ok(names.includes("好项目A"), "兄弟好项目应列出");
+    assert.ok(names.includes("深项目B"), "深层好项目应列出（递归分支不受坏项目影响）");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discoverProjects 非有限 maxDepth 回退默认 3 且正常终止（🟠-10）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
+  try {
+    await makeProject(root, "a/b/c/projectDeep", "深项目");
+    // NaN/Infinity 等非有限值：修复前 `currentDepth >= NaN` 恒 false → 无界递归
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const projects = await discoverProjects(root, { maxDepth: bad });
+      assert.ok(Array.isArray(projects), `maxDepth=${bad} 不应挂起/抛错`);
+      assert.equal(projects.length, 0, `maxDepth=${bad} 应等效默认 3（扫不到 4 层项目）`);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

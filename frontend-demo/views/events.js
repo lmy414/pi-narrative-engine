@@ -58,6 +58,16 @@ async function eventLoadData() {
   setEventState('eventsStatus', status);
   syncStoryTime((status && status.storyTimes) || []);
 
+  // 🟠-27（2026-08-08）：空项目（无 storyTime）直接渲染空事件列表——
+  // 此前 Promise.all 中 getGraph(空 storyTime) 必现 400 STORY_TIME_REQUIRED，
+  // Promise.all 整体拒绝 → eventList 永不写入（页面空白无反馈）
+  const storyTimes = (status && status.storyTimes) || [];
+  if (storyTimes.length === 0) {
+    setEventState('eventList', []);
+    App.viewState.entityIndex = {};
+    return;
+  }
+
   const [data, graph] = await Promise.all([
     apiCall('getEvents'),
     apiCall('getGraph', App.storyTime)

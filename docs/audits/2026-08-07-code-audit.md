@@ -347,3 +347,27 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试轮结论**：🟠-23 涉及的全部可达交互路径通过（世界图实体选择/视角切换/快速弹窗、事件链展开/类型筛选/实体过滤、文件特殊字符路径打开、设置页签切换、工作室会话切换）；登记 1 个与本修复无关的既有缺陷 **BUG-037**（launcher 扫描 loading 不收敛，待用户决策）；2 个环境限制（服务未加 --embed 编排器不可用、模型不支持图像输入截图无法自动核验）。
 
 **遗留（下一批）**：🟠-1/6/9/10/11/12/13/14/15/16/17/18/20/21/22/24/25/26/27 + 🟡 全部 + BUG-037（用户决策）。
+
+---
+
+## 12. 批次 3a 修复闭环（2026-08-08，第三梯队 服务层+launcher+前端交互）
+
+> 分支：`20260808-audit-fix-batch3a` → master（ff-only）。全量测试 746 项：744 pass / 0 fail / 2 skip（符号链接环境限制）。
+> **审计纪律**：9 项修复每项独立子代理审计——审计发现并修正：🟠-6 行注释破坏单行语句（编译阻塞）、🟠-10 缺 Number.isInteger、🟠-24 尾部守卫 + visibility 内部守卫（持久混态）、🟠-26 studioBusy 卡死（真实模式切离流式会话后永不清除）+ mock abort 卡死。复核代理二次实证通过。
+> 前端测试轮：`docs/audits/frontend-test-runs/2026-08-08-session-interactions.md`。
+
+| 编号 | 修复内容 | 审计修正 |
+|---|---|---|
+| 🟠-1 | serveStatic 包含性校验补路径分隔符（兄弟前缀目录不再放行） | ✅ 无必须项；补 serveStatic 直接单测（HTTP 层 URL 归一化折叠 %2e%2e，直接调用函数测纵深防御） |
+| 🟠-6 | import_novel worldGraphDir 同源校验（与 epubPath 一致） | 🔴 行注释破坏单行 defineTool（模块无法编译）→ 注释移独立行；建议回填规范化路径（记录待后续） |
+| 🟠-9 | discover novel.json 顶层 null/数组守卫 + 单项目失败隔离 | ✅ 无必须项；补 null/隔离/NaN 测试 |
+| 🟠-10 | scan maxDepth 路由校验（1-10 整数）+ discover 内部非有限值防御 | 🔴 缺 Number.isInteger（3.5 通过）→ 补上；补 400/边界测试 |
+| 🟠-11 | utimes 按注释实现 max(baseMtime+1ms, now) | ✅ 无必须项（FAT 2s 粒度局限为注释既有语义，记录） |
+| 🟠-24 | openEntityDetail 竞态：同步设 id + 代际前移，后点击者胜出 | 🔴 尾部守卫（refresh 后重查）+ 🔴 visibility 内部守卫（写入前重查，防持久混态）→ 均已补 |
+| 🟠-25 | flSaveActive 非冲突失败恢复保存按钮 | ✅ 无必须项；补 vm 单测受安全扫描限制，由测试轮实操覆盖（父目录不存在真实失败路径验证通过） |
+| 🟠-26 | stSwitchSession 移除 studioBusy 拦截（流式期间可切换）+ stSwitchingSession 独立防重入 | 🔴 studioBusy 卡死（切离流式会话后永不清除）→ 非当前会话 agent_end 参与复位（stHasStreamingExcept）；🔴 mock abort 卡死 → stAbortLiveSimulation 清 busy；cleanupStudioView 对称复位 |
+| 🟠-27 | graph/events 空项目（storyTimes=[]）跳过带 storyTime 请求渲染空态 | ✅ 逻辑正确（渲染路径/空指针/代际全核查）；补单测（空 storyTimes 不调 getGraph） |
+
+**测试**：serveStatic 穿越 3 例、discover null 5 变体 + 隔离 + NaN、maxDepth 400/边界、🟠-24 乱序响应、🟠-27 空态——共 10 个新用例（746 全绿）。
+
+**遗留（下一批）**：🟠-12/13/14/15/16/17/18/20/21/22 + 🟡 全部 + BUG-037（用户决策）。

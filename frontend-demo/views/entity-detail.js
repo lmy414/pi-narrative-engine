@@ -132,12 +132,16 @@ function detailVisFor(declId, characterId) {
 // ---------- 数据加载 ----------
 
 async function refreshDetailVisibility() {
+  // 🟠-24 审计修正：入口捕获目标 id，写入前重查——过期流程的 visibility 批量
+  // 查询迟到时不得覆盖胜者的可见性矩阵（此前守卫在调用方、写入已发生）
+  const targetId = detailState.id;
   const vis = {};
   const decls = (detailState.data && detailState.data.declarations) || [];
   await Promise.all(decls.map(async d => {
     const res = await apiCall('getVisibility', d.declarationId);
     vis[d.declarationId] = res.visibility || [];
   }));
+  if (detailState.id !== targetId) return; // 期间已切到别的实体，丢弃过期可见性
   detailState.visibility = vis;
 }
 
@@ -637,16 +641,22 @@ async function detailRetireEntity(id) {
 // ---------- 入口（覆盖 views.js 的同名函数，见文件头注释） ----------
 
 async function openEntityDetail(id) {
+  // 🟠-24（2026-08-08）：先同步设 id + 递增代际——快速点击不同实体时
+  // 后一次点击立即生效；此前守卫在 await 之后比对（先返回者胜出），
+  // 后一次点击会被过期响应覆盖丢弃
+  detailReloadSeq++; // 使进行中的 reloadDetail/本函数过期响应失效
+  detailState.id = id;
   await withLoading(async () => {
     const data = await apiCall('getEntityHistory', id);
-    if (detailState.id !== null && detailState.id !== id) return; // 期间已切到别的实体，丢弃过期响应
-    detailReloadSeq++; // 使进行中的 reloadDetail 失效
-    detailState.id = id;
+    if (detailState.id !== id) return; // 期间又切到别的实体，丢弃过期响应
     detailState.data = data;
     detailState.snapshot = null;
     detailState.previewAt = null;
     detailState.tab = 'properties';
     await refreshDetailVisibility();
+    // 🟠-24 审计修正：尾部重查——refreshDetailVisibility 期间可能已切到别的实体，
+    // 过期流程若在此落地会以旧实体内容开抽屉（界面 X、写入 Y 混态）
+    if (detailState.id !== id) return;
     openDrawer(entityDetailDrawerHtml());
     refreshIcons();
   });

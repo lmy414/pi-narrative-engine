@@ -44,6 +44,14 @@ export async function _readNovelJson(projectDir: string): Promise<NovelProjectMe
       "INVALID_NOVEL_JSON",
     );
   }
+  // 🟠-9（2026-08-08）：顶层 null/非对象/数组守卫——此前 JSON.parse("null") 返回 null
+  // 后 `data.name` 抛 TypeError 崩溃并拖垮整个扫描（照抄 admin/novel-json.ts 守卫）
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    throw new NovelLauncherError(
+      `novel.json 顶层应为对象: ${filePath}`,
+      "INVALID_NOVEL_JSON",
+    );
+  }
   const name =
     typeof data.name === "string" && data.name ? data.name : basename(projectDir);
   return {
@@ -108,28 +116,34 @@ export async function _discoverProjects(
     const novelJsonPath = join(childDir, NOVEL_JSON);
 
     if (existsSync(novelJsonPath)) {
-      const meta = await _readNovelJson(childDir);
-      const chapterCount = options.includeChapterCount
-        ? await _countChapters(childDir, meta.chaptersDir)
-        : 0;
-      let mtime: Date;
+      // 🟠-9（2026-08-08）：单项目失败隔离——损坏的 novel.json / 章节统计失败
+      // 不拖垮整个扫描（此前 _readNovelJson 抛 TypeError 直接中断 discoverProjects）
       try {
-        mtime = (await stat(childDir)).mtime;
+        const meta = await _readNovelJson(childDir);
+        const chapterCount = options.includeChapterCount
+          ? await _countChapters(childDir, meta.chaptersDir)
+          : 0;
+        let mtime: Date;
+        try {
+          mtime = (await stat(childDir)).mtime;
+        } catch {
+          mtime = new Date();
+        }
+        const probe = options.includeStats
+          ? await probeWorldDb(childDir, meta)
+          : { needsMigration: false, stats: null };
+        results.push({
+          dir: childDir,
+          relativePath: relative(originalRoot, childDir),
+          meta,
+          chapterCount,
+          lastModified: mtime.toISOString(),
+          needsMigration: probe.needsMigration,
+          stats: probe.stats,
+        });
       } catch {
-        mtime = new Date();
+        continue;
       }
-      const probe = options.includeStats
-        ? await probeWorldDb(childDir, meta)
-        : { needsMigration: false, stats: null };
-      results.push({
-        dir: childDir,
-        relativePath: relative(originalRoot, childDir),
-        meta,
-        chapterCount,
-        lastModified: mtime.toISOString(),
-        needsMigration: probe.needsMigration,
-        stats: probe.stats,
-      });
     } else {
       const sub = await _discoverProjects(childDir, originalRoot, options, currentDepth + 1);
       results.push(...sub);
@@ -145,7 +159,9 @@ export async function discoverProjects(
 ): Promise<NovelProject[]> {
   const resolvedRoot = resolve(rootDir);
   const opts: DiscoverOpts = {
-    maxDepth: options?.maxDepth ?? 3,
+    // 🟠-10（2026-08-08）：内部防御非有限值（路由层已校验，公共 API 双保险）——
+    // 非有限 maxDepth 会让 `currentDepth >= maxDepth` 恒 false 导致无界递归
+    maxDepth: Number.isFinite(options?.maxDepth as number) ? (options!.maxDepth as number) : 3,
     includeChapterCount: options?.includeChapterCount ?? true,
     includeStats: options?.includeStats ?? true,
   };

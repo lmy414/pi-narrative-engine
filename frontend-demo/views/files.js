@@ -587,6 +587,10 @@ async function flSaveActive() {
       renderView();
     } else {
       handleApiError(e);
+      // 🟠-25（2026-08-08）：非冲突失败恢复保存按钮——此前保持 disabled +
+      // dirty 残留无出口（用户只能再次输入或换页被动恢复）；dirty 保持 true
+      // （内容未保存），按钮恢复后可重试
+      if (btn) btn.disabled = false;
     }
   }
 }

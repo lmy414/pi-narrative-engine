@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolve, dirname, join, normalize, extname } from "node:path";
+import { resolve, dirname, join, normalize, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -86,7 +86,10 @@ export function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<
 export async function serveStatic(res: ServerResponse, uiDir: string, pathname: string): Promise<void> {
   const rel = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
   const filePath = normalize(join(uiDir, rel));
-  if (!filePath.startsWith(normalize(uiDir))) {
+  // 🟠-1（2026-08-08）：包含性校验必须带路径分隔符——此前 startsWith(normalize(uiDir))
+  // 会把「uiDir 同级、名字以 uiDir 名前缀开头的兄弟目录」放行（如 /frontend-demo2/x）
+  const uiDirNorm = normalize(uiDir);
+  if (filePath !== uiDirNorm && !filePath.startsWith(uiDirNorm + sep)) {
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
     return;

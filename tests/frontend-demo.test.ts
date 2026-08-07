@@ -509,3 +509,63 @@ test("graph.js: data-entity-id 属性经 escapeHtml 转义，无属性注入（�
   );
   assert.ok(html.includes('data-entity-id="evil&quot; onmouseover=&quot;alert(1)"'), "转义后的属性值应完整保留");
 });
+
+// ============ 🟠-24/27 回归（2026-08-08） ============
+// 🟠-25（flSaveActive 按钮恢复）/ 🟠-26（stSwitchSession busy 语义）为交互行为，
+// 由 browser_use 测试轮覆盖（tests/frontend-demo.test.ts 沙箱加载受限）。
+
+/** 可控 deferred（测试乱序响应） */
+function makeDeferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+test("🟠-24: openEntityDetail 快速切换时后点击者胜出，过期响应不落地", async () => {
+  const ctx = loadEntityDetail({ storyTime: "ch001.ev001", storyTimes: [], viewState: {} });
+  const historyCalls: string[] = [];
+  const drawers: string[] = [];
+  const deferredA = makeDeferred<unknown>();
+  const deferredB = makeDeferred<unknown>();
+  ctx.apiCall = async (method: string, ...args: unknown[]) => {
+    if (method === "getEntityHistory") {
+      historyCalls.push(String(args[0]));
+      if (args[0] === "A") return deferredA.promise;
+      if (args[0] === "B") return deferredB.promise;
+    }
+    if (method === "getVisibility") return { visibility: [] };
+    return {};
+  };
+  ctx.openDrawer = (html: string) => { drawers.push(html); };
+  ctx.withLoading = async (fn: Function) => fn();
+
+  const pA = ctx.openEntityDetail("A");
+  const pB = ctx.openEntityDetail("B");
+  // drawer 渲染需要完整实体结构（data.entity 嵌套对象）
+  const entityOf = (id: string) => ({ entity: { entityId: id, entityType: "character", summary: "", alive: true, properties: [] }, declarations: [] });
+  deferredB.resolve(entityOf("B"));
+  await pB;
+  deferredA.resolve(entityOf("A")); // A 迟到
+  await pA;
+
+  assert.deepEqual(historyCalls, ["A", "B"], "两次点击都应发起请求");
+  assert.equal(drawers.length, 1, "过期响应（A）不应落地 openDrawer");
+});
+
+test("🟠-27: graphLoadData 空项目（storyTimes=[]）跳过 getGraph 渲染空态", async () => {
+  const { context } = loadGraphView();
+  const graphCalls: string[] = [];
+  context.syncStoryTime = () => {}; // app.js 全局函数，沙箱补 stub
+  context.apiCall = async (method: string, ...args: unknown[]) => {
+    if (method === "getGraph") { graphCalls.push(String(args[0])); return { entities: [], relations: [] }; }
+    if (method === "getStatus") return { storyTimes: [] };
+    if (method === "getEvents") return { events: [] };
+    return {};
+  };
+  await context.graphLoadData();
+  assert.deepEqual(graphCalls, [], "空项目不应发起 getGraph（后端 400 STORY_TIME_REQUIRED）");
+  const data = context.graphState("graphData");
+  // 跨 realm 数组不能 deepEqual，用 length 断言
+  assert.equal(plain(data.entities).length, 0, "graphData 应为空态");
+  assert.equal(plain(data.relations).length, 0, "relations 应为空态");
+});

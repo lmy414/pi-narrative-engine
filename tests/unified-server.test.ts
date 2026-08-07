@@ -24,6 +24,7 @@ import { createDebugBus } from "../src/debug/bus.ts";
 import type { DebugBus } from "../src/debug/types.ts";
 import { startUnifiedServer } from "../src/app/unified-server.ts";
 import type { UnifiedServer } from "../src/app/unified-server.ts";
+import { serveStatic } from "../src/visualizer/server.ts";
 
 let root: string;
 let projA: string;
@@ -317,6 +318,64 @@ test("M-Collab-4：扫描根白名单——根本身放行、越界 403", async 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ launcher: saved.launcher }),
     });
+  }
+});
+
+test("projects/scan: maxDepth 非 1-10 整数报 400，边界 1/10 放行（🟠-10）", async () => {
+  const saved = (await api("/admin/app-config")).data;
+  await api("/admin/app-config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ launcher: { defaultScanRoots: [root] } }),
+  });
+  try {
+    for (const bad of ["abc", "0", "11", "-1", "3.5", "NaN"]) {
+      const r = await api(`/projects/scan?root=${encodeURIComponent(root)}&maxDepth=${bad}`);
+      assert.equal(r.status, 400, `maxDepth=${bad} 应 400`);
+      assert.equal(r.error?.code, "INVALID_BODY");
+    }
+    const ok1 = await api(`/projects/scan?root=${encodeURIComponent(root)}&maxDepth=1`);
+    assert.equal(ok1.status, 200, "maxDepth=1 边界应放行");
+    const ok10 = await api(`/projects/scan?root=${encodeURIComponent(root)}&maxDepth=10`);
+    assert.equal(ok10.status, 200, "maxDepth=10 边界应放行");
+  } finally {
+    await api("/admin/app-config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ launcher: saved.launcher }),
+    });
+  }
+});
+
+test("serveStatic: 兄弟前缀目录穿越 403（🟠-1）", async () => {
+  // serveStatic 直接单测（HTTP 层 URL 解析会先折叠 %2e%2e，测不到真实接收路径；
+  // serveStatic 是导出函数，纵深防御需自包含防护）
+  // uiDir = <root>/ui；构造兄弟前缀目录 <root>/ui2（修复前 startsWith 前缀误放行）
+  const uiDir = join(root, "ui");
+  const sibling = join(root, "ui2");
+  mkdirSync(sibling, { recursive: true });
+  writeFileSync(join(sibling, "x.js"), "// sibling\n", "utf8");
+  try {
+    const serve = (pathname: string) =>
+      new Promise<{ status: number; body: string }>((resolve) => {
+        const state = { status: 200, body: "" };
+        const res = {
+          writeHead: (code: number) => { state.status = code; },
+          end: (body?: string) => { state.body = body ?? ""; resolve(state); },
+        } as never;
+        void serveStatic(res, uiDir, pathname);
+      });
+    // 兄弟前缀目录：解码后 normalize 到 <root>/ui2/x.js——修复前 startsWith(<root>/ui) 误放行
+    const r1 = await serve("/%2e%2e/ui2/x.js");
+    assert.equal(r1.status, 403, "兄弟前缀目录穿越应 403");
+    // 经典 .. 穿越（读到 uiDir 父级路径）
+    const r2 = await serve("/%2e%2e/api.js");
+    assert.equal(r2.status, 403, "经典 .. 穿越应 403");
+    // 正常静态资源仍 200（api.js 在 uiDir 内）
+    const ok = await serve("/api.js");
+    assert.equal(ok.status, 200, "uiDir 内资源应正常放行");
+  } finally {
+    rmSync(sibling, { recursive: true, force: true });
   }
 });
 

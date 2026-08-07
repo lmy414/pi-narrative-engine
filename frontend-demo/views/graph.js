@@ -69,6 +69,17 @@ async function graphLoadData() {
   setGraphState('graphStatus', status);
   syncStoryTime(status.storyTimes || []);
 
+  // 🟠-27（2026-08-08）：空项目（无 storyTime）直接渲染空态——
+  // 此前带空 storyTime 调 getGraph 必现 400 STORY_TIME_REQUIRED toast；
+  // 事件缓存/默认选中依赖实体数据，一并跳过
+  const storyTimes = (status && status.storyTimes) || [];
+  if (storyTimes.length === 0) {
+    setGraphState('graphData', { entities: [], relations: [], storyTime: null });
+    setGraphState('events', []);
+    App.viewState.entityIndex = {};
+    return;
+  }
+
   const includeClosed = graphState('includeClosed', false);
   const data = await apiCall('getGraph', App.storyTime, includeClosed ? '1' : '0');
   if (seq !== graphLoadSeq) return;

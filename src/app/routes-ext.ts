@@ -320,9 +320,19 @@ async function handleProjects(
       }
     }
     const maxDepthRaw = url.searchParams.get("maxDepth");
-    const projects = await discoverProjects(root, {
-      maxDepth: maxDepthRaw ? Number(maxDepthRaw) : undefined,
-    });
+    // 🟠-10（2026-08-08）：maxDepth 必须是 1-10 的整数——NaN 此前直达
+    // discoverProjects 的 `currentDepth >= NaN` 恒 false → 无界递归扫描；
+    // 非整数（如 3.5）虽无安全危害但与错误消息契约不符，一并拒绝
+    let maxDepth: number | undefined;
+    if (maxDepthRaw !== null) {
+      const n = Number(maxDepthRaw);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 10) {
+        fail(res, 400, "INVALID_BODY", "maxDepth 必须是 1-10 的整数");
+        return;
+      }
+      maxDepth = n;
+    }
+    const projects = await discoverProjects(root, { maxDepth });
     ok(res, { projects });
     return;
   }

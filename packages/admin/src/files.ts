@@ -240,9 +240,11 @@ export async function writeProjectFile(
   await fs.rename(tmp, abs);
   // H5 附带修复：强制推进 mtime，避免文件系统精度不足（同毫秒写入）
   // 导致乐观锁失效（writeProjectFile 的 baseMtime 比对误判为一致）。
-  // 用 baseMtime + 1ms 或 Date.now()（取更大者）确保时间戳单调前进。
-  const now = new Date();
-  await fs.utimes(abs, now, now);
+  // 🟠-11（2026-08-08）：按注释语义实现——取 baseMtime+1ms 与 Date.now() 更大者，
+  // 保证 mtime 严格单调前进（此前只 new Date()，粗粒度 mtime FS（FAT/SMB）上可能不前进）
+  const baseMs = baseMtime !== undefined ? new Date(baseMtime).getTime() : 0;
+  const advance = new Date(Math.max(Number.isFinite(baseMs) ? baseMs + 1 : 0, Date.now()));
+  await fs.utimes(abs, advance, advance);
   return readProjectFile(novelDir, rel);
 }
 

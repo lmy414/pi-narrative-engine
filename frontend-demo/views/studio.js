@@ -64,6 +64,12 @@ function stGetSessionStatus(sessionId) {
   return map[sessionId] || 'idle';
 }
 
+/** 🟠-26 修复：除指定会话外是否仍有 streaming 会话（studioBusy 复位判定用） */
+function stHasStreamingExcept(sessionId) {
+  const map = stState('sessionStatus', {});
+  return Object.entries(map).some(([id, status]) => id !== sessionId && status === 'streaming');
+}
+
 // ==================== 状态访问器 ====================
 
 function stState(key, fallback) {
@@ -216,6 +222,8 @@ function cleanupStudioView() {
   stAbortLiveSimulation();
   setStState('studioBusy', false);
   setStState('realLiveMessage', null);
+  // 🟠-26 修复：切换标志与 studioBusy 对称复位（切换请求悬挂时防滞留）
+  setStState('stSwitchingSession', false);
 }
 
 // ==================== 左栏：会话列表 ====================
@@ -412,9 +420,14 @@ async function stAbortChat() {
 
 async function stSwitchSession(id) {
   // 多 session 并存：切换不阻塞后台生成，仅切换活跃指针
-  // 防重入——切换期间设 studioBusy（仅用于输入框禁用，不影响其他会话项可点击）
-  if (stState('studioBusy', false)) return;
-  setStState('studioBusy', true);
+  // 🟠-26（2026-08-08）：移除 studioBusy 拦截——流式生成期间（studioBusy=true）
+  // 点击其他会话被静默忽略，与「多会话并存不阻塞切换」设计意图矛盾；
+  // studioBusy 仅用于输入框禁用（stIsStreamingBusy 判断生成态）。
+  // 防重入改用独立标志 stSwitchingSession（切换期间重复点击忽略）
+  const current = stState('currentSessionId', null);
+  if (current === id) return; // 同会话重复点击无操作
+  if (stState('stSwitchingSession', false)) return;
+  setStState('stSwitchingSession', true);
   stAbortLiveSimulation();
   setStState('currentSessionId', id);
   setStState('realLiveMessage', null);
@@ -439,7 +452,7 @@ async function stSwitchSession(id) {
     } catch (e) {
       // 列表刷新失败不影响切换本身，保持现有数据
     }
-    setStState('studioBusy', false);
+    setStState('stSwitchingSession', false);
     setStState('chatAutoScroll', true);
     renderView();
   }
@@ -527,6 +540,12 @@ function stHandleChatEvent(envelope) {
     if (sid !== currentId) {
       if (innerEvent.type === 'agent_end') {
         stSetSessionStatus(sid, 'idle');
+        // 🟠-26 修复（2026-08-08）：后台会话结束也参与 studioBusy 复位——
+        // 此前只清当前会话分支，切换离开流式会话后 studioBusy 永不清除
+        // （输入区永久锁死 stop 态、中断按钮错目标）
+        if (stState('studioBusy', false) && !stHasStreamingExcept(sid)) {
+          setStState('studioBusy', false);
+        }
       }
       return;
     }
@@ -868,6 +887,10 @@ function stOrInjectMockPlan() {
 }
 
 function stAbortLiveSimulation() {
+  // 🟠-26 审计修正：mock 编排中终止模拟（如切换会话）时同步清 studioBusy——
+  // mock 无 SSE agent_end（ApiRuntime.isMock 不订阅），此前仅 stFinalizeOrchestration
+  // 清除，abort 后 finalize 永不执行 → 输入区永久锁死
+  if (ApiRuntime.isMock) setStState('studioBusy', false);
   const orch = stState('orch', null);
   if (orch) {
     if (orch.timer) clearTimeout(orch.timer);
