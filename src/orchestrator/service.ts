@@ -216,6 +216,17 @@ export class OrchestratorService {
   }
 
   /**
+   * 释放服务（🟠-5 2026-08-08）：停止事件队列消费。
+   *
+   * ChatContext 项目切换时调用（disposeRuntime）——旧项目队列不再消费新任务、
+   * 未开始任务标记 error；in-flight 任务允许完成（worker 无法强取消）。
+   * 防止切回同项目时新旧双队列并发写同一 world-graph。
+   */
+  dispose(): void {
+    this.queue.stop();
+  }
+
+  /**
    * 提交 plan：入队即返回（BUG-014 异步化）
    *
    * 状态保护：

@@ -419,3 +419,24 @@ test("DTO 深拷贝覆盖 outputs.thought、diffusion、render.text 和 commit",
   detail!.commit!.writtenText = "篡改";
   assert.equal(service.getPlan("plan_test_1")!.commit?.writtenText, "渲染正文");
 });
+
+test("dispose 后：队列停止，dispatch/commit 拒绝入队（🟠-5）", async () => {
+  const { fake } = makeFakeOrchestrator();
+  const service = new OrchestratorService(fake);
+  service.dispatch(makeResult("plan").event);
+  await waitWorker();
+  assert.equal(service.planCount(), 1, "dispose 前正常入队执行");
+
+  service.dispose();
+  assert.throws(
+    () => service.dispatch(makeResult("plan").event),
+    /已停止/,
+    "dispose 后 dispatch 应拒绝入队",
+  );
+  assert.throws(
+    () => service.commit("plan_test_1"),
+    /已停止/,
+    "dispose 后 commit 入队应拒绝",
+  );
+  service.dispose(); // 幂等，不抛错
+});

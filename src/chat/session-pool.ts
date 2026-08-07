@@ -63,6 +63,26 @@ export class SessionPool {
     return this.handles.has(id);
   }
 
+  /**
+   * 按 id 或唯一前缀匹配池中 handle（🟠-4 2026-08-08）
+   *
+   * 精确匹配优先；前缀匹配不唯一返回 null（与 ChatContext.resolveSessionPath
+   * 磁盘侧语义一致）。activateSession 用它避免前缀命中时重开同一会话文件
+   * 并裸覆盖旧 handle（旧 host 泄漏 + 双写）。
+   */
+  match(id: string): SessionHandle | null {
+    const exact = this.handles.get(id);
+    if (exact) return exact;
+    let hit: SessionHandle | null = null;
+    for (const [sid, handle] of this.handles) {
+      if (sid.startsWith(id)) {
+        if (hit) return null; // 前缀不唯一
+        hit = handle;
+      }
+    }
+    return hit;
+  }
+
   /** 所有 handle（按 createdAt 升序） */
   getAll(): SessionHandle[] {
     return Array.from(this.handles.values()).sort((a, b) => a.createdAt - b.createdAt);

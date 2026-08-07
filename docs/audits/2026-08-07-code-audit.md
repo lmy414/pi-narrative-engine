@@ -299,3 +299,31 @@ plannerResult = await plannerCollected.promise;  // 走不到
 - `packages/novel-importer/tests/validate.test.ts`（新建，3 用例）：死亡实体导入 P0 通过（修复前假阳性）；从未 birth 引用仍报；日志悬空 causedBy 报 P0
 
 **遗留（下一批）**：🟠-1~27 与 🟡 全部（按核对报告第二/三梯队排期）。
+
+---
+
+## 10. 批次 2a 修复闭环（2026-08-08，第二梯队后端项）
+
+> 分支：`20260808-audit-fix-batch2a` → master（ff-only）。全量测试 737 项：735 pass / 0 fail / 2 skip（符号链接用例在本机 Windows 无创建权限自动跳过，逻辑在有权限环境执行）。
+
+| 编号 | 修复内容 | 证据 |
+|---|---|---|
+| 🟠-8 | ✅ admin 五处并发写串行化 | 新建 `packages/admin/src/serialize.ts`（`createWriteQueue`：每模块一队列，tail 吞 rejection 防链断）；读-改-写类三处（app-config / env-store / novel-json）整体入队；全量覆盖类两处（rulesets / files）+ `_atomicWrite` 的 tmp 名改随机后缀。并发写不同字段不再静默丢更新 |
+| 🟠-5 | ✅ EventQueue 增加可中止 stop | `event-queue.ts` 新增 `stop()`（幂等；pending 置 error、in-flight 允许完成、泵循环停止后不再取新任务、enqueue 抛错）；`OrchestratorService.dispose()` 接线；`ChatContext.disposeRuntime` 清映射前逐个 `service.dispose()`——切项目后旧队列不再消费新任务，消除同项目双队列并发写 wg |
+| 🟠-3 | ✅ ensureHost 单飞 | `chat-context.ts` `ensureHostPromise` promise 缓存 + 完成后二次校验（单飞期间项目再切换则重建）——冷启动窗口并发请求共享同一 host，消除双 runtime 并发写同一会话文件 |
+| 🟠-4 | ✅ activateSession 前缀命中回收 | `SessionPool.match(id)`（精确优先、前缀唯一）；`activateSession` 池内前缀命中仅 `setActive`——不再重开同一会话文件 + `pool.set` 裸覆盖（旧 host 泄漏 + 双写） |
+| 🟠-2 | ✅ chat SSE 半开检测 | `routes-chat.ts` handleChatEvents 移植 debug/sse.ts 模式：markDead + send 探测 + writableLength 60s 判死 + req/res 双监听 + cleanup 前置声明；守卫用严格布尔比较（`=== true/false`），避免 mock/降级对象缺字段误判 |
+| 🟠-7 | ✅ 符号链接 realpath 二次校验 | `admin/files.ts` 新增 `assertNoSymlinkEscape`（realpath 后包含性校验，目标不存在时上溯最近存在祖先）；read/write/create/delete/rename 五入口接入——`正文/notes.md → ~/.ssh/id_rsa` 类绕过被 PATH_ESCAPE 拒绝 |
+| 🟠-19 | ✅ role-pool 单次调用超时 + 错误分类重试 | `role-pool.ts` `callLlmWithRetry`：单次 60s 超时（Promise.race + clearTimeout）+ 瞬时错误（限流/网络/超时）指数退避重试最多 3 次；永久错误不重试。超时后底层调用无法取消（接口无 abort 承载点），但串行链不再被无限阻塞 |
+
+**新增/更新测试（15 个新用例，737 全绿）**：
+- `packages/admin/tests/serialize.test.ts`（新建 2）：队列串行、失败不中断后续
+- `app-config.test.ts`（+2）：并发写不同字段不丢更新、无 .tmp 残留
+- `env-store.test.ts`（+1）：并发写不同 key 不丢更新
+- `files.test.ts`（+3）：符号链接越界拒绝（读/写，环境不支持时 skip）、并发写不同文件 + 无 .tmp 残留
+- `tests/event-queue.test.ts`（+3）：stop 后入队抛错、pending 置 error + in-flight 完成、幂等
+- `tests/orchestrator-service.test.ts`（+1）：dispose 后 dispatch/commit 拒绝入队
+- `packages/role-pool/tests/role-pool.test.ts`（+3）：限流重试成功（调用 2 次）、永久失败不重试（调用 1 次）、网络错误重试 3 次后仍失败
+- `tests/chat-routes.test.ts`（+2）：ensureHost 并发单飞只建 1 host；activateSession 前缀命中不重复创建 host
+
+**遗留（下一批）**：🟠-1/6/9/10/11/12/13/14/15/16/17/18/20/21/22/24/25/26/27 + 🟡 全部；其中 🟠-23 等前端项按前端测试纪律在批次 2b 处理。

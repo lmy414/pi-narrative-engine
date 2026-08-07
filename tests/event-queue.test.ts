@@ -101,3 +101,47 @@ test("EventQueue: 容量防护不影响正常串行消费", async () => {
   assert.equal(items.length, 5);
   assert.deepEqual(items.map((i) => i.status), ["done", "done", "done", "done", "done"]);
 });
+
+// ============================================================================
+// stop 语义（🟠-5 2026-08-08）
+// ============================================================================
+
+test("EventQueue: stop 后入队抛错", async () => {
+  const q = new EventQueue<string, { echo: string }>(doneWorker);
+  q.stop();
+  assert.throws(() => q.enqueue("x"), /已停止/);
+});
+
+test("EventQueue: stop 将 pending 任务标记 error，in-flight 允许完成", async () => {
+  let release!: () => void;
+  const blocker = new Promise<void>((r) => { release = r; });
+  const q = new EventQueue<string, { echo: string }>(
+    async (event) => {
+      if (event === "block") await blocker;
+      return { echo: event };
+    },
+    undefined,
+    { finishedTtlMs: 0 },
+  );
+  const runningId = q.enqueue("block");
+  const pendingId = q.enqueue("after");
+  // 等 worker 进入 in-flight
+  await new Promise((r) => setTimeout(r, 20));
+  q.stop();
+  release(); // 放行 in-flight
+  await new Promise((r) => setTimeout(r, 30));
+
+  const running = q.getStatus(runningId)!;
+  assert.equal(running.status, "done", "in-flight 任务应允许完成");
+  const pending = q.getStatus(pendingId)!;
+  assert.equal(pending.status, "error", "stop 时未开始任务应标记 error");
+  assert.match(pending.error ?? "", /已停止/);
+});
+
+test("EventQueue: stop 幂等", async () => {
+  const q = new EventQueue<string, { echo: string }>(doneWorker);
+  q.stop();
+  q.stop(); // 不抛错
+  const items = q.getAll();
+  assert.equal(items.length, 0);
+});

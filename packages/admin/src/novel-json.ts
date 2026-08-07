@@ -10,8 +10,10 @@
  */
 
 import { promises as fs, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { AdminError } from "./types.ts";
+import { createWriteQueue } from "./serialize.ts";
 
 // ============================================================================
 // 类型与默认值
@@ -137,6 +139,9 @@ export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResu
   };
 }
 
+/** 🟠-8（2026-08-08）：读-改-写串行化队列——并发写同一 novel.json 时防止基于旧值合并丢更新 */
+const enqueueWrite = createWriteQueue();
+
 /**
  * 更新 novel.json（合并写）
  *
@@ -148,7 +153,14 @@ export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResu
  * @param updates 要更新的字段
  * @returns 合并后的完整内容
  */
-export async function writeNovelJson(
+export function writeNovelJson(
+  novelDir: string,
+  updates: Partial<NovelJson>,
+): Promise<NovelJson> {
+  return enqueueWrite(() => writeNovelJsonInner(novelDir, updates));
+}
+
+async function writeNovelJsonInner(
   novelDir: string,
   updates: Partial<NovelJson>,
 ): Promise<NovelJson> {
@@ -161,8 +173,8 @@ export async function writeNovelJson(
     current = _normalizeNovelJson({}, novelDir);
   }
   const merged: NovelJson = { ...current, ...updates };
-  // 原子写入
-  const tmp = filePath + ".tmp";
+  // 原子写入（🟠-8：tmp 名带随机后缀，避免并发/跨进程踩踏）
+  const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(merged, null, 2) + "\n", "utf8");
   await fs.rename(tmp, filePath);
   return merged;

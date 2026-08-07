@@ -14,7 +14,7 @@
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, readdir, symlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -279,4 +279,79 @@ test("renameProjectFile: 源不存在报 FILE_NOT_FOUND；非 .md 拒绝；越�
     assertAdminError(e, "PATH_ESCAPE");
     return true;
   });
+});
+
+// ============================================================================
+// 符号链接越界（🟠-7 2026-08-08）
+// ============================================================================
+
+test("readProjectFile: 符号链接指向工程根外拒绝（🟠-7）", async (t) => {
+  const dir2 = await mkdtemp(join(tmpdir(), "admin-files-"));
+  try {
+    await mkdir(join(dir2, "正文"), { recursive: true });
+    // 外部敏感文件 + 指向它的符号链接
+    const outside = join(tmpdir(), "admin-files-outside-secret.md");
+    await writeFile(outside, "secret", "utf8");
+    const linkAbs = join(dir2, "正文", "link.md");
+    try {
+      await symlink(outside, linkAbs);
+    } catch {
+      // Windows 非开发者模式/无权限时无法创建符号链接——跳过本用例
+      t.skip("当前环境无法创建符号链接（可能需要管理员/开发者模式）");
+      return;
+    }
+    await assert.rejects(readProjectFile(dir2, "正文/link.md"), (e) => {
+      assertAdminError(e, "PATH_ESCAPE");
+      return true;
+    });
+    await rm(outside, { force: true });
+  } finally {
+    await rm(dir2, { recursive: true, force: true });
+  }
+});
+
+test("writeProjectFile: 符号链接指向工程根外拒绝（🟠-7）", async (t) => {
+  const dir2 = await mkdtemp(join(tmpdir(), "admin-files-"));
+  try {
+    await mkdir(join(dir2, "正文"), { recursive: true });
+    const outside = join(tmpdir(), "admin-files-outside-secret2.md");
+    await writeFile(outside, "secret", "utf8");
+    const linkAbs = join(dir2, "正文", "link2.md");
+    try {
+      await symlink(outside, linkAbs);
+    } catch {
+      t.skip("当前环境无法创建符号链接（可能需要管理员/开发者模式）");
+      return;
+    }
+    await assert.rejects(writeProjectFile(dir2, "正文/link2.md", "覆盖内容"), (e) => {
+      assertAdminError(e, "PATH_ESCAPE");
+      return true;
+    });
+    await rm(outside, { force: true });
+  } finally {
+    await rm(dir2, { recursive: true, force: true });
+  }
+});
+
+// ============================================================================
+// 并发写（🟠-8 2026-08-08）
+// ============================================================================
+
+test("writeProjectFile: 并发写不同文件互不干扰 + 无 .tmp 残留", async () => {
+  const dir2 = await mkdtemp(join(tmpdir(), "admin-files-"));
+  try {
+    await mkdir(join(dir2, "正文"), { recursive: true });
+    await Promise.all([
+      writeProjectFile(dir2, "正文/a.md", "AAA"),
+      writeProjectFile(dir2, "正文/b.md", "BBB"),
+      writeProjectFile(dir2, "正文/c.md", "CCC"),
+    ]);
+    assert.equal((await readFile(join(dir2, "正文/a.md"), "utf8")).trim(), "AAA");
+    assert.equal((await readFile(join(dir2, "正文/b.md"), "utf8")).trim(), "BBB");
+    assert.equal((await readFile(join(dir2, "正文/c.md"), "utf8")).trim(), "CCC");
+    const leftover = (await readdir(join(dir2, "正文"))).filter((f) => f.includes(".tmp"));
+    assert.deepEqual(leftover, [], `不应有 .tmp 残留: ${leftover.join(",")}`);
+  } finally {
+    await rm(dir2, { recursive: true, force: true });
+  }
 });

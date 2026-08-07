@@ -260,25 +260,57 @@ function handleChatEvents(
   res.flushHeaders();
   res.write(`:connected\n\n`);
 
+  // 🟠-2（2026-08-08）：半开连接判死（移植 debug/sse.ts 模式）——
+  // 客户端消失但未收到 RST/FIN 时 res.write 持续"成功"但数据在内核缓冲堆积，
+  // 此前死连接永不清理，可占满全局 SSE 配额（10）导致后续连接 503
+  let dead = false;
+  let cleanup: (() => void) | null = null;
+  function markDead(): void {
+    if (dead) return;
+    dead = true;
+    cleanup?.();
+  }
+
   function send(event: unknown): void {
+    // 严格布尔比较：mock/降级对象可能缺 writable/destroyed 字段（undefined ≠ 断连）
+    if (dead || res.destroyed === true || res.writable === false) {
+      markDead();
+      return;
+    }
     try {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     } catch {
-      // 写入失败（客户端已断开），忽略
+      markDead();
     }
   }
 
   // 订阅 ChatContext 多路复用事件（所有 session 的 PI 事件 + background_complete 合成事件）
   const unsubscribe = chatContext.subscribe((event) => send(event));
+  // 心跳 + 半开探测：writableLength 持续非零超过 60s（2 个心跳周期）判定死连接
+  const HALF_OPEN_GRACE_MS = 60_000;
+  let stuckSince = 0;
   const heartbeat = setInterval(() => {
+    if (dead || res.destroyed === true || res.writable === false) {
+      markDead();
+      return;
+    }
+    if (res.writableLength > 0) {
+      if (stuckSince === 0) stuckSince = Date.now();
+      else if (Date.now() - stuckSince > HALF_OPEN_GRACE_MS) {
+        markDead();
+        return;
+      }
+    } else {
+      stuckSince = 0;
+    }
     try {
       res.write(`:heartbeat\n\n`);
     } catch {
-      // 忽略
+      markDead();
     }
   }, SSE_HEARTBEAT_MS);
 
-  const cleanup = () => {
+  cleanup = () => {
     clearInterval(heartbeat);
     unsubscribe();
     try {
@@ -287,8 +319,15 @@ function handleChatEvents(
       // 已结束
     }
   };
-  req.on("close", cleanup);
-  req.on("error", cleanup);
+  // 若判死发生在 cleanup 赋值之前（connected 注释已写入但 res 立即不可写），补执行一次清理
+  if (dead) cleanup();
+
+  // req/res 双监听：response close 事件比 req close 更可靠
+  // （HTTP/1.1 响应关闭后不可写即断连）
+  req.on("close", markDead);
+  req.on("error", markDead);
+  res.on("close", markDead);
+  res.on("error", markDead);
 }
 
 function errWithCode(code: string, message: string): Error & { code: string } {

@@ -56,6 +56,7 @@ export interface EventQueueOptions {
 export class EventQueue<TEvent = unknown, TResult = unknown> {
   private queue: QueuedEvent<TEvent, TResult>[] = [];
   private processing = false;
+  private stopped = false;
   private worker: QueueWorker<TEvent, TResult>;
   private onDone?: QueueOnDone<TEvent, TResult>;
   private readonly maxLength: number;
@@ -84,6 +85,9 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
 
   /** 入队，立即返回 queueId（不执行） */
   enqueue(event: TEvent): string {
+    if (this.stopped) {
+      throw new Error("EventQueue 已停止，拒绝入队");
+    }
     this.sweepFinished();
     // 容量保护：先淘汰最旧已完成项腾出空间；全部未完成时拒绝入队
     while (this.queue.length >= this.maxLength) {
@@ -125,6 +129,8 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
     this.processing = true;
     try {
       while (true) {
+        // 🟠-5：停止后不再取新任务（in-flight 允许完成——worker 无取消能力）
+        if (this.stopped) break;
         const item = this.dequeue();
         if (!item) break;
         try {
@@ -166,5 +172,26 @@ export class EventQueue<TEvent = unknown, TResult = unknown> {
     return this.queue.filter(
       (q) => q.status === "pending" || q.status === "running",
     ).length;
+  }
+
+  /**
+   * 停止队列（🟠-5 2026-08-08）：不再消费新任务，未开始任务标记 error。
+   *
+   * - in-flight 任务允许完成（worker 无取消能力），完成后泵循环退出
+   * - 幂等；停止后 enqueue 抛错
+   * - 调用场景：ChatContext 项目切换时 dispose 旧 OrchestratorService，
+   *   防止旧队列继续后台执行、切回时同项目双队列并发写同一 world-graph
+   */
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    const now = Date.now();
+    for (const q of this.queue) {
+      if (q.status === "pending") {
+        q.status = "error";
+        q.error = "队列已停止（宿主释放）";
+        q.finishedAt = now;
+      }
+    }
   }
 }

@@ -1183,3 +1183,100 @@ test("ChatContext.abortChat：streaming 中断成功；非 streaming 幂等 fals
     await context.dispose();
   }
 });
+
+// ============================================================================
+// 生命周期竞态修复（🟠-3 / 🟠-4 2026-08-08）
+// ============================================================================
+
+test("ChatContext.ensureHost：冷启动窗口并发调用单飞，只创建一个 host（🟠-3）", async () => {
+  const handles = new Map([
+    ["/proj-a", { dir: "/proj-a", meta: { name: "a" }, wg: {}, search: {}, forceFulltext: false } as ProjectHandle],
+  ]);
+  let created = 0;
+  let startResolve!: () => void;
+  const gate = new Promise<void>((r) => { startResolve = r; });
+  const context = new ChatContext({
+    registry: { getActive: () => handles.get("/proj-a")! } as never,
+    llmStore: new LlmConfigStore(),
+    configDir: "/config",
+    embedder: {} as Embedder,
+    createOrchestratorService: async () => ({} as OrchestratorService),
+    createHost(options) {
+      created++;
+      return {
+        cwd: options.cwd,
+        session: makeSession(),
+        modelFallbackMessage: undefined,
+        start: async () => { await gate; }, // 模拟慢启动（冷启动窗口）
+        dispose: async () => {},
+        switchSession: async () => {},
+        newSession: async () => {},
+      } as unknown as MainSessionHost;
+    },
+  });
+  try {
+    // 先并发发起（不 await），等全部进入单飞窗口后再放行 gate
+    const p1 = context.ensureHost();
+    const p2 = context.ensureHost();
+    const p3 = context.ensureHost();
+    await new Promise((r) => setTimeout(r, 50));
+    startResolve();
+    const [h1, h2, h3] = await Promise.all([p1, p2, p3]);
+    assert.equal(created, 1, "并发 ensureHost 只应创建一个 host（单飞）");
+    assert.equal(h1, h2, "并发调用应共享同一 host");
+    assert.equal(h2, h3);
+  } finally {
+    startResolve();
+    await context.dispose();
+  }
+});
+
+test("ChatContext.activateSession：前缀命中池中会话仅切指针，不重复创建 host（🟠-4）", async () => {
+  const projDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "chat-ctx-"));
+  try {
+    await fs.promises.mkdir(path.join(projDir, ".pi", "sessions"), { recursive: true });
+    const handle = {
+      dir: projDir,
+      meta: { name: "proj" },
+      wg: {},
+      search: {},
+      forceFulltext: false,
+    } as unknown as ProjectHandle;
+    let created = 0;
+    const context = new ChatContext({
+      registry: { getActive: () => handle } as never,
+      llmStore: new LlmConfigStore(),
+      configDir: "/config",
+      embedder: {} as Embedder,
+      createOrchestratorService: async () => ({} as OrchestratorService),
+      createHost(options) {
+        created++;
+        return {
+          cwd: options.cwd,
+          session: makeSession({
+            sessionManager: {
+              getSessionFile: () => path.join(projDir, ".pi", "sessions", "x.jsonl"),
+            },
+          } as never),
+          modelFallbackMessage: undefined,
+          start: async () => {},
+          dispose: async () => {},
+          switchSession: async () => {},
+          newSession: async () => {},
+        } as unknown as MainSessionHost;
+      },
+    });
+    try {
+      const info = await context.createSession();
+      assert.equal(created, 1, "createSession 创建 1 个 host");
+      const prefix = info.id.slice(0, 8);
+      const activated = await context.activateSession(prefix);
+      assert.equal(activated.id, info.id, "前缀应命中池中同一会话");
+      assert.equal(created, 1, "前缀命中不应再创建 host（旧实现会重开同一会话文件并泄漏旧 host）");
+    } finally {
+      await context.dispose();
+    }
+  } finally {
+    await fs.promises.rm(projDir, { recursive: true, force: true });
+  }
+});

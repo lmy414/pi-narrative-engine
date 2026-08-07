@@ -162,3 +162,23 @@ test("EXTENSION_ENV_KEYS: 包含三个扩展专属变量", () => {
   assert.ok(EXTENSION_ENV_KEYS.includes("PI_DEBUG"));
   assert.ok(EXTENSION_ENV_KEYS.includes("PI_EMBEDDER_MODEL"));
 });
+
+// ============ 并发写串行化（🟠-8 2026-08-08） ============
+
+test("writeEnvFile: 并发写不同 key 不丢更新（🟠-8）", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    await Promise.all([
+      writeEnvFile(envPath, { HF_ENDPOINT: "https://hf-mirror.com" }),
+      writeEnvFile(envPath, { PI_DEBUG: "off" }),
+      writeEnvFile(envPath, { PI_EMBEDDER_MODEL: "Xenova/bge-small-zh-v1.5" }),
+    ]);
+    const result = await readEnvFile(envPath);
+    assert.equal(result.values.HF_ENDPOINT, "https://hf-mirror.com", "并发写 HF_ENDPOINT 不应丢失");
+    assert.equal(result.values.PI_DEBUG, "off", "并发写 PI_DEBUG 不应丢失");
+    assert.equal(result.values.PI_EMBEDDER_MODEL, "Xenova/bge-small-zh-v1.5", "并发写 PI_EMBEDDER_MODEL 不应丢失");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

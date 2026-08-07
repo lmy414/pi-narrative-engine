@@ -14,7 +14,9 @@
 
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { createWriteQueue } from "./serialize.ts";
 
 // ============================================================================
 // 类型与常量
@@ -183,7 +185,14 @@ export async function readEnvFile(envPath: string): Promise<EnvFileContent> {
  * @param envPath .env 文件绝对路径
  * @param updates 要更新的键值对（value 为 undefined 表示删除）
  */
-export async function writeEnvFile(
+export function writeEnvFile(
+  envPath: string,
+  updates: Partial<Record<ExtensionEnvKey, string | undefined>>,
+): Promise<EnvFileContent> {
+  return enqueueWrite(() => writeEnvFileInner(envPath, updates));
+}
+
+async function writeEnvFileInner(
   envPath: string,
   updates: Partial<Record<ExtensionEnvKey, string | undefined>>,
 ): Promise<EnvFileContent> {
@@ -263,14 +272,18 @@ export async function writeEnvFile(
 // 内部实现（_ 前缀，软隔离）
 // ============================================================================
 
+/** 🟠-8（2026-08-08）：读-改-写串行化队列——并发写同一 .env 时防止基于旧值合并丢更新 */
+const enqueueWrite = createWriteQueue();
+
 /**
  * 原子写入文件（写临时文件 + rename）
  *
  * Windows 上 rename 不能覆盖已存在文件，故先写 .tmp 再 rename。
- * 临时文件名与目标同目录（保证同卷，rename 是原子操作）。
+ * 临时文件名与目标同目录（保证同卷，rename 是原子操作）；
+ * 后缀带随机串（🟠-8：固定 .tmp 名在并发/跨进程写时会互相踩踏）。
  */
 export async function _atomicWrite(filePath: string, content: string): Promise<void> {
-  const tmp = filePath + ".tmp";
+  const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, filePath);
 }

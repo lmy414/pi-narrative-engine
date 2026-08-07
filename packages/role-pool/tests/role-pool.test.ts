@@ -168,7 +168,9 @@ test("interact: 单角色失败时跳过且记录 errors", async () => {
   let callIndex = 0;
   const mockLlm: RoleLlmCaller = async () => {
     callIndex++;
-    if (callIndex === 1) throw new Error("LLM 超时");
+    // 🟠-19：用不可重试错误（key 无效）模拟失败路径——「超时/网络」类瞬时
+    // 错误会被重试后成功，不再落入 errors
+    if (callIndex === 1) throw new Error("LLM 调用失败（invalid api key）");
     return okOutput;
   };
   const cmd: InteractCommand = {
@@ -181,7 +183,7 @@ test("interact: 单角色失败时跳过且记录 errors", async () => {
   assert.equal(result.outputs[0].actor, "武松");
   assert.equal(result.errors.length, 1, "应记录 1 个错误");
   assert.equal(result.errors[0].characterId, "a");
-  assert.ok(result.errors[0].error.includes("LLM 超时"));
+  assert.ok(result.errors[0].error.includes("invalid api key"));
 });
 
 test("interact: 全部失败时返回空 outputs + 全部 errors", async () => {
@@ -334,7 +336,8 @@ test("interact: onTurnEnd 失败时透传 error 字符串", async () => {
   const okOutput: RoleAgentOutput = { characterId: "b", actor: "角色B", action: "笑" };
   const mockLlm: RoleLlmCaller = async () => {
     callIndex++;
-    if (callIndex === 1) throw new Error("LLM 超时");
+    // 🟠-19：同上，用不可重试错误模拟失败路径
+    if (callIndex === 1) throw new Error("LLM 调用失败（invalid api key）");
     return okOutput;
   };
   const cmd: InteractCommand = {
@@ -349,7 +352,7 @@ test("interact: onTurnEnd 失败时透传 error 字符串", async () => {
     },
   });
   assert.equal(ends.length, 2, "成功与失败都应触发 onTurnEnd");
-  assert.ok(ends[0].error?.includes("LLM 超时"), "失败角色应携带 error");
+  assert.ok(ends[0].error?.includes("invalid api key"), "失败角色应携带 error");
   assert.equal(ends[0].output, undefined, "失败时不应有 output");
   assert.equal(ends[1].error, undefined, "成功角色不应有 error");
   assert.equal(ends[1].output?.actor, "角色B");
@@ -365,4 +368,60 @@ test("interact: 未传 hooks 时正常运行（不抛错）", async () => {
   const result = await interact(cmd, { llm: mockLlm, ruleSet: "" });
   assert.equal(result.outputs.length, 1);
   assert.equal(result.errors.length, 0);
+});
+
+// ============================================================================
+// 超时与重试（🟠-19 2026-08-08）
+// ============================================================================
+
+test("interact: 瞬时失败（限流）重试后成功，不记 errors", async () => {
+  let callIndex = 0;
+  const okOutput: RoleAgentOutput = { characterId: "a", actor: "A", action: "x" };
+  const mockLlm: RoleLlmCaller = async () => {
+    callIndex++;
+    if (callIndex === 1) throw new Error("429 rate limit exceeded");
+    return okOutput;
+  };
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "A")],
+  };
+  const result = await interact(cmd, { llm: mockLlm, ruleSet: "" });
+  assert.equal(result.outputs.length, 1, "限流重试后应成功");
+  assert.equal(result.errors.length, 0, "重试成功不应记 error");
+  assert.equal(callIndex, 2, "应恰好重试 1 次");
+});
+
+test("interact: 永久失败不重试（仅调用 1 次）", async () => {
+  let callIndex = 0;
+  const mockLlm: RoleLlmCaller = async () => {
+    callIndex++;
+    throw new Error("invalid api key");
+  };
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "A")],
+  };
+  const result = await interact(cmd, { llm: mockLlm, ruleSet: "" });
+  assert.equal(result.errors.length, 1);
+  assert.equal(callIndex, 1, "不可重试错误不应重试");
+});
+
+test("interact: 网络错误重试 3 次后仍失败，errors 记录最终错误", async () => {
+  let callIndex = 0;
+  const mockLlm: RoleLlmCaller = async () => {
+    callIndex++;
+    throw new Error("fetch failed: ECONNRESET");
+  };
+  const cmd: InteractCommand = {
+    eventInstruction: "测试",
+    storyTime: "ch-1",
+    cast: [makeMember("a", "A")],
+  };
+  const result = await interact(cmd, { llm: mockLlm, ruleSet: "" });
+  assert.equal(callIndex, 3, "可重试错误应重试到上限 3 次");
+  assert.equal(result.errors.length, 1);
+  assert.ok(result.errors[0]!.error.includes("ECONNRESET"), "最终错误应透传");
 });

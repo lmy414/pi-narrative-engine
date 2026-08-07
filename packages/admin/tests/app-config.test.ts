@@ -9,7 +9,7 @@
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -319,6 +319,38 @@ test("writeAppConfig: scheduler.defaultMode 设置/保留/非法值忽略", asyn
 
     const back = await readAppConfig(d2);
     assert.equal(back.scheduler.defaultMode, "yolo");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+// ============ 并发写串行化（🟠-8 2026-08-08） ============
+
+test("writeAppConfig: 并发写不同字段不丢更新（🟠-8）", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    await Promise.all([
+      writeAppConfig({ embedder: { model: "concurrent-model" } }, d2),
+      writeAppConfig({ launcher: { defaultScanRoots: ["D:\\并发"] } }, d2),
+    ]);
+    const back = await readAppConfig(d2);
+    assert.equal(back.embedder.model, "concurrent-model", "并发写 embedder 不应丢失");
+    assert.deepEqual(back.launcher.defaultScanRoots, ["D:\\并发"], "并发写 launcher 不应丢失");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});
+
+test("writeAppConfig: 并发写后无 .tmp 残留（随机后缀）", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    await Promise.all([
+      writeAppConfig({ embedder: { model: "m1" } }, d2),
+      writeAppConfig({ embedder: { model: "m2" } }, d2),
+      writeAppConfig({ embedder: { model: "m3" } }, d2),
+    ]);
+    const leftover = (await readdir(d2)).filter((f) => f.includes(".tmp"));
+    assert.deepEqual(leftover, [], `不应有 .tmp 残留: ${leftover.join(",")}`);
   } finally {
     await rm(d2, { recursive: true, force: true });
   }

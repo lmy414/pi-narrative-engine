@@ -13,6 +13,7 @@
  */
 
 import { promises as fs, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { AdminError } from "./types.ts";
 
@@ -142,7 +143,8 @@ export async function writeRuleset(
   content: string,
 ): Promise<RulesetContent> {
   const filePath = resolveRulesetPath(novelDir, name);
-  const tmp = filePath + ".tmp";
+  // 🟠-8（2026-08-08）：全量覆盖类也换随机 tmp 名（固定 .tmp 名并发踩踏）
+  const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, filePath);
   return _readOne(novelDir, name);

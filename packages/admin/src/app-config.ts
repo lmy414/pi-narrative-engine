@@ -8,9 +8,11 @@
  *   Linux    ~/.config/narrative-engine/app-config.json
  */
 import { promises as fs, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import { AdminError } from "./types.ts";
+import { createWriteQueue } from "./serialize.ts";
 
 // ============================================================================
 // 配置结构（§5.1.2）
@@ -177,13 +179,23 @@ export async function readAppConfig(configDir?: string): Promise<AppConfig> {
   };
 }
 
+/** 🟠-8（2026-08-08）：读-改-写串行化队列——并发写同一配置文件时防止基于旧值合并丢更新 */
+const enqueueWrite = createWriteQueue();
+
 /**
  * 更新应用配置（深层合并已知键，原子写；目录自动创建）
  *
  * 只写 schema 已知键：磁盘文件里的废弃键（如扩展时代的 launcher.piExecutable）
  * 在写入时被剥离；readAppConfig 保持宽松读取不受影响。
  */
-export async function writeAppConfig(
+export function writeAppConfig(
+  updates: AppConfigUpdates,
+  configDir?: string,
+): Promise<AppConfig> {
+  return enqueueWrite(() => writeAppConfigInner(updates, configDir));
+}
+
+async function writeAppConfigInner(
   updates: AppConfigUpdates,
   configDir?: string,
 ): Promise<AppConfig> {
@@ -242,7 +254,7 @@ export async function writeAppConfig(
     },
   };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = filePath + ".tmp";
+  const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(merged, null, 2) + "\n", "utf8");
   await fs.rename(tmp, filePath);
   return merged;

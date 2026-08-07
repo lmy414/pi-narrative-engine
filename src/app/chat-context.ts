@@ -226,6 +226,10 @@ export class ChatContext {
     return this.pool;
   }
 
+  /** 🟠-3（2026-08-08）：ensureHost 重建单飞——冷启动窗口内并发请求共享同一
+   *  重建 promise，避免双 host 双 runtime 并发写同一会话文件 */
+  private ensureHostPromise: Promise<MainSessionHost | null> | null = null;
+
   /**
    * 确保活跃主会话就绪：无活跃项目 → null；cwd 变化 → dispose 重建池。
    * 懒启动：首个 chat 请求才创建。
@@ -244,6 +248,26 @@ export class ChatContext {
       throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
 
+    // 🟠-3：单飞——并发进入的 ensureHost 共享同一个重建 promise
+    if (!this.ensureHostPromise) {
+      this.ensureHostPromise = this.buildHostForActive().finally(() => {
+        this.ensureHostPromise = null;
+      });
+    }
+    const host = await this.ensureHostPromise;
+
+    // 单飞期间活跃项目可能再次切换：host 对应发起时的项目，二次校验不匹配则重建
+    const current = this.opts.registry.getActive();
+    if (current && host && host.cwd !== current.dir) {
+      return this.ensureHost();
+    }
+    return host;
+  }
+
+  /** 为当前活跃项目重建整池（ensureHost 单飞的核心执行体） */
+  private async buildHostForActive(): Promise<MainSessionHost | null> {
+    const active = this.opts.registry.getActive();
+    if (!active) return null;
     // 项目切换或首次启动 → dispose 整池重建
     await this.disposeRuntime();
     const host = await this.createHostForProject(active);
@@ -469,10 +493,13 @@ export class ChatContext {
       throw new ChatContextError("未加载向量模型（启动加 --embed），主会话不可用", "EMBEDDER_UNAVAILABLE");
     }
 
-    // 池中已有 → 仅切指针
-    if (this.pool.has(id)) {
-      this.pool.setActive(id);
-      return this.findSessionInfo(id);
+    // 🟠-4（2026-08-08）：池中已有（精确或唯一前缀）→ 仅切指针。
+    // 此前前缀命中会走 createHostForSession 重开同一会话文件再 pool.set
+    // 裸覆盖旧 handle——旧 host 永不 dispose（双写 + 泄漏）
+    const inPool = this.pool.match(id);
+    if (inPool) {
+      this.pool.setActive(inPool.id);
+      return this.findSessionInfo(inPool.id);
     }
 
     // 池中没有 → 创建新 host
@@ -483,10 +510,11 @@ export class ChatContext {
     // 确保池已初始化（首次切换时可能 ensureHost 未被调用过）
     if (this.pool.size === 0) {
       await this.ensureHost();
-      // ensureHost 后再次检查池中是否已有该 session
-      if (this.pool.has(id)) {
-        this.pool.setActive(id);
-        return this.findSessionInfo(id);
+      // ensureHost 后再次检查池中是否已有该 session（精确或前缀）
+      const again = this.pool.match(id);
+      if (again) {
+        this.pool.setActive(again.id);
+        return this.findSessionInfo(again.id);
       }
     }
 
@@ -599,6 +627,15 @@ export class ChatContext {
       }
     }
     this.pool.clear();
+    // 🟠-5（2026-08-08）：停止各项目队列后再清映射——此前只 clear map，
+    // 旧队列继续后台执行、plan 状态丢失、切回时同项目双队列并发写同一 wg
+    for (const service of this.orchestratorServices.values()) {
+      try {
+        service.dispose();
+      } catch {
+        // 单个服务停止失败不影响其他
+      }
+    }
     this.orchestratorServices.clear();
     await Promise.all(Array.from(this.projectDebugBuses.values(), (bus) => bus.drain()));
   }

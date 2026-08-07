@@ -17,6 +17,7 @@
  */
 
 import { promises as fs, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { AdminError } from "./types.ts";
 
@@ -84,6 +85,27 @@ export function _resolveSafePath(
   }
   const rel = path.relative(root, abs).split(path.sep).join("/");
   return { abs, rel };
+}
+
+/**
+ * 🟠-7（2026-08-08）：realpath 二次包含性校验——词法校验防不住符号链接
+ * （如 `正文/notes.md → C:\Users\X\.ssh\id_rsa` 即任意文件读取）。
+ *
+ * 目标存在 → realpath 整个路径；不存在（新建/重命名目标）→ 上溯到最近
+ * 存在的祖先目录再 realpath。任一环节解析出工程根外即抛 PATH_ESCAPE。
+ */
+async function assertNoSymlinkEscape(novelDir: string, abs: string): Promise<void> {
+  const root = await fs.realpath(novelDir);
+  let probe = abs;
+  while (!existsSync(probe)) {
+    const parent = path.dirname(probe);
+    if (parent === probe) return; // 上溯到文件系统根仍不存在（理论不可达）
+    probe = parent;
+  }
+  const real = await fs.realpath(probe);
+  if (real !== root && !real.startsWith(root + path.sep)) {
+    throw new AdminError(`路径经符号链接越出工程根: ${abs}`, "PATH_ESCAPE");
+  }
 }
 
 /** 校验后缀是否在允许列表内 */
@@ -172,6 +194,7 @@ export async function readProjectFile(
   if (!existsSync(abs)) {
     throw new AdminError(`文件不存在: ${rel}`, "FILE_NOT_FOUND");
   }
+  await assertNoSymlinkEscape(novelDir, abs);
   const st = await fs.stat(abs);
   if (!st.isFile()) {
     throw new AdminError(`不是文件: ${rel}`, "NOT_A_FILE");
@@ -197,6 +220,7 @@ export async function writeProjectFile(
 ): Promise<ProjectFileContent> {
   const { abs, rel } = _resolveSafePath(novelDir, relPath);
   _assertExt(rel, WRITABLE_EXTS, "写入");
+  await assertNoSymlinkEscape(novelDir, abs);
   if (existsSync(abs)) {
     const st = await fs.stat(abs);
     if (!st.isFile()) {
@@ -211,7 +235,7 @@ export async function writeProjectFile(
   } else if (!existsSync(path.dirname(abs))) {
     throw new AdminError(`父目录不存在: ${path.dirname(rel)}`, "DIR_NOT_FOUND");
   }
-  const tmp = abs + ".tmp";
+  const tmp = `${abs}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, abs);
   // H5 附带修复：强制推进 mtime，避免文件系统精度不足（同毫秒写入）
@@ -233,6 +257,7 @@ export async function createProjectFile(
 ): Promise<ProjectFileContent> {
   const { abs, rel } = _resolveSafePath(novelDir, relPath);
   _assertExt(rel, WRITABLE_EXTS, "新建");
+  await assertNoSymlinkEscape(novelDir, abs);
   if (existsSync(abs)) {
     throw new AdminError(`文件已存在: ${rel}`, "FILE_EXISTS");
   }
@@ -255,6 +280,7 @@ export async function deleteProjectFile(
   if (!existsSync(abs)) {
     throw new AdminError(`文件不存在: ${rel}`, "FILE_NOT_FOUND");
   }
+  await assertNoSymlinkEscape(novelDir, abs);
   const st = await fs.stat(abs);
   if (!st.isFile()) {
     throw new AdminError(`不是文件: ${rel}`, "NOT_A_FILE");
@@ -284,6 +310,8 @@ export async function renameProjectFile(
   if (!existsSync(from.abs)) {
     throw new AdminError(`文件不存在: ${from.rel}`, "FILE_NOT_FOUND");
   }
+  await assertNoSymlinkEscape(novelDir, from.abs);
+  await assertNoSymlinkEscape(novelDir, to.abs);
   const st = await fs.stat(from.abs);
   if (!st.isFile()) {
     throw new AdminError(`不是文件: ${from.rel}`, "NOT_A_FILE");
