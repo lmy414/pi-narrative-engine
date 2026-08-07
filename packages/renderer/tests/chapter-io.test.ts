@@ -170,3 +170,44 @@ test("readChapterSection: 读取最新事件（无 endEventId）", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// ============ 🟠-13 append 防重（2026-08-08） ============
+
+test("appendToChapter: 同 eventId 重复追加拒绝（🟠-13）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const filePath = path.join(dir, "第1章-测试.md");
+    await ensureChapterFile(filePath);
+    await appendToChapter(filePath, "evt_001", "第一段\n");
+    await assert.rejects(
+      () => appendToChapter(filePath, "evt_001", "重复追加"),
+      /拒绝重复追加/,
+      "同 eventId 二次追加应拒绝（防双锚点孤儿区块）",
+    );
+    // 文件内容不变（未追加第二个锚点）
+    const content = await readFile(filePath, "utf8");
+    assert.equal(content.split("<!-- event: evt_001 -->").length - 1, 1, "应只有一个锚点");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("appendToChapter: 畸形 eventId 拒绝（🟠-13 审计修正）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "renderer-test-"));
+  try {
+    const filePath = path.join(dir, "第1章-测试.md");
+    await ensureChapterFile(filePath);
+    // 含 " -->" 的畸形 ID 可伪造锚点子串绕过防重守卫——格式校验必须拦截
+    await assert.rejects(
+      () => appendToChapter(filePath, 'evt_001 -->"', "x"),
+      /非法事件 ID/,
+    );
+    await assert.rejects(
+      () => appendToChapter(filePath, "没有前缀", "x"),
+      /非法事件 ID/,
+      "非 evt_ 前缀应拒绝",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -371,3 +371,24 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试**：serveStatic 穿越 3 例、discover null 5 变体 + 隔离 + NaN、maxDepth 400/边界、🟠-24 乱序响应、🟠-27 空态——共 10 个新用例（746 全绿）。
 
 **遗留（下一批）**：🟠-12/13/14/15/16/17/18/20/21/22 + 🟡 全部 + BUG-037（用户决策）。
+
+---
+
+## 13. 批次 3b 修复闭环（2026-08-08，第三梯队 importer/renderer 7 项）
+
+> 分支：`20260808-audit-fix-batch3b` → master（ff-only）。全量测试 759 项：757 pass / 0 fail / 2 skip（符号链接环境限制）。
+> **审计纪律**：7 项修复每项独立子代理审计，发现并修正 3 个 P0：🟠-15 visibility 分支编译回归（findDeclarationId 改名未同步）、🟠-13 eventId 畸形 ID 可伪造锚点子串绕过守卫（补 pattern + 防御校验）、🟠-17 resume 旧 dump chapterId 静默漂移（resume 改采用重读序号）。
+
+| 编号 | 修复内容 | 审计修正 |
+|---|---|---|
+| 🟠-12 | 导入幂等守卫：fresh 导入目标目录 events.jsonl 非空 → 拒绝 | 🔴 resume(2-7) 重跑阶段 7 仍翻倍 → 守卫前移阶段 1 前（fail-fast 免 LLM 成本）+ resume 告警；✅ 无功能缺陷；补 pipeline.test.ts 3 例 |
+| 🟠-13 | appendToChapter 同 eventId 防重（抛错非静默孤儿） | 🔴 `"evt_001 -->"` 类畸形 ID 可伪造锚点子串绕过 → chapter-tools/render-tools schema 补 `^evt_[A-Za-z0-9_.-]+$` pattern（对齐 world-tools L-BE-5）+ appendToChapter 内部防御校验；补 2 测试 |
+| 🟠-14 | 阶段 3 同章 storyTime 唯一性 + 章号一致性校验 | ✅ 逻辑正确（与跨章校验组合完备）；补 2 测试；建议复用 parseStoryTime（记录） |
+| 🟠-15 | findDeclarationIds 返回全部未闭合声明（自动闭合旧 Fact 全部） | 🔴 P0 编译回归（visibility 分支仍调单数函数）→ 适配取末条；✅ 语义正确；补多未闭合端到端测试 |
+| 🟠-16 | 章节完整性按事件数校验（空 events 条目报 P0） | ✅ 正确；补 2 测试；陈旧注释（stages.ts:258-261）记录 |
+| 🟠-17 | epub 单章失败汇总 warn + chapterId 改原始目录序号 | 🔴 resume 旧 dump（连续序号）与新序号静默漂移 → resume 一律采用重读 chapterId；✅ 下游全链核查无连续性假设；补 epub fixture 测试 3 例（adm-zip 构造最小 EPUB） |
+| 🟠-18 | 空导入守卫（0 章拒绝） | ✅ 正确；建议暴露 minContentLength（短篇逃生通道）→ 已实现（types + pipeline 透传 + import_novel schema + CLI `--min-content-length`） |
+
+**测试**：13 个新用例（pipeline 幂等 3、append 防重 2、storyTime 唯一性 2、多闭合 1、章节完整性 2、epub fixture 3）。759 全绿。
+
+**遗留（下一批）**：🟠-20/21/22 + 🟡 全部 + BUG-037（用户决策）。

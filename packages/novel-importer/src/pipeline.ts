@@ -21,7 +21,7 @@
  */
 
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import { WorldGraph } from "underworld-graph";
 import type {
   AliasEntry,
@@ -186,6 +186,17 @@ export async function runImportPipeline(
   const chapterIndexPath = path.join(worldGraphDir, "chapter-index.json");
   const aliasIndexPath = path.join(worldGraphDir, "alias-index.json");
 
+  // 🟠-12（2026-08-08）：导入幂等守卫——fresh 导入（从阶段 1 开始）目标目录
+  // 已有事件日志时拒绝，防二次导入数据翻倍（重复行 + events.jsonl 翻倍，内核无
+  // 唯一约束）。前移到此（阶段 1 前）fail-fast，避免 LLM 阶段（1-6，约 10 分钟）
+  // 白跑且污染 dump/alias-index 中间态
+  const eventLogPath = path.join(worldGraphDir, "events.jsonl");
+  if ((options.resumeFromStage ?? 1) <= 1 && existsSync(eventLogPath) && (await fs.stat(eventLogPath)).size > 0) {
+    throw new Error(
+      `目标目录已导入过事件（events.jsonl 非空）：${eventLogPath}。请使用新目录或清理后重试`,
+    );
+  }
+
   const { model, apiKey } = resolveLlmConfig(options);
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const callLlm: LlmToolCaller = makeLlmCaller(model, apiKey, DEFAULT_PROVIDER);
@@ -218,17 +229,24 @@ export async function runImportPipeline(
     notify(1, "EPUB 分章", `读取 ${options.epubPath}`);
     const epubChapters = await readChaptersFromEpub(options.epubPath, {
       chapterFilter: options.chapters,
+      minContentLength: options.minContentLength, // 🟠-18：透传（短篇/诗歌集逃生通道）
     });
-    // resume 时保留 dump 的 chapterId/title（可能被阶段 1.5 修正过），只填充 content
-    if (chapters.length > 0 && chapters.length === epubChapters.length) {
-      chapters = chapters.map((c, i) => ({ ...c, content: epubChapters[i].content }));
-    } else {
-      chapters = epubChapters;
-    }
+    // 🟠-17 审计修正：resume 一律采用重读的 chapterId/title——旧 dump（🟠-17 前）
+    // 的 chapterId 是过滤后连续序号，与重读的原始序号语义不一致（跳过短章/失败章
+    // 后静默漂移：storyTime/chapter-index/first_seen_chapter 系统性错位且零报错）。
+    // 重读数据为准；「阶段 1.5 修正过 chapterId」的注释所指阶段已不存在
+    chapters = epubChapters;
     notify(1, "EPUB 分章", `识别 ${chapters.length} 章`, {
       done: chapters.length,
       total: chapters.length,
     });
+    // 🟠-18（2026-08-08）：空导入守卫——全书章节均过短/读取失败时拒绝静默"成功"
+    // （此前返回 0 实体 0 事件「导入完成」，用户误以为成功）
+    if (chapters.length === 0) {
+      throw new Error(
+        `EPUB 未识别出任何有效章节（全书章节均过短或读取失败）: ${options.epubPath}`,
+      );
+    }
   }
 
   // ============================================================
@@ -431,6 +449,15 @@ export async function runImportPipeline(
 
   if (resumeFromStage <= 7) {
     notify(7, "写入 world-graph", "构造 causedBy 链");
+    // 🟠-12 审计修正：resume（2-7）重跑阶段 7 时会重写事件——上次中断若已写入
+    // 部分事件会翻倍（内核无 eventId 去重），告警提示（fresh 场景已在入口拒绝）
+    if (resumeFromStage > 1 && existsSync(eventLogPath) && (await fs.stat(eventLogPath)).size > 0) {
+      notify(
+        7,
+        "写入 world-graph",
+        `告警：events.jsonl 已有数据（${(await fs.stat(eventLogPath)).size} 字节），resume 重写事件可能翻倍；建议清理后从阶段 1 重跑`,
+      );
+    }
     chain = buildCausedByChain(chapterResults);
 
     notify(7, "写入 world-graph", `初始化 WorldGraph @ ${worldGraphDir}`);

@@ -364,11 +364,13 @@ test("generateAllChapterEvents: 多章节并行", async () => {
     makeChapter(2, "第二章", "内容2"),
     makeChapter(3, "第三章", "内容3"),
   ];
-  const caller: LlmToolCaller = async (_, __, sys) => {
-    // 从 systemPrompt 提取章号（不重要，直接返回）
-    void sys;
+  const caller: LlmToolCaller = async (prompt) => {
+    // 🟠-14（2026-08-08）：章号一致性校验要求 storyTime 章号与当前章一致——
+    // 从 prompt 提取「章节序号」生成对应 storyTime（此前 mock 恒返回 ch001 会误触发校验）
+    const m = (prompt ?? "").match(/章节序号: (\d+)/);
+    const ch = m ? Number(m[1]) : 1;
     return {
-      events: [makeBirthEvent("ch001.ev001", "A", "character")],
+      events: [makeBirthEvent(`ch${String(ch).padStart(3, "0")}.ev001`, "A", "character")],
     };
   };
   const results = await generateAllChapterEvents(chapters, [], caller, 2);
@@ -400,14 +402,17 @@ test("generateAllChapterEvents: 并发数限制", async () => {
   );
   let activeCount = 0;
   let maxActive = 0;
-  const caller: LlmToolCaller = async () => {
+  const caller: LlmToolCaller = async (prompt) => {
     activeCount++;
     maxActive = Math.max(maxActive, activeCount);
     // 模拟延迟
     await new Promise((r) => setTimeout(r, 10));
     activeCount--;
+    // 🟠-14：storyTime 章号与当前章一致（同多章节并行用例）
+    const m = (prompt ?? "").match(/章节序号: (\d+)/);
+    const ch = m ? Number(m[1]) : 1;
     return {
-      events: [makeBirthEvent("ch001.ev001", "A", "character")],
+      events: [makeBirthEvent(`ch${String(ch).padStart(3, "0")}.ev001`, "A", "character")],
     };
   };
   await generateAllChapterEvents(chapters, [], caller, 2);
@@ -419,4 +424,35 @@ test("generateAllChapterEvents: 空章节数组", async () => {
   const caller: LlmToolCaller = async () => ({ events: [] });
   const results = await generateAllChapterEvents([], [], caller, 3);
   assert.equal(results.length, 0);
+});
+
+// ============ 🟠-14 storyTime 唯一性与章号一致性（2026-08-08） ============
+
+test("generateChapterEvents: 同章重复 storyTime 拒绝（🟠-14）", async () => {
+  const { generateChapterEvents } = await import("../src/stages.ts");
+  const chapter = makeChapter(1, "第一章", "内容");
+  const caller: LlmToolCaller = async () => ({
+    events: [
+      makeBirthEvent("ch001.ev001", "A", "character"),
+      makeBirthEvent("ch001.ev001", "B", "character"), // 同章重复
+    ],
+  });
+  await assert.rejects(
+    () => generateChapterEvents(chapter, [], caller),
+    /storyTime 重复/,
+    "同章重复 storyTime 应拒绝（阶段 7 会静默去重丢数据）",
+  );
+});
+
+test("generateChapterEvents: 章号与当前章不一致拒绝（🟠-14）", async () => {
+  const { generateChapterEvents } = await import("../src/stages.ts");
+  const chapter = makeChapter(1, "第一章", "内容");
+  const caller: LlmToolCaller = async () => ({
+    events: [makeBirthEvent("ch002.ev001", "A", "character")], // 第 1 章输出 ch002
+  });
+  await assert.rejects(
+    () => generateChapterEvents(chapter, [], caller),
+    /章号 2 与当前章 1 不一致/,
+    "跨章错序 storyTime 应拒绝（破坏 bi-temporal 单调性）",
+  );
 });

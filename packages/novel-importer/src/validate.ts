@@ -141,9 +141,17 @@ function runP0Checks(ctx: ValidationContext): string[] {
   const { chapters, chapterResults, chain, resolveResult, wg } = ctx;
 
   // ---- 1. 章节完整性 ----
-  const chaptersWithEvents = new Set(chapterResults.map((c) => c.chapterId));
+  // 🟠-16（2026-08-08）：按事件数校验——此前只查 chapterId 条目存在，
+  // 空章节也返回空 events 条目（stages 空章节恒返回条目）→ 检查恒通过形同虚设
+  const eventsByChapter = new Map<number, number>();
+  for (const cr of chapterResults) {
+    eventsByChapter.set(
+      cr.chapterId,
+      (eventsByChapter.get(cr.chapterId) ?? 0) + cr.events.length,
+    );
+  }
   for (const ch of chapters) {
-    if (!chaptersWithEvents.has(ch.chapterId)) {
+    if ((eventsByChapter.get(ch.chapterId) ?? 0) === 0) {
       errors.push(`P0: 第 ${ch.chapterId} 章 "${ch.title}" 无事件覆盖`);
     }
   }

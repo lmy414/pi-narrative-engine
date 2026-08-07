@@ -164,3 +164,48 @@ test("已 dead 重复 death：catch 分支不更新 lastWrittenEventId，日志�
     assertNoDanglingCausedBy(log);
   });
 });
+
+test("🟠-15: 同 property 多条未闭合声明全部闭合（不只最后一条）", async () => {
+  await withWorldGraph(async (wg) => {
+    // 先 birth（内核 change 不创建实体），再写两条未闭合声明
+    // （内核 change 不自动闭合，模拟导入遗留的多未闭合状态）
+    await wg.processEvent({
+      eventId: "evt_birth",
+      type: "birth",
+      storyTime: "ch001.ev000",
+      entityId: "ent_a",
+      entityType: "character",
+      summary: "测试实体",
+    });
+    await wg.processEvent({
+      eventId: "evt_a",
+      type: "change",
+      storyTime: "ch001.ev001",
+      entityId: "ent_a",
+      newFacts: [{ entityId: "ent_a", property: "位置", value: "旧1", modality: "fact" }],
+    });
+    await wg.processEvent({
+      eventId: "evt_b",
+      type: "change",
+      storyTime: "ch001.ev002",
+      entityId: "ent_a",
+      newFacts: [{ entityId: "ent_a", property: "位置", value: "旧2", modality: "fact" }],
+    });
+    // 导入器写入第三条 change（同 property）→ 自动闭合应闭**全部**未闭合声明
+    const events: EventHint[] = [
+      ev("ch001.ev003", "change", "甲", {
+        new_facts: [{ property: "位置", value: "新", modality: "fact" }],
+      }),
+    ];
+    const resolveResult = makeResolveResult();
+    const chain = buildCausedByChain([{ chapterId: 1, title: "第1章", events }] as ChapterResult[]);
+    await writeToGraph(chain, [], [], { wg, resolveResult, autoInferVisibility: false });
+
+    // ch001.ev003 时刻只剩一条未闭合（新值）
+    const snap = await wg.getEntityAt("ent_a", "ch001.ev003");
+    assert.ok(snap, "实体应存在");
+    const open = snap!.properties.filter((p) => p.property === "位置");
+    assert.equal(open.length, 1, "同 property 多条未闭合应全部闭合，只剩新声明");
+    assert.equal(open[0]!.value, "新");
+  });
+});

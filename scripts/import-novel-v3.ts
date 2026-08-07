@@ -37,6 +37,8 @@ interface CliOptions {
   model: string;
   apiKey: string;
   concurrency: number;
+  /** 章节最小内容长度（默认 200；短篇可调小，🟠-18） */
+  minContentLength?: number;
   resumeFromStage?: number;
   noEmbed: boolean;
 }
@@ -64,6 +66,7 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (a === "--model") opts.model = args[++i] ?? "";
     else if (a === "--api-key") opts.apiKey = args[++i] ?? "";
     else if (a === "--concurrency") opts.concurrency = parseInt(args[++i] ?? "3", 10);
+    else if (a === "--min-content-length") opts.minContentLength = parseInt(args[++i] ?? "200", 10);
     else if (a === "--resume-from-stage") {
       opts.resumeFromStage = parseInt(args[++i] ?? "1", 10);
     } else if (a === "--no-embed") opts.noEmbed = true;
@@ -164,6 +167,7 @@ async function main() {
       epubPath: opts.epub,
       worldGraphDir: opts.worldGraph,
       chapters: opts.chapters,
+      minContentLength: opts.minContentLength,
       model: opts.model,
       apiKey: opts.apiKey,
       concurrency: opts.concurrency,

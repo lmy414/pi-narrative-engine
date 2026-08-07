@@ -152,10 +152,28 @@ export async function generateChapterEvents(
       if (events.length > 50) {
         errors.push(`events 长度 ${events.length} 超过 50 上限`);
       }
+      // 🟠-14（2026-08-08）：同章内 storyTime 唯一性——重复 storyTime 的 new_facts
+      // 在阶段 7 被 (entityId, property, storyTime) 三元组去重静默丢弃，此处提前报错
+      const seenStoryTimes = new Set<string>();
       for (let i = 0; i < events.length; i++) {
         const ev = events[i];
         if (!ev.storyTime || !isValidStoryTime(ev.storyTime)) {
           errors.push(`events[${i}].storyTime 非法: ${ev.storyTime}`);
+        } else {
+          if (seenStoryTimes.has(ev.storyTime)) {
+            errors.push(`events[${i}].storyTime 重复: ${ev.storyTime}（同章内必须唯一）`);
+          }
+          seenStoryTimes.add(ev.storyTime);
+          // 🟠-14：章号一致性——storyTime 的 ch 号必须与当前章节号一致
+          // （ch003.ev001 只能出现在第 3 章，跨章错序破坏 bi-temporal 单调性）
+          const dotIdx = ev.storyTime.indexOf(".");
+          const chPart = dotIdx > 0 ? ev.storyTime.slice(2, dotIdx) : "";
+          const chNum = Number(chPart);
+          if (Number.isFinite(chNum) && chNum !== chapter.chapterId) {
+            errors.push(
+              `events[${i}].storyTime "${ev.storyTime}" 章号 ${chNum} 与当前章 ${chapter.chapterId} 不一致`,
+            );
+          }
         }
         if (!ev.type || !["birth", "change", "death"].includes(ev.type)) {
           errors.push(`events[${i}].type 非法: ${ev.type}`);

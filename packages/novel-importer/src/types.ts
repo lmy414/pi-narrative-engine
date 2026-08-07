@@ -165,6 +165,8 @@ export interface ImportPipelineOptions {
   worldGraphDir?: string;
   /** 限定导入章节（1-based），缺省全部 */
   chapters?: number[];
+  /** 章节最小内容长度（字符，缺省 200；全书章节均短于此将拒绝导入——🟠-18 逃生通道） */
+  minContentLength?: number;
   /** LLM 模型名（缺省用 pi 配置） */
   model?: string;
   apiKey?: string;

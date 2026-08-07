@@ -66,6 +66,18 @@ export async function appendToChapter(
   await ensureChapterFile(chapterPath);
   const existing = await readChapter(chapterPath);
 
+  // 🟠-13（2026-08-08）：append 防重——同 eventId 重复追加产生双锚点，
+  // modify/read 永远命中首个、第二个区块成孤儿（LLM 复用 evt_ id 或失败重试时触发）。
+  // 抛错让调用方感知（renderToFile 返回 error），不静默制造孤儿区块
+  if (existing.includes(`<!-- event: ${eventId} -->`)) {
+    throw new Error(`事件 ${eventId} 已在章节中存在锚点，拒绝重复追加: ${chapterPath}`);
+  }
+  // 🟠-13 审计修正：防御性格式校验——畸形 ID（含 " -->" / 换行）可伪造
+  // 锚点子串绕过上方守卫（schema 层已收紧 pattern，此处兜底非 schema 调用方）
+  if (!/^evt_[A-Za-z0-9_.-]+$/.test(eventId)) {
+    throw new Error(`非法事件 ID（需 evt_ 前缀字母数字下划线点连字符）: ${JSON.stringify(eventId)}`);
+  }
+
   // 确保文本末尾有换行
   const normalizedText = text.endsWith("\n") ? text : text + "\n";
 

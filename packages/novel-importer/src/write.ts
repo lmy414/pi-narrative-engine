@@ -220,12 +220,14 @@ export async function writeToGraph(
       }
 
       case "change": {
-        // 解析 invalidated.declarationId（查询当前未闭合声明）
+        // 解析 invalidated.declarationId（查询当前全部未闭合声明，🟠-15）
         const invalidated = [];
         for (const inv of event.invalidated ?? []) {
-          const declarationId = await findDeclarationId(wg, entityId, inv.property, event.storyTime);
-          if (declarationId) {
-            invalidated.push({ declarationId, property: inv.property });
+          const declarationIds = await findDeclarationIds(wg, entityId, inv.property, event.storyTime);
+          if (declarationIds.length > 0) {
+            for (const declarationId of declarationIds) {
+              invalidated.push({ declarationId, property: inv.property });
+            }
           } else {
             skippedInvalidated++;
             warn(`事件 ${eventId}: 实体 ${entityId} 的 property "${inv.property}" 未找到未闭合 declarationId，跳过 invalidated`);
@@ -256,11 +258,13 @@ export async function writeToGraph(
 
         // 自动闭合同 property 未闭合声明（审计 P3：不依赖 LLM 声明 invalidated，
         // 否则 LLM 漏报时旧值永远有效——current_action 多条未闭合并存事故）
-        // 与运行时 commit.ts 的语义一致：同 property 旧 Fact 全部闭合
+        // 与运行时 commit.ts 的语义一致：同 property 旧 Fact 全部闭合（🟠-15）
         for (const f of newFactsRaw) {
-          const declarationId = await findDeclarationId(wg, f.entityId, f.property, event.storyTime);
-          if (declarationId && !invalidated.some((i) => i.declarationId === declarationId)) {
-            invalidated.push({ declarationId, property: f.property });
+          const declarationIds = await findDeclarationIds(wg, f.entityId, f.property, event.storyTime);
+          for (const declarationId of declarationIds) {
+            if (!invalidated.some((i) => i.declarationId === declarationId)) {
+              invalidated.push({ declarationId, property: f.property });
+            }
           }
         }
 
@@ -360,7 +364,10 @@ export async function writeToGraph(
       skippedVisibilities++;
       continue;
     }
-    const declarationId = await findDeclarationId(wg, targetEntityId, v.property, v.storyTime);
+    // 🟠-15 审计修正：findDeclarationIds 返回全部未闭合——可见性只写一条声明，
+    // 多条未闭合时取最新（最后）一条（与旧语义一致，声明已全部闭合保证）
+    const declarationIds = await findDeclarationIds(wg, targetEntityId, v.property, v.storyTime);
+    const declarationId = declarationIds[declarationIds.length - 1];
     if (!declarationId) {
       warn(`跳过可见性: 实体 ${targetEntityId} 的 property "${v.property}" 未找到未闭合 declarationId`);
       skippedVisibilities++;
@@ -421,7 +428,7 @@ export function resolveEntityId(
 }
 
 /**
- * 查询实体在指定 property 上的未闭合 declarationId
+ * 查询实体在指定 property 上的全部未闭合 declarationId
  *
  * 调用 wg.getEntityAt(entityId, storyTime) 取快照，在 properties 中查找匹配 property。
  *
@@ -433,20 +440,21 @@ export function resolveEntityId(
  * "未闭合"= validTo === "Infinity" 或 validTo > storyTime，
  * 所以直接调用 getEntityAt(entityId, storyTime) 取的就是该 storyTime 时刻的状态。
  *
- * 找到匹配的最后一个（最新写入的） declarationId。
+ * 🟠-15（2026-08-08）：返回**全部**未闭合声明（此前只取最后一条）——
+ * 自动闭合语义是"旧 Fact 全部闭合"（同 property 多条未闭合并存时
+ * 只闭最后一条会遗留旧声明永远有效）。
  */
-async function findDeclarationId(
+async function findDeclarationIds(
   wg: WorldGraph,
   entityId: string,
   property: string,
   storyTime: string,
-): Promise<string | null> {
+): Promise<string[]> {
   const snap: EntitySnapshot | null = await wg.getEntityAt(entityId, storyTime);
-  if (!snap) return null;
-  // 找匹配 property 的声明（取最后一个 = 最新）
-  const matched = snap.properties.filter((p) => p.property === property);
-  if (matched.length === 0) return null;
-  return matched[matched.length - 1]!.declarationId;
+  if (!snap) return [];
+  return snap.properties
+    .filter((p) => p.property === property)
+    .map((p) => p.declarationId);
 }
 
 /**

@@ -47,7 +47,9 @@ export function createChapterReadTool(ports: OrchestratorPorts, cwd?: string): A
 const chapterWriteParams = Type.Object({
   chapterPath: Type.String({ description: "章节文件路径" }),
   mode: StringEnum(["add", "modify", "insert"], { description: "写入模式" }),
-  eventId: Type.String({ description: "新事件锚点 ID（evt_ 前缀）" }),
+  // 🟠-13 审计修正：eventId 收紧格式（对齐 world-tools.ts L-BE-5 先例）——
+  // 畸形 ID（含 " -->" 等）可伪造锚点子串绕过 append 防重守卫
+  eventId: Type.String({ description: "新事件锚点 ID（evt_ 前缀）", pattern: "^evt_[A-Za-z0-9_.-]+$" }),
   text: Type.String({ description: "要写入的正文" }),
   targetEventId: Type.Optional(Type.String({ description: "modify/insert 模式的目标锚点事件 ID" })),
 });

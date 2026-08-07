@@ -160,3 +160,45 @@ test("日志悬空 causedBy 报 P0（🔴-C：阶段 8 日志完整性校验）"
     );
   });
 });
+
+test("🟠-16: 空章节（events=[]）报 P0 无事件覆盖", async () => {
+  await withWorldGraph(async (wg) => {
+    const validation = await validateGraph({
+      chapters: [{ chapterId: 1, title: "第一章", content: "" }],
+      chapterResults: [{ chapterId: 1, title: "第一章", events: [] }], // 空事件条目（stages 空章节跳过场景）
+      chain: [],
+      resolveResult: makeResolveResult(),
+      writeResult: zeroWriteResult(),
+      wg,
+    } satisfies ValidationContext);
+
+    assert.equal(validation.p0Passed, false);
+    assert.ok(
+      validation.p0Errors.some((e) => e.includes("无事件覆盖") && e.includes("第一章")),
+      `空章节应报 P0 无事件覆盖，实际: ${validation.p0Errors.join("; ")}`,
+    );
+  });
+});
+
+test("🟠-16: 所有章节均有事件时无章节完整性错误", async () => {
+  await withWorldGraph(async (wg) => {
+    const events: EventHint[] = [
+      ev("ch001.ev001", "birth", "甲", { entity_type: "character" }),
+    ];
+    const resolveResult = makeResolveResult();
+    const chain = buildCausedByChain([{ chapterId: 1, title: "第一章", events }] as ChapterResult[]);
+    const validation = await validateGraph({
+      chapters: [{ chapterId: 1, title: "第一章", content: "x" }],
+      chapterResults: [{ chapterId: 1, title: "第一章", events }],
+      chain,
+      resolveResult,
+      writeResult: zeroWriteResult(["ent_a"]),
+      wg,
+    } satisfies ValidationContext);
+
+    assert.ok(
+      !validation.p0Errors.some((e) => e.includes("无事件覆盖")),
+      `有事件覆盖的章不应报完整性错误，实际: ${validation.p0Errors.join("; ")}`,
+    );
+  });
+});

@@ -15,10 +15,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import AdmZip from "adm-zip";
 
 import {
   htmlToPlainText,
   parallelWithLimit,
+  readChaptersFromEpub,
 } from "../src/epub.ts";
 
 // ============================================================================
@@ -155,4 +160,94 @@ test("parallelWithLimit: 进度回调被调用", async () => {
 test("parallelWithLimit: 空输入返回空数组", async () => {
   const results = await parallelWithLimit([], 3, async (n) => n);
   assert.deepEqual(results, []);
+});
+
+// ============================================================================
+// readChaptersFromEpub（🟠-17/18 2026-08-08，adm-zip 构造最小 EPUB fixture）
+// ============================================================================
+
+/**
+ * 构造最小 EPUB：4 个 toc 条目（ch1 长文 / ch2 短文 <200 / ch3 长文 / n4 缺失章），
+ * 其中 n4 的 href 指向 manifest 中不存在的文件——epub2 getChapter 必失败。
+ */
+async function makeMinimalEpub(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "epub-fixture-"));
+  const epubPath = join(dir, "test.epub");
+  const zip = new AdmZip();
+  zip.addFile("mimetype", Buffer.from("application/epub+zip"));
+  zip.addFile(
+    "META-INF/container.xml",
+    Buffer.from(
+      '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+    ),
+  );
+  zip.addFile(
+    "OEBPS/content.opf",
+    Buffer.from(
+      '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>测试书</dc:title></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/><item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/><item id="ch3" href="ch3.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="ch1"/><itemref idref="ch2"/><itemref idref="ch3"/></spine></package>',
+    ),
+  );
+  zip.addFile(
+    "OEBPS/toc.ncx",
+    Buffer.from(
+      '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head><docTitle><text>测试书</text></docTitle><navMap><navPoint id="n1" playOrder="1"><navLabel><text>第一章</text></navLabel><content src="ch1.xhtml"/></navPoint><navPoint id="n2" playOrder="2"><navLabel><text>第二章</text></navLabel><content src="ch2.xhtml"/></navPoint><navPoint id="n3" playOrder="3"><navLabel><text>第三章</text></navLabel><content src="ch3.xhtml"/></navPoint><navPoint id="n4" playOrder="4"><navLabel><text>缺失章</text></navLabel><content src="ch-missing.xhtml"/></navPoint></navMap></ncx>',
+    ),
+  );
+  zip.addFile("OEBPS/ch1.xhtml", Buffer.from(`<html><body><p>${"很长很长".repeat(200)}</p></body></html>`));
+  zip.addFile("OEBPS/ch2.xhtml", Buffer.from("<html><body><p>短</p></body></html>"));
+  zip.addFile("OEBPS/ch3.xhtml", Buffer.from(`<html><body><p>${"第三段".repeat(200)}</p></body></html>`));
+  await writeFile(epubPath, zip.toBuffer());
+  return epubPath;
+}
+
+test("readChaptersFromEpub: 短章跳过 + 失败章汇总，chapterId 用原始目录序号（🟠-17）", async () => {
+  const epubPath = await makeMinimalEpub();
+  try {
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg: string) => { warnings.push(String(msg)); };
+    try {
+      const chapters = await readChaptersFromEpub(epubPath);
+      // ch1（长文）→ 1、ch2（短文）跳过、ch3（长文）→ 3、n4（缺失）失败
+      assert.deepEqual(
+        chapters.map((c) => c.chapterId),
+        [1, 3],
+        "chapterId 应为原始目录序号（空洞 [1,3]，非连续 [1,2]）",
+      );
+      assert.ok(chapters[0]!.content.length > 200, "ch1 应通过");
+      assert.ok(chapters[1]!.content.includes("第三段"), "ch3 内容应为第三章");
+    } finally {
+      console.warn = origWarn;
+    }
+    assert.ok(
+      warnings.some((w) => w.includes("缺失章") && w.includes("1 章读取失败")),
+      `应汇总失败章节 warn，实际: ${warnings.join(" | ")}`,
+    );
+  } finally {
+    await rm(join(epubPath, ".."), { recursive: true, force: true });
+  }
+});
+
+test("readChaptersFromEpub: chapterFilter 按原书目录序号（🟠-17）", async () => {
+  const epubPath = await makeMinimalEpub();
+  try {
+    // 原书第 3 章（长文）→ 命中；原书第 2 章（短文）→ 被 minLen 跳过 → 空
+    const ch3 = await readChaptersFromEpub(epubPath, { chapterFilter: [3] });
+    assert.deepEqual(ch3.map((c) => c.chapterId), [3], "filter 应按原书序号命中第 3 章");
+    const ch2 = await readChaptersFromEpub(epubPath, { chapterFilter: [2] });
+    assert.deepEqual(ch2.map((c) => c.chapterId), [], "原书第 2 章过短被跳过 → filter 后为空");
+  } finally {
+    await rm(join(epubPath, ".."), { recursive: true, force: true });
+  }
+});
+
+test("readChaptersFromEpub: 全书章节均过短返回空（🟠-18 前置）", async () => {
+  const epubPath = await makeMinimalEpub();
+  try {
+    // minContentLength 调大 → 全部章节过短 → 空数组（pipeline 阶段 1 守卫据此拒绝）
+    const chapters = await readChaptersFromEpub(epubPath, { minContentLength: 100000 });
+    assert.deepEqual(chapters, [], "全部章节过短应返回空");
+  } finally {
+    await rm(join(epubPath, ".."), { recursive: true, force: true });
+  }
 });

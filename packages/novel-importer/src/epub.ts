@@ -76,6 +76,9 @@ export async function readChaptersFromEpub(
   const ep = await EPub.createAsync(epubPath);
   const flowSrc = (ep.toc && ep.toc.length > 0) ? ep.toc : (ep.flow || []);
   const chapters: Chapter[] = [];
+  // 🟠-17（2026-08-08）：单章读取失败不再静默吞掉——汇总 warn 便于排查
+  // （epub2 getChapter 对 manifest 不匹配条目必失败，此前无任何日志）
+  const failedChapters: string[] = [];
 
   for (let i = 0; i < flowSrc.length; i++) {
     const item = flowSrc[i] as { id: string; title?: string };
@@ -91,20 +94,31 @@ export async function readChaptersFromEpub(
           else resolve(text);
         });
       });
-    } catch {
+    } catch (err) {
       // 单章读取失败跳过，不中断整体流程
+      failedChapters.push(`#${i + 1}${item.title ? ` ${item.title}` : ""}（${err instanceof Error ? err.message : String(err)}）`);
       continue;
     }
 
     const text = htmlToPlainText(chapterHtml);
     if (text.length < minLen) continue;
 
-    const candidateId = chapters.length + 1;
+    // 🟠-17：chapterId 用原始目录序号（此前是过滤后序号 chapters.length+1，
+    // 短章被跳过或读取失败后用户按原书目录选章会选错）
+    const candidateId = i + 1;
     chapters.push({
       chapterId: candidateId,
       title: (item.title || `第${candidateId}节`).trim(),
       content: text,
     });
+  }
+
+  // 🟠-17：汇总失败章节（此前静默吞掉）
+  if (failedChapters.length > 0) {
+    const shown = failedChapters.slice(0, 10).join("；");
+    console.warn(
+      `[epub] ${failedChapters.length} 章读取失败已跳过: ${shown}${failedChapters.length > 10 ? `；等共 ${failedChapters.length} 章` : ""}`,
+    );
   }
 
   // 应用章节过滤（在收集后过滤，保持 chapterId 与原 EPUB 顺序一致）
