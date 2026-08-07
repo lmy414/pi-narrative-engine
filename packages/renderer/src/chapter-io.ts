@@ -27,6 +27,33 @@ export const CHAPTER_VERSION_MARKER = "<!-- engine v0.01 -->";
 /** 事件锚点前缀（如 <!-- event: evt_001 -->） */
 export const EVENT_ANCHOR_PREFIX = "<!-- event:";
 
+// 🟠-21 扩展（2026-08-08）：进程内 per-file 写锁——整文件读-改-写（append/modify）
+// 与调度器 insertChapterSection 并发时后写者基于旧内容整体覆盖、先写者区块静默丢失。
+// 本锁放 renderer 层并导出，scheduler 的 insert 复用同一把锁（跨模块共享）。
+const fileLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * 按文件路径串行化读-改-写操作（跨模块共享：append/modify/insert 同一把锁）
+ *
+ * 🟠-21 审计修正：锁键归一化（path.resolve + win32 盘符小写折叠）——同一文件
+ * 在正斜杠/反斜杠、盘符大小写混合拼写下必须落入同一锁链，否则跨模块竞态
+ * 仍可静默复现（LLM 将路径归一为正斜杠即触发）。
+ */
+export function withChapterFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  let key = path.resolve(filePath);
+  if (process.platform === "win32") key = key.toLowerCase();
+  const prev = fileLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn);
+  fileLocks.set(
+    key,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
+
 /**
  * 确保章节文件存在：不存在则创建并写入版本标记，已存在则不覆盖
  */
@@ -63,29 +90,32 @@ export async function appendToChapter(
   eventId: string,
   text: string,
 ): Promise<void> {
-  await ensureChapterFile(chapterPath);
-  const existing = await readChapter(chapterPath);
+  // 🟠-21 扩展：整文件读-改-写包进共享 per-path 锁（与 modify/insert 并发安全）
+  return withChapterFileLock(chapterPath, async () => {
+    await ensureChapterFile(chapterPath);
+    const existing = await readChapter(chapterPath);
 
-  // 🟠-13（2026-08-08）：append 防重——同 eventId 重复追加产生双锚点，
-  // modify/read 永远命中首个、第二个区块成孤儿（LLM 复用 evt_ id 或失败重试时触发）。
-  // 抛错让调用方感知（renderToFile 返回 error），不静默制造孤儿区块
-  if (existing.includes(`<!-- event: ${eventId} -->`)) {
-    throw new Error(`事件 ${eventId} 已在章节中存在锚点，拒绝重复追加: ${chapterPath}`);
-  }
-  // 🟠-13 审计修正：防御性格式校验——畸形 ID（含 " -->" / 换行）可伪造
-  // 锚点子串绕过上方守卫（schema 层已收紧 pattern，此处兜底非 schema 调用方）
-  if (!/^evt_[A-Za-z0-9_.-]+$/.test(eventId)) {
-    throw new Error(`非法事件 ID（需 evt_ 前缀字母数字下划线点连字符）: ${JSON.stringify(eventId)}`);
-  }
+    // 🟠-13（2026-08-08）：append 防重——同 eventId 重复追加产生双锚点，
+    // modify/read 永远命中首个、第二个区块成孤儿（LLM 复用 evt_ id 或失败重试时触发）。
+    // 抛错让调用方感知（renderToFile 返回 error），不静默制造孤儿区块
+    if (existing.includes(`<!-- event: ${eventId} -->`)) {
+      throw new Error(`事件 ${eventId} 已在章节中存在锚点，拒绝重复追加: ${chapterPath}`);
+    }
+    // 🟠-13 审计修正：防御性格式校验——畸形 ID（含 " -->" / 换行）可伪造
+    // 锚点子串绕过上方守卫（schema 层已收紧 pattern，此处兜底非 schema 调用方）
+    if (!/^evt_[A-Za-z0-9_.-]+$/.test(eventId)) {
+      throw new Error(`非法事件 ID（需 evt_ 前缀字母数字下划线点连字符）: ${JSON.stringify(eventId)}`);
+    }
 
-  // 确保文本末尾有换行
-  const normalizedText = text.endsWith("\n") ? text : text + "\n";
+    // 确保文本末尾有换行
+    const normalizedText = text.endsWith("\n") ? text : text + "\n";
 
-  // 拼接：如果现有内容末尾没有空行，补一个
-  const separator = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
+    // 拼接：如果现有内容末尾没有空行，补一个
+    const separator = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
 
-  const block = `${separator}<!-- event: ${eventId} -->\n\n${normalizedText}`;
-  await fs.writeFile(chapterPath, existing + block, "utf8");
+    const block = `${separator}<!-- event: ${eventId} -->\n\n${normalizedText}`;
+    await fs.writeFile(chapterPath, existing + block, "utf8");
+  });
 }
 
 /**
@@ -105,35 +135,38 @@ export async function modifyChapterSection(
   anchorEventId: string,
   newText: string,
 ): Promise<void> {
-  const content = await readChapter(chapterPath);
-  const anchor = `<!-- event: ${anchorEventId} -->`;
+  // 🟠-21 扩展：整文件读-改-写包进共享 per-path 锁（与 append/insert 并发安全）
+  return withChapterFileLock(chapterPath, async () => {
+    const content = await readChapter(chapterPath);
+    const anchor = `<!-- event: ${anchorEventId} -->`;
 
-  const anchorIdx = content.indexOf(anchor);
-  if (anchorIdx === -1) {
-    throw new Error(`锚点 ${anchor} 未找到`);
-  }
+    const anchorIdx = content.indexOf(anchor);
+    if (anchorIdx === -1) {
+      throw new Error(`锚点 ${anchor} 未找到`);
+    }
 
-  // 锚点后的起始位置
-  const afterAnchor = anchorIdx + anchor.length;
+    // 锚点后的起始位置
+    const afterAnchor = anchorIdx + anchor.length;
 
-  // 查找下一个锚点
-  const nextAnchorIdx = content.indexOf(EVENT_ANCHOR_PREFIX, afterAnchor);
+    // 查找下一个锚点
+    const nextAnchorIdx = content.indexOf(EVENT_ANCHOR_PREFIX, afterAnchor);
 
-  // 确保新文本末尾有换行
-  const normalizedText = newText.endsWith("\n") ? newText : newText + "\n";
+    // 确保新文本末尾有换行
+    const normalizedText = newText.endsWith("\n") ? newText : newText + "\n";
 
-  // 构建新内容：锚点前部分 + 锚点 + 新正文 + 下一锚点开始的部分
-  const before = content.slice(0, afterAnchor);
-  let after: string;
-  if (nextAnchorIdx === -1) {
-    // 没有下一锚点，替换到文件末尾
-    after = `\n\n${normalizedText}`;
-  } else {
-    // 有下一锚点，保留从下一锚点开始的内容
-    after = `\n\n${normalizedText}\n${content.slice(nextAnchorIdx)}`;
-  }
+    // 构建新内容：锚点前部分 + 锚点 + 新正文 + 下一锚点开始的部分
+    const before = content.slice(0, afterAnchor);
+    let after: string;
+    if (nextAnchorIdx === -1) {
+      // 没有下一锚点，替换到文件末尾
+      after = `\n\n${normalizedText}`;
+    } else {
+      // 有下一锚点，保留从下一锚点开始的内容
+      after = `\n\n${normalizedText}\n${content.slice(nextAnchorIdx)}`;
+    }
 
-  await fs.writeFile(chapterPath, before + after, "utf8");
+    await fs.writeFile(chapterPath, before + after, "utf8");
+  });
 }
 
 /**

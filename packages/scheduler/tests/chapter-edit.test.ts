@@ -185,3 +185,50 @@ test("insertChapterSection: 失败 insert 不断链（🟠-21）", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("insertChapterSection: 与 renderer append 并发（跨模块共享锁）双写入共存（🟠-21）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+  try {
+    const filePath = path.join(dir, "第1章.md");
+    await writeFile(
+      filePath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", ""].join("\n"),
+      "utf8",
+    );
+    // insert（scheduler 锁）与 append（renderer 锁）并发——共享同一 per-path 锁，
+    // 修复前：后写者基于旧内容整体覆盖，先写者区块静默丢失
+    await Promise.all([
+      insertChapterSection(filePath, "evt_001", "evt_002", "第二段。"),
+      _appendToChapter(filePath, "evt_003", "第三段。"),
+    ]);
+    const content = await readFile(filePath, "utf8");
+    assert.ok(content.includes("<!-- event: evt_002 -->"), "insert 区块应保留");
+    assert.ok(content.includes("<!-- event: evt_003 -->"), "append 区块应保留");
+    assert.ok(content.includes("第二段。") && content.includes("第三段。"), "双区块正文共存（无覆盖丢失）");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("insertChapterSection: 混合路径拼写（正/反斜杠）共享同一锁链（🟠-21 审计修正）", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "scheduler-test-"));
+  try {
+    const filePath = path.join(dir, "第1章.md");
+    await writeFile(
+      filePath,
+      ["<!-- engine v0.01 -->", "", "<!-- event: evt_001 -->", "", "第一段。", ""].join("\n"),
+      "utf8",
+    );
+    // 正斜杠与反斜杠拼写指向同一文件——锁键归一化后落入同一锁链（串行）
+    const posixPath = filePath.replaceAll(path.sep, "/");
+    await Promise.all([
+      insertChapterSection(posixPath, "evt_001", "evt_002", "第二段。"),
+      insertChapterSection(filePath, "evt_001", "evt_003", "第三段。"),
+    ]);
+    const content = await readFile(filePath, "utf8");
+    assert.ok(content.includes("<!-- event: evt_002 -->"), "正斜杠拼写 insert 应保留");
+    assert.ok(content.includes("<!-- event: evt_003 -->"), "反斜杠拼写 insert 应保留");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

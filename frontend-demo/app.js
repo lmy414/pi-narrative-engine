@@ -90,9 +90,14 @@ async function apiCall(name, ...args) {
 // 全局 loading 覆盖层：withLoading 期间显示（spinner + 遮罩，拦截重复点击）。
 // BUG-008 修复：原实现仅置 App.loading 标志、无可见反馈；commit 等 LLM 重操作
 // 需数秒~数十秒，用户无感知视为按钮失效。150ms 延迟显示避免短操作闪烁。
+// BUG-037 修复：opacity 隐藏下元素常驻 DOM（辅助技术/快照可读「处理中…」），
+// 隐藏过渡后移除元素；移除定时器纳入取消机制（审计修正：防上一 hide 的移除
+// 定时器在下一操作 visible 落上前误删元素）。
 let appLoadingTimer = null;
+let appLoadingRemoveTimer = null;
 function showAppLoading() {
   clearTimeout(appLoadingTimer);
+  clearTimeout(appLoadingRemoveTimer); // BUG-037 审计修正：取消上一 hide 的待移除
   let el = $('#app-loading-overlay');
   if (!el) {
     el = document.createElement('div');
@@ -105,7 +110,14 @@ function showAppLoading() {
 function hideAppLoading() {
   clearTimeout(appLoadingTimer);
   const el = $('#app-loading-overlay');
-  if (el) el.classList.remove('app-loading-visible');
+  if (!el) return;
+  el.classList.remove('app-loading-visible');
+  // BUG-037：过渡结束后移除元素（opacity 隐藏下元素常驻 DOM，快照仍可读）；
+  // 定时器 id 存模块级变量供 showAppLoading 取消（防竞态带误删）
+  clearTimeout(appLoadingRemoveTimer);
+  appLoadingRemoveTimer = setTimeout(() => {
+    if (!el.classList.contains('app-loading-visible')) el.remove();
+  }, 200);
 }
 
 async function withLoading(fn) {

@@ -36,6 +36,9 @@ export {
   ensureChapterFile,
   CHAPTER_VERSION_MARKER,
   EVENT_ANCHOR_PREFIX,
+  // 🟠-21 扩展：共享 per-path 写锁（scheduler insertChapterSection 复用，
+  // 与 append/modify 跨模块并发安全）
+  withChapterFileLock,
 } from "./chapter-io.ts";
 
 // Re-export 类型（scheduler 子包与扩展层引用）

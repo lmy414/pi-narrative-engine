@@ -409,3 +409,19 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试**：+5 新用例（transforms 3、chapter-edit 2）+ resolver 测试改写（旧行为→新预期 + 边界）。764 全绿。
 
 **遗留**：🟡 全部（约 30 项，批次 4 批量清理）+ BUG-037（用户决策）+ 批次 3c 登记的跨模块并发写锁（renderer 层共享锁，待决策）。
+
+---
+
+## 15. 遗留缺陷处理闭环（2026-08-08，BUG-037 + 跨模块写锁）
+
+> 分支：`20260808-fix-bug037-writelock` → master（ff-only）。全量测试 766 项：764 pass / 0 fail / 2 skip。
+> **审计纪律**：两项修复各开独立子代理审计，各揪出 1 个 🔴 并修正。
+
+| 项 | 修复 | 审计修正 |
+|---|---|---|
+| BUG-037 | 扫描「处理中…」残留——**排查实证**：后端扫描 14ms 返回（不慢）；根因是 overlay opacity 隐藏但元素常驻 DOM（快照/辅助技术可读文本）。修复：hideAppLoading 过渡后移除元素 | 🔴 hide 移除定时器未纳入取消（50-200ms 竞态带：上一 hide 的移除可能在下一操作 visible 落上前误删元素）→ `appLoadingRemoveTimer` 模块级变量 + showAppLoading 取消。前端测试轮：`frontend-test-runs/2026-08-08-loading-overlay-removal.md`；backlog BUG-037 → fixed |
+| 跨模块写锁（3c 遗留） | renderer 层新增共享 `withChapterFileLock`（append/modify 包锁）+ scheduler insert 复用（同实例 ESM 单例）——主会话 render 工具与队列子代理 insert 跨模块并发安全 | 🔴 锁键未归一化（正/反斜杠、盘符大小写混合拼写落入不同锁链，竞态仍可复现）→ 入口 `path.resolve` + win32 小写折叠。补混合拼写锁键用例 |
+
+**测试**：+2 新用例（跨模块 insert+append 并发、混合路径拼写同锁链），766 全绿。
+
+**遗留**：🟡 全部（批次 4）+ 批次 3c 附带的 `world_relation_add` 零校验登记项。

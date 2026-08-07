@@ -19,25 +19,8 @@ import {
   readChapter,
   ensureChapterFile,
   EVENT_ANCHOR_PREFIX,
+  withChapterFileLock,
 } from "@pi/renderer";
-
-// 🟠-21（2026-08-08）：进程内 per-file 写锁——insertChapterSection 是整文件
-// 读-改-写，与事件队列 append/modify 另一路径并发时后写者基于旧内容整体覆盖、
-// 先写者区块整块丢失（静默）。按文件路径串行化读写（同 admin serialize 模式）。
-const fileLocks = new Map<string, Promise<unknown>>();
-
-function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
-  const prev = fileLocks.get(filePath) ?? Promise.resolve();
-  const run = prev.then(fn);
-  fileLocks.set(
-    filePath,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
-}
 
 /**
  * 在指定锚点之后插入新事件区块
@@ -64,8 +47,10 @@ export async function insertChapterSection(
   newEventId: string,
   text: string,
 ): Promise<void> {
-  // 🟠-21：整文件读-改-写包进 per-file 锁（并发 append/modify/insert 串行化）
-  return withFileLock(chapterPath, async () => {
+  // 🟠-21（2026-08-08）：整文件读-改-写包进 renderer 共享 per-path 锁——
+  // 与主会话 render_append/render_modify（同样经 withChapterFileLock）并发时
+  // 串行化，不再静默丢区块（跨模块共享同一把锁）
+  return withChapterFileLock(chapterPath, async () => {
     await ensureChapterFile(chapterPath);
     const content = await readChapter(chapterPath);
 
