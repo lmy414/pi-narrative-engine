@@ -251,6 +251,8 @@ export async function generateAllChapterEvents(
   concurrency: number = 3,
   onProgress?: (done: number, total: number, chapterId: number, error?: string) => void,
 ): Promise<ChapterResult[]> {
+  // 🟡（2026-08-08）：进度计数（此前 done 恒 0，进度条不动）
+  let doneCount = 0;
   const results = await parallelWithLimit(
     chapters,
     concurrency,
@@ -258,7 +260,8 @@ export async function generateAllChapterEvents(
       // 空章节跳过（审计 P4）：空内容喂给 LLM 会生成"本章无内容"占位垃圾 Fact。
       // 返回空事件数组仍计入 ChapterResult，不影响 P0 章节完整性（该校验只看章节有无结果条目）
       if (!ch.content || !ch.content.trim()) {
-        if (onProgress) onProgress(0, chapters.length, ch.chapterId);
+        doneCount += 1;
+        if (onProgress) onProgress(doneCount, chapters.length, ch.chapterId);
         return {
           chapterId: ch.chapterId,
           title: ch.title,
@@ -267,7 +270,8 @@ export async function generateAllChapterEvents(
       }
       try {
         const events = await generateChapterEvents(ch, entityInventory, callLlm);
-        if (onProgress) onProgress(0, chapters.length, ch.chapterId);
+        doneCount += 1;
+        if (onProgress) onProgress(doneCount, chapters.length, ch.chapterId);
         return {
           chapterId: ch.chapterId,
           title: ch.title,
@@ -275,7 +279,8 @@ export async function generateAllChapterEvents(
         } satisfies ChapterResult;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (onProgress) onProgress(0, chapters.length, ch.chapterId, msg);
+        doneCount += 1;
+        if (onProgress) onProgress(doneCount, chapters.length, ch.chapterId, msg);
         throw err;
       }
     },

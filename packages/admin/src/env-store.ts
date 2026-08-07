@@ -74,7 +74,10 @@ function unquoteValue(raw: string): string {
     const first = v[0];
     const last = v[v.length - 1];
     if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return v.slice(1, -1);
+      const inner = v.slice(1, -1);
+      // 🟡（2026-08-08）：双引号值反转义 `\"` → `"`（与 quoteValue 的转义对称，
+      // 此前往返损坏：quoteValue 转义后 unquoteValue 不反转义）
+      return first === '"' ? inner.replace(/\\"/g, '"') : inner;
     }
   }
   return v;

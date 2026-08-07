@@ -64,7 +64,9 @@ export function getPiStatus(deps: PiStatusDeps): PiStatus {
   try {
     resolved = deps.resolveModel();
   } catch (err) {
-    warnings.push(`resolveModel 抛错: ${(err as Error).message}`);
+    // 🟡（2026-08-08）：不直出底层错误原文（可能含路径/敏感字段），原文仅日志
+    console.error(`[pi-status] resolveModel 抛错: ${(err as Error).message}`);
+    warnings.push("resolveModel 抛错（详情见服务端日志）");
   }
 
   let model: PiModelInfo | null = null;
@@ -77,7 +79,8 @@ export function getPiStatus(deps: PiStatusDeps): PiStatus {
       try {
         hasKey = deps.authStorage.hasAuth(resolved.provider);
       } catch (err) {
-        warnings.push(`authStorage.hasAuth 抛错: ${(err as Error).message}`);
+        console.error(`[pi-status] authStorage.hasAuth 抛错: ${(err as Error).message}`);
+        warnings.push("authStorage.hasAuth 抛错（详情见服务端日志）");
       }
     }
     if (!hasKey) {

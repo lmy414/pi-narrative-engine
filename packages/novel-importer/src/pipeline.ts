@@ -489,7 +489,11 @@ export async function runImportPipeline(
     }
 
     // 落盘 chapter-index.json
-    const chapterIndex = buildChapterIndex(chapterResults, chain);
+    const chapterIndex = buildChapterIndex(
+      chapterResults,
+      chain,
+      writeResult?.chapterEventCounts ?? {},
+    );
     await fs.writeFile(
       chapterIndexPath,
       JSON.stringify(chapterIndex, null, 2),
@@ -550,6 +554,7 @@ export async function runImportPipeline(
           skippedRelations: 0,
           skippedEvents: 0,
           birthedEntityIds: [],
+          chapterEventCounts: {},
         },
         wg,
       },

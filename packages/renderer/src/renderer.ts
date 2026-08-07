@@ -17,6 +17,7 @@ import type {
 import { RENDERER_SYSTEM_PROMPT, buildUserMessage } from "./prompts.ts";
 import {
   readChapter,
+  readChapterSection,
   appendToChapter,
   modifyChapterSection,
   ensureChapterFile,
@@ -50,8 +51,22 @@ export async function renderToFile(
     // 确保章节文件存在
     await ensureChapterFile(cmd.chapterPath);
 
-    // 读取已有内容作为上下文
-    const existingContent = await readChapter(cmd.chapterPath);
+    // 🟡（2026-08-08）：modify 上下文用锚点区间（+前后 500 字边界）而非全文——
+    // 与 types.ts 文档「modify 时为锚点区间+前后段落」一致；append 保留全文
+    let existingContent: string;
+    if (cmd.mode === "modify") {
+      const section = await readChapterSection(
+        cmd.chapterPath,
+        cmd.modifyAnchorEventId ?? cmd.eventId,
+      );
+      const full = await readChapter(cmd.chapterPath);
+      const startIdx = full.indexOf(section);
+      const ctxStart = Math.max(0, (startIdx === -1 ? 0 : startIdx) - 500);
+      const ctxEnd = Math.min(full.length, (startIdx === -1 ? 0 : startIdx) + section.length + 500);
+      existingContent = full.slice(ctxStart, ctxEnd);
+    } else {
+      existingContent = await readChapter(cmd.chapterPath);
+    }
 
     // 构建 RenderTextCommand（复用 renderText）
     const textCmd: RenderTextCommand = {

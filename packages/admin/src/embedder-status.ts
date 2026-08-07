@@ -66,15 +66,19 @@ export async function _dirSize(dir: string): Promise<number> {
   if (!existsSync(dir)) return 0;
   let total = 0;
   const entries = await fs.readdir(dir, { withFileTypes: true });
+  // 🟡（2026-08-08）：子目录并行统计（此前串行 await，大缓存目录耗时数秒）
+  const subs: Promise<number>[] = [];
   for (const e of entries) {
     const full = join(dir, e.name);
     if (e.isDirectory()) {
-      total += await _dirSize(full);
+      subs.push(_dirSize(full));
     } else if (e.isFile()) {
       const stat = await fs.stat(full);
       total += stat.size;
     }
   }
+  const subTotals = await Promise.all(subs);
+  for (const n of subTotals) total += n;
   return total;
 }
 
@@ -206,10 +210,12 @@ export async function warmupEmbedder(embedder: EmbedderLike): Promise<WarmupResu
     await embedder.init();
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err) {
+    // 🟡（2026-08-08）：脱敏——transformers.js 下载错误含本地路径，原文仅日志
+    console.error(`[embedder] warmup 失败: ${(err as Error).message}`);
     return {
       ok: false,
       latencyMs: Date.now() - start,
-      error: (err as Error).message,
+      error: "向量模型初始化失败（详情见服务端日志）",
     };
   }
 }

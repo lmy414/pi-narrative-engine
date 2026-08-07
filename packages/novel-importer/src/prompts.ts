@@ -14,23 +14,40 @@ import type { Chapter } from "./epub.ts";
 
 /** 每章样本截取长度（前 1500 字） */
 const CHAPTER_SAMPLE_LENGTH = 1500;
+/** 🟡（2026-08-08）：阶段 2 预扫描最多采样的章节数——数百章书籍全量样本
+ * 超 LLM 上下文窗口；超限时均匀抽样并标注 */
+const INVENTORY_MAX_CHAPTERS = 30;
 
 /**
  * 构造阶段 2 全书实体预扫描的 prompt
  * 对应 spec L359-446
  */
 export function buildEntityInventoryPrompt(chapters: Chapter[]): string {
-  const samples = chapters
+  // 🟡：超限均匀抽样（保留首章——开篇章是主角团登场、实体预扫描信息量最大；
+  // 其余按间隔均匀采样，抽样数固定为上限）
+  const sampled =
+    chapters.length <= INVENTORY_MAX_CHAPTERS
+      ? chapters
+      : chapters.filter((_, i) => {
+          if (i === 0) return true; // 首章恒保留
+          return Math.floor((i * INVENTORY_MAX_CHAPTERS) / chapters.length)
+            !== Math.floor(((i - 1) * INVENTORY_MAX_CHAPTERS) / chapters.length);
+        });
+  const samples = sampled
     .map((ch) => {
       const sample = ch.content.slice(0, CHAPTER_SAMPLE_LENGTH);
       return `=== 第${ch.chapterId}章 ${ch.title}（前${sample.length}字）===\n${sample}`;
     })
     .join("\n\n");
+  const samplingNote =
+    chapters.length > INVENTORY_MAX_CHAPTERS
+      ? `（全书共 ${chapters.length} 章，以下为均匀抽样的 ${sampled.length} 章样本）`
+      : "";
 
   return `你是一个小说实体预扫描代理。你的任务是从章节样本中识别全书主要实体。
 
 # 你会收到什么
-你将收到多个章节的文本样本（每章前 ${CHAPTER_SAMPLE_LENGTH} 字），格式如下：
+你将收到多个章节的文本样本${samplingNote}（每章前 ${CHAPTER_SAMPLE_LENGTH} 字），格式如下：
 === 第{N}章 {标题}（前${CHAPTER_SAMPLE_LENGTH}字）===
 {章节文本}
 

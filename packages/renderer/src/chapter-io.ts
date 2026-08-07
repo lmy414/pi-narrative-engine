@@ -19,6 +19,7 @@
  */
 
 import { promises as fs } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 /** 章节文件版本标记（首行固定） */
@@ -114,7 +115,9 @@ export async function appendToChapter(
     const separator = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
 
     const block = `${separator}<!-- event: ${eventId} -->\n\n${normalizedText}`;
-    await fs.writeFile(chapterPath, existing + block, "utf8");
+    // 🟡（2026-08-08）：追加用 appendFile（O(1) 写）——此前读全文 + 整文件覆写
+    // 每次 O(文件大小)，N 次累计 O(N²)；防重检查已在上方锁内 readChapter 完成
+    await fs.appendFile(chapterPath, block, "utf8");
   });
 }
 
@@ -161,11 +164,15 @@ export async function modifyChapterSection(
       // 没有下一锚点，替换到文件末尾
       after = `\n\n${normalizedText}`;
     } else {
-      // 有下一锚点，保留从下一锚点开始的内容
-      after = `\n\n${normalizedText}\n${content.slice(nextAnchorIdx)}`;
+      // 🟡（2026-08-08）：新正文与下一锚点之间补空行（格式约定：锚点后空一行接正文）
+      after = `\n\n${normalizedText}\n\n${content.slice(nextAnchorIdx)}`;
     }
 
-    await fs.writeFile(chapterPath, before + after, "utf8");
+    // 🟡（2026-08-08）：原子写（tmp + rename）——直写 fs.writeFile 在进程崩溃/
+    // 断电时留截断文件
+    const tmp = `${chapterPath}.${randomBytes(4).toString("hex")}.tmp`;
+    await fs.writeFile(tmp, before + after, "utf8");
+    await fs.rename(tmp, chapterPath);
   });
 }
 

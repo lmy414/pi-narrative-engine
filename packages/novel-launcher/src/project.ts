@@ -59,8 +59,10 @@ async function _copyTemplate(
 ): Promise<void> {
   if (existsSync(destPath) && !force) return;
   let content = await readFile(join(templatesDir, srcName), "utf8");
+  // 🟡（2026-08-08）：替换回调返回字面值——字符串替换的 $&/$'/$` 特殊序列
+  // 会让项目名含 $ 时插入错误内容（$& 自我递归扩散）
   for (const [k, v] of Object.entries(vars)) {
-    content = content.replaceAll(`{{${k}}}`, v);
+    content = content.replaceAll(`{{${k}}}`, () => v);
   }
   await mkdir(dirname(destPath), { recursive: true });
   await writeFile(destPath, content, "utf8");

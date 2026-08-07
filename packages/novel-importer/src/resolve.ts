@@ -433,24 +433,38 @@ export async function mergeByLLMJudgment(
  *   - first_seen_chapter 取最小值
  *   - brief 取首个非空
  */
-export function mergeGroupToCanonical(group: EntityHint[]): EntityHint {
+/**
+ * 合并组内实体为规范实体
+ *
+ * 语义：
+ *   - 组内除 canonical name 外的 name 都作为别名
+ *   - 所有组成员的 aliases 都合并
+ *   - canonical name 本身不作为别名
+ *   - first_seen_chapter 取最小值
+ *   - brief 取首个非空
+ *
+ * @param preferredName 🟡（2026-08-08）：LLM 裁决的 canonical_name（L3 合并后
+ *   优先用作规范名；提供时原首 name 降为别名）
+ */
+export function mergeGroupToCanonical(group: EntityHint[], preferredName?: string): EntityHint {
   if (group.length === 0) {
     throw new Error("mergeGroupToCanonical: 空组");
   }
   const first = group[0];
-  const nameSet = new Set<string>([first.name]);
+  // 🟡：LLM 裁决规范名优先（trim 后非空才用）
+  const canonicalName = preferredName?.trim() || first.name;
+  const nameSet = new Set<string>([canonicalName]);
   const aliases: string[] = [];
   let first_seen_chapter = first.first_seen_chapter;
   let brief = first.brief;
 
-  for (let i = 0; i < group.length; i++) {
-    const h = group[i];
+  for (const h of group) {
     if (h.first_seen_chapter < first_seen_chapter) {
       first_seen_chapter = h.first_seen_chapter;
     }
     if (!brief && h.brief) brief = h.brief;
-    // 非首组成员的 name 作为别名（首组的 name 就是 canonical name，跳过）
-    if (i > 0 && !nameSet.has(h.name)) {
+    // 非 canonicalName 的组内 name 作为别名（preferredName 存在时首 name 也降为别名）
+    if (h.name !== canonicalName && !nameSet.has(h.name)) {
       nameSet.add(h.name);
       aliases.push(h.name);
     }
@@ -463,7 +477,7 @@ export function mergeGroupToCanonical(group: EntityHint[]): EntityHint {
   }
 
   return {
-    name: first.name,
+    name: canonicalName,
     type: first.type,
     aliases,
     first_seen_chapter,
@@ -506,6 +520,8 @@ export async function resolveEntities(
 
   // 三级（若有可疑对且提供了 callLlm）
   let groupsL3 = groupsL2;
+  // 🟡（2026-08-08）：并查集根索引 → LLM 裁决的 canonical_name
+  let canonicalNameByRoot = new Map<number, string>();
   if (suspiciousPairs.length > 0) {
     const callLlm = options.callLlm ?? makeLlmCaller(options.model, options.apiKey);
     const decisions = await mergeByLLMJudgment(suspiciousPairs, callLlm);
@@ -516,16 +532,24 @@ export async function resolveEntities(
     // 由于 mergeBySimilarity 内部已经做了并查集，未合并的可疑对的两组索引需要重新跟踪
     // 简化方案：直接根据 decisions 中 should_merge=true 的 canonical_name 反查组
     if (decisions.length > 0) {
-      groupsL3 = applyDecisionsToGroups(groupsL2, suspiciousPairs, decisions);
+      const applied = applyDecisionsToGroups(groupsL2, suspiciousPairs, decisions);
+      groupsL3 = applied.groups;
+      // 🟡（2026-08-08）：LLM 裁决的规范名——优先用作组 canonical name
+      // （此前忽略，组内首个 hint 的 name 可能非最优称呼）
+      canonicalNameByRoot = applied.canonicalNames;
     }
   }
 
   // 生成 canonical entityId + aliasIndex + canonicalMap
   const canonicalMap = new Map<string, string>();
   const aliasIndex: AliasEntry[] = [];
+  // 🟡：合并后组索引（canonicalNameByRoot 的键）
+  let groupIdx = 0;
 
   for (const group of groupsL3) {
-    const canonical = mergeGroupToCanonical(group);
+    // 🟡：LLM 裁决的 canonical_name 优先（按合并后组索引取）
+    const preferred = canonicalNameByRoot.get(groupIdx);
+    const canonical = mergeGroupToCanonical(group, preferred);
     const entityId = generateEntityId(canonical.type, canonical.name, canonical.aliases);
     aliasIndex.push({
       name: canonical.name,
@@ -537,6 +561,7 @@ export async function resolveEntities(
     for (const a of canonical.aliases) {
       canonicalMap.set(a, entityId);
     }
+    groupIdx += 1;
   }
 
   return { canonicalMap, aliasIndex };
@@ -553,7 +578,9 @@ function applyDecisionsToGroups(
   groups: EntityHint[][],
   pairs: SuspiciousPair[],
   decisions: MergeDecision[],
-): EntityHint[][] {
+): { groups: EntityHint[][]; canonicalNames: Map<number, string> } {
+  // 🟡（2026-08-08）：LLM 裁决的 canonical_name 记录（合并后规范名，此前被忽略）
+  const canonicalNames = new Map<number, string>();
   // 构建 (name, type) → groupIndex 映射（用每组的首个 hint 作为代表）
   // 注意：pair.a.name 可能是该组中任意一个 hint 的 name 或 alias
   // 为此我们建立 name → groupIndex 映射
@@ -594,6 +621,14 @@ function applyDecisionsToGroups(
     const gi = nameToGroupIdx.get(pair.a.name);
     const gj = nameToGroupIdx.get(pair.b.name);
     if (gi === undefined || gj === undefined) continue;
+    // 🟡（2026-08-08）：记录 LLM 裁决的 canonical_name（合并后规范名）——
+    // 此前该字段被完全忽略，规范名取组内首个 hint 的 name（可能选中次优称呼）
+    const rootGi = find(gi);
+    const rootGj = find(gj);
+    if (rootGi !== rootGj) {
+      const name = d.canonical_name?.trim();
+      if (name) canonicalNames.set(rootGj, name);
+    }
     union(gi, gj);
   }
 
@@ -604,8 +639,18 @@ function applyDecisionsToGroups(
     if (!mergedMap.has(root)) mergedMap.set(root, []);
     mergedMap.get(root)!.push(i);
   }
+  // 🟡：根索引 → 合并后组索引（canonical_name 映射用）
+  const mergedEntries = Array.from(mergedMap.entries());
+  const rootToMerged = new Map(mergedEntries.map(([root], idx) => [root, idx]));
 
-  return Array.from(mergedMap.values()).map((indices) =>
-    indices.flatMap((i) => groups[i]),
-  );
+  return {
+    groups: mergedEntries.map(([, indices]) => indices.flatMap((i) => groups[i])),
+    // 🟡：canonical_name 键改为「合并后组索引」（原为并查集根索引，
+    // 与 groups 返回数组顺序不一致）
+    canonicalNames: new Map(
+      Array.from(canonicalNames.entries())
+        .filter(([root]) => rootToMerged.has(root))
+        .map(([root, name]) => [rootToMerged.get(root)!, name]),
+    ),
+  };
 }

@@ -93,13 +93,14 @@ export interface ExtApiContext {
   appConfigDir?: string;
 }
 
-/** 错误 code → HTTP 状态映射（缺省 400） */
+/** 错误 code → HTTP 状态映射（缺省 400；白名单外一律掩码为 INTERNAL_ERROR——🟡） */
 const ERROR_STATUS: Record<string, number> = {
   MISSING_FIELD: 400,
   INVALID_BODY: 400,
   INVALID_EXT: 400,
   INVALID_SLOT: 400,
   INVALID_MODEL: 400,
+  INVALID_NOVEL_JSON: 400,
   PATH_ESCAPE: 403,
   PROVIDER_NOT_FOUND: 404,
   FILE_NOT_FOUND: 404,
@@ -202,7 +203,9 @@ async function isWithinAllowedRoots(dir: string, appConfigDir?: string): Promise
   if (!appConfigDir) return true;
   const appConfig = await readAppConfig(appConfigDir);
   const allowedRoots = appConfig?.launcher.defaultScanRoots ?? [];
-  if (allowedRoots.length === 0) return true;
+  // 🟡（2026-08-08）：纵深防御——历史坏值（非数组）按空白名单处理（放行），
+  // 避免 `.some` 调用 TypeError 恒 500
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) return true;
   const resolved = resolve(dir);
   return allowedRoots.some((allowed) => {
     const rel = relative(resolve(allowed), resolved);
@@ -240,7 +243,15 @@ export async function handleExtApi(
   } catch (err) {
     const e = err as Error & { code?: string };
     const code = e.code ?? "INTERNAL_ERROR";
-    fail(res, ERROR_STATUS[code] ?? (code === "INTERNAL_ERROR" ? 500 : 400), code, e.message);
+    // 🟡（2026-08-08）：只在白名单内的业务 code 直出消息；Node fs 错误恒带系统
+    // code（ENOENT/EACCES/EPERM 等）且消息含绝对路径——白名单外一律掩码为
+    // INTERNAL_ERROR 固定文案 + 服务端日志
+    if (!(code in ERROR_STATUS) || code === "INTERNAL_ERROR") {
+      console.error(`[routes-ext] 未预期错误(${code}): ${e.message}\n${e.stack ?? ""}`);
+      fail(res, 500, "INTERNAL_ERROR", "内部错误（详情见服务端日志）");
+      return true;
+    }
+    fail(res, ERROR_STATUS[code] ?? 400, code, e.message);
   }
   return true;
 }

@@ -115,6 +115,8 @@ export interface WriteResult {
    * 仍合法，不能用终态存活快照（getAllEntities 按 validTo 过滤）。
    */
   birthedEntityIds: string[];
+  /** 🟡（2026-08-08）：各章实际写入事件数（剔除被跳过事件，chapter-index 用） */
+  chapterEventCounts: Record<number, number>;
 }
 
 /**
@@ -141,6 +143,8 @@ export async function writeToGraph(
   let skippedVisibilities = 0;
   let skippedRelations = 0;
   let skippedEvents = 0;
+  // 🟡（2026-08-08）：各章实际写入事件数（被跳过事件不计入 chapter-index）
+  const chapterEventCounts: Record<number, number> = {};
 
   // 用于去重 (entityId, property, storyTime) 三元组
   const seenFactKeys = new Set<string>();
@@ -216,6 +220,7 @@ export async function writeToGraph(
           causedBy: lastWrittenEventId,
         });
         lastWrittenEventId = eventId;
+        chapterEventCounts[chapterId] = (chapterEventCounts[chapterId] ?? 0) + 1;
         break;
       }
 
@@ -278,6 +283,7 @@ export async function writeToGraph(
           causedBy: lastWrittenEventId,
         });
         lastWrittenEventId = eventId;
+        chapterEventCounts[chapterId] = (chapterEventCounts[chapterId] ?? 0) + 1;
         break;
       }
 
@@ -299,6 +305,7 @@ export async function writeToGraph(
             causedBy: lastWrittenEventId,
           });
           lastWrittenEventId = eventId;
+          chapterEventCounts[chapterId] = (chapterEventCounts[chapterId] ?? 0) + 1;
         } catch (err) {
           warn(`death 事件 ${eventId} 失败（可能已 dead）: ${(err as Error).message}`);
           skippedEvents++;
@@ -397,6 +404,7 @@ export async function writeToGraph(
     skippedRelations,
     skippedEvents,
     birthedEntityIds: [...birthedEntityIds],
+    chapterEventCounts,
   };
 }
 
@@ -496,10 +504,15 @@ export interface ChapterIndexEntry {
 
 /**
  * 构造 chapter-index.json 内容
+ *
+ * 🟡（2026-08-08）：eventCount 用实际写入数（chapterEventCounts，剔除被跳过
+ * 事件）——此前 chain.filter().length 把 entity_hint 未解析/重复 birth/未 birth
+ * death 等跳过事件也计入，eventCount 虚高
  */
 export function buildChapterIndex(
   chapterResults: ChapterResult[],
   chain: EventWithChain[],
+  chapterEventCounts: Record<number, number>,
 ): ChapterIndexEntry[] {
   return chapterResults.map((ch) => {
     const chapterEvents = chain.filter((c) => c.chapterId === ch.chapterId);
@@ -511,7 +524,7 @@ export function buildChapterIndex(
         start: storyTimes[0] ?? "",
         end: storyTimes[storyTimes.length - 1] ?? "",
       },
-      eventCount: chapterEvents.length,
+      eventCount: chapterEventCounts[ch.chapterId] ?? 0,
     };
   });
 }

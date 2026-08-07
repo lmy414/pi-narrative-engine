@@ -233,5 +233,7 @@ test("warmupEmbedder: init 抛错返回失败", async () => {
   };
   const result = await warmupEmbedder(emb);
   assert.equal(result.ok, false);
-  assert.ok(result.error!.includes("model not found"));
+  // 🟡（2026-08-08）：脱敏后返回固定文案，不泄露底层错误（可能含本地路径）
+  assert.ok(result.error!.includes("初始化失败"));
+  assert.ok(!result.error!.includes("model not found"), "不应泄露底层错误原文");
 });

@@ -58,15 +58,26 @@ export interface ParsedCard {
 /**
  * 从 JSON 对象提取卡数据（兼容 V1 平铺 / V2 spec+data / V3）
  */
-export function extractCardData(json: Record<string, unknown>): ParsedCard {
+export function extractCardData(json: unknown): ParsedCard {
+  // 🟡（2026-08-08）：入口守卫——null/数组/原始值此前抛 TypeError 不可诊断
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    throw new Error("角色卡 JSON 顶层必须是对象（收到 null/数组/原始值）");
+  }
+  const obj = json as Record<string, unknown>;
   // V2/V3：{ spec: "chara_card_v2"|"chara_card_v3", data: {...} }
-  const spec = json.spec as string | undefined;
-  if (spec && spec.startsWith("chara_card") && json.data && typeof json.data === "object") {
-    return json.data as unknown as ParsedCard;
+  const spec = obj.spec;
+  if (
+    typeof spec === "string" &&
+    spec.startsWith("chara_card") &&
+    obj.data !== null &&
+    typeof obj.data === "object" &&
+    !Array.isArray(obj.data)
+  ) {
+    return obj.data as unknown as ParsedCard;
   }
   // V1：平铺
-  if (typeof json.name === "string") {
-    return json as unknown as ParsedCard;
+  if (typeof obj.name === "string") {
+    return obj as unknown as ParsedCard;
   }
   throw new Error("无法识别的角色卡格式（既不是 V1 平铺也不是 V2/V3 spec+data）");
 }

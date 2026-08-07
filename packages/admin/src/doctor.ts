@@ -198,7 +198,8 @@ export function _checkEmbedderEnv(baseDir: string): DoctorCheck {
       id: "embedder-env",
       name: "向量模型环境",
       status: "pass",
-      message: `未缓存但已配置镜像 HF_ENDPOINT=${process.env.HF_ENDPOINT}`,
+      // 🟡（2026-08-08）：不输出环境变量值（防敏感信息经诊断端点泄漏）
+      message: "未缓存但已配置镜像（HF_ENDPOINT 已设置）",
     };
   }
   return {

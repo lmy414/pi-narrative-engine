@@ -168,7 +168,14 @@ export async function readAppConfig(configDir?: string): Promise<AppConfig> {
     if (Array.isArray(ids)) providerModels[pid] = ids.map((m) => String(m));
   }
   return {
-    launcher: { ...defaults.launcher, ...(obj.launcher ?? {}) },
+    // 🟡：读侧兜底——磁盘历史坏值（字符串等）归一为空数组，不再污染 scan
+    launcher: {
+      ...defaults.launcher,
+      ...(obj.launcher ?? {}),
+      defaultScanRoots: Array.isArray((obj.launcher as Record<string, unknown> | undefined)?.defaultScanRoots)
+        ? ((obj.launcher as Record<string, unknown>).defaultScanRoots as unknown[]).map((r) => String(r))
+        : defaults.launcher.defaultScanRoots,
+    },
     embedder: { ...defaults.embedder, ...(obj.embedder ?? {}) },
     llm: {
       slots: { ...rawSlots },
@@ -232,8 +239,11 @@ async function writeAppConfigInner(
 
   const merged: AppConfig = {
     launcher: {
-      defaultScanRoots:
-        updates.launcher?.defaultScanRoots ?? current.launcher.defaultScanRoots,
+      // 🟡（2026-08-08）：defaultScanRoots 归一化——非数组（如字符串）落盘后
+      // scan/meta 的 `.some` 调用恒 500（坏值永续）；写侧归一 + 读侧兜底
+      defaultScanRoots: Array.isArray(updates.launcher?.defaultScanRoots)
+        ? updates.launcher.defaultScanRoots.map((r) => String(r))
+        : current.launcher.defaultScanRoots,
       // lastProjectDir 可置 null，需区分"未提供"与"显式 null"
       lastProjectDir:
         updates.launcher && "lastProjectDir" in updates.launcher

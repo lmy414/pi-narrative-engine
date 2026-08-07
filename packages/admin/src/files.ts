@@ -232,8 +232,19 @@ export async function writeProjectFile(
         "MTIME_CONFLICT",
       );
     }
-  } else if (!existsSync(path.dirname(abs))) {
-    throw new AdminError(`父目录不存在: ${path.dirname(rel)}`, "DIR_NOT_FOUND");
+  } else {
+    // 🟡（2026-08-08）：文件不存在时 baseMtime 不再静默忽略——客户端先读到
+    // （拿到 baseMtime）后被删除的文件再 write 会静默重建，删除操作被覆盖
+    // （乐观锁语义不完整）
+    if (baseMtime !== undefined) {
+      throw new AdminError(
+        `文件已被删除（mtime 冲突）: ${rel}`,
+        "MTIME_CONFLICT",
+      );
+    }
+    if (!existsSync(path.dirname(abs))) {
+      throw new AdminError(`父目录不存在: ${path.dirname(rel)}`, "DIR_NOT_FOUND");
+    }
   }
   const tmp = `${abs}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, content, "utf8");
