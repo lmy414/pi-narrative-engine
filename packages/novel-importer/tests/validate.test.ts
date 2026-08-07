@@ -51,6 +51,7 @@ function zeroWriteResult(birthedEntityIds: string[] = []) {
     skippedRelations: 0,
     skippedEvents: 0,
     birthedEntityIds,
+    chapterEventCounts: {},
   };
 }
 

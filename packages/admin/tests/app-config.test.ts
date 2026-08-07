@@ -355,3 +355,19 @@ test("writeAppConfig: 并发写后无 .tmp 残留（随机后缀）", async () =
     await rm(d2, { recursive: true, force: true });
   }
 });
+
+test("writeAppConfig: defaultScanRoots 非数组坏值归一（🟡 4b 审计补测）", async () => {
+  const d2 = await mkdtemp(join(tmpdir(), "app-config-"));
+  try {
+    // 写侧：字符串坏值不落盘（保留当前）
+    await writeAppConfig({ launcher: { defaultScanRoots: ["D:/novels"] } }, d2);
+    const bad = await writeAppConfig({ launcher: { defaultScanRoots: "D:/bad" as never } }, d2);
+    assert.deepEqual(bad.launcher.defaultScanRoots, ["D:/novels"], "非数组更新应被忽略（保留当前）");
+    // 读侧：磁盘历史坏值（字符串）兜底为空数组
+    await writeFile(getAppConfigPath(d2), JSON.stringify({ launcher: { defaultScanRoots: "D:/bad" } }), "utf8");
+    const back = await readAppConfig(d2);
+    assert.deepEqual(back.launcher.defaultScanRoots, [], "读侧坏值应归一为空数组（不再污染 scan）");
+  } finally {
+    await rm(d2, { recursive: true, force: true });
+  }
+});

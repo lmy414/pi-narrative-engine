@@ -381,6 +381,19 @@ test("mergeGroupToCanonical: 空组抛错", async () => {
   assert.throws(() => mergeGroupToCanonical([]), /空组/);
 });
 
+test("mergeGroupToCanonical: preferredName 优先作为规范名，原首 name 降为别名（🟡 4b 审计补测）", async () => {
+  const { mergeGroupToCanonical } = await import("../src/resolve.ts");
+  const group = [
+    makeHint("酒寄彩叶", "character", { aliases: ["彩叶"], first_seen_chapter: 3 }),
+    makeHint("小彩叶", "character", { aliases: ["彩叶酱"], first_seen_chapter: 1 }),
+  ];
+  // LLM 裁决的 canonical_name 与首 name 不同——必须生效
+  const c = mergeGroupToCanonical(group, "叶彩");
+  assert.equal(c.name, "叶彩", "preferredName 应优先作为规范名");
+  assert.deepEqual(c.aliases.sort(), ["彩叶", "彩叶酱", "小彩叶", "酒寄彩叶"].sort(), "原首 name 应降为别名");
+  assert.equal(c.first_seen_chapter, 1);
+});
+
 // ============================================================================
 // 编排 resolveEntities（端到端）
 // ============================================================================

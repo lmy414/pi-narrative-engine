@@ -514,9 +514,11 @@ export function createVisibilityInferTool(ports: OrchestratorPorts): AgentTool<t
 }
 
 const relationAddParams = Type.Object({
-  sourceId: Type.String(),
-  targetId: Type.String(),
-  label: Type.String({ description: "关系标签（如 friend / located_in / 敌人）" }),
+  // 🟡（2026-08-08）：零校验修正——LLM 漏填/畸形 ID 会经内核非 strict addRelation
+  // 静默写入 `rel--label-...` 垃圾关系（与 🟠-20 同源）；非空 + ID 格式校验
+  sourceId: Type.String({ pattern: "^[A-Za-z0-9_.:-]+$" }),
+  targetId: Type.String({ pattern: "^[A-Za-z0-9_.:-]+$" }),
+  label: Type.String({ description: "关系标签（如 friend / located_in / 敌人）", minLength: 1 }),
   storyTime: Type.String(),
 });
 

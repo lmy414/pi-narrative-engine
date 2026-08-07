@@ -14,7 +14,7 @@
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, readdir, symlink, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -328,6 +328,25 @@ test("writeProjectFile: 符号链接指向工程根外拒绝（🟠-7）", async
       return true;
     });
     await rm(outside, { force: true });
+  } finally {
+    await rm(dir2, { recursive: true, force: true });
+  }
+});
+
+test("writeProjectFile: 文件已被删除 + baseMtime → MTIME_CONFLICT（🟡 4b 审计补测）", async () => {
+  const dir2 = await mkdtemp(join(tmpdir(), "admin-files-"));
+  try {
+    await mkdir(join(dir2, "正文"), { recursive: true });
+    const filePath = join(dir2, "正文", "gone.md");
+    await writeFile(filePath, "内容", "utf8");
+    const st = await stat(filePath);
+    // 客户端已读到（拿到 baseMtime）后被删除
+    await rm(filePath);
+    await assert.rejects(writeProjectFile(dir2, "正文/gone.md", "覆盖", st.mtime.toISOString()), (e) => {
+      assertAdminError(e, "MTIME_CONFLICT");
+      return true;
+    }, "已删除文件带 baseMtime 写入应 409（防删除被静默覆盖）");
+    assert.ok(!existsSync(filePath), "文件不应被重建");
   } finally {
     await rm(dir2, { recursive: true, force: true });
   }

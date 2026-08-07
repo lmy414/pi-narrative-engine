@@ -343,10 +343,18 @@ async function handlePost(
   // POST /api/visibility — body { characterId, declarationId, confidence, source, storyTime }
   if (head === "visibility" && segments.length === 1) {
     const obj = requireFields(body, ["characterId", "declarationId", "confidence", "source", "storyTime"]);
+    // 🟡 审计修正：source 运行时校验（对齐 modality 端点 400 先例）——
+    // 编译期断言不构成「非法值拒绝」，内核 setVisibility 无运行时校验
+    const source = String(obj.source);
+    if (source !== "experienced" && source !== "informed" && source !== "witnessed") {
+      const err = new Error(`source 必须是 experienced|informed|witnessed（收到 ${JSON.stringify(source)}）`) as Error & { code?: string };
+      err.code = "INVALID_BODY";
+      throw err;
+    }
     await wg.setVisibility(String(obj.characterId), String(obj.declarationId), {
       state: "known",
       confidence: Number(obj.confidence),
-      source: String(obj.source),
+      source: source as "experienced" | "informed" | "witnessed",
       validFrom: String(obj.storyTime),
       isExplicit: true,
     });

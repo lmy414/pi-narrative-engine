@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorldGraph } from "underworld-graph";
 import type { ChapterResult, EventHint, ResolveResult } from "../src/types.ts";
-import { buildCausedByChain, writeToGraph } from "../src/write.ts";
+import { buildCausedByChain, buildChapterIndex, writeToGraph } from "../src/write.ts";
 
 /** 断言日志中不存在悬空 causedBy（🔴-C 的核心不变量） */
 function assertNoDanglingCausedBy(events: Array<{ eventId: string; causedBy?: string }>): void {
@@ -207,5 +207,26 @@ test("🟠-15: 同 property 多条未闭合声明全部闭合（不只最后一�
     const open = snap!.properties.filter((p) => p.property === "位置");
     assert.equal(open.length, 1, "同 property 多条未闭合应全部闭合，只剩新声明");
     assert.equal(open[0]!.value, "新");
+  });
+});
+
+test("chapterEventCounts: 跳过事件不计入（🟡 4b 审计补测）", async () => {
+  await withWorldGraph(async (wg) => {
+    // 3 个事件：正常 birth + 重复 birth（跳过）+ 正常 change
+    const events: EventHint[] = [
+      ev("ch001.ev001", "birth", "甲", { entity_type: "character" }),
+      ev("ch001.ev002", "birth", "甲", { entity_type: "character" }), // 重复 birth → 跳过
+      ev("ch001.ev003", "change", "甲", { new_facts: [{ property: "位置", value: "客栈", modality: "fact" }] }),
+    ];
+    const resolveResult = makeResolveResult();
+    const chain = buildCausedByChain([{ chapterId: 1, title: "第1章", events }] as ChapterResult[]);
+    const result = await writeToGraph(chain, [], [], { wg, resolveResult, autoInferVisibility: false });
+
+    // chain 3 个事件，实际写入 2 个（重复 birth 跳过）
+    assert.equal(result.eventCount, 3, "eventCount 是链长（含跳过）");
+    assert.equal(result.chapterEventCounts[1], 2, "chapterEventCounts 只计实际写入（重复 birth 不计）");
+    // chapter-index 用实际写入数
+    const idx = buildChapterIndex([{ chapterId: 1, title: "第1章", events }] as ChapterResult[], chain, result.chapterEventCounts);
+    assert.equal(idx[0]!.eventCount, 2, "chapter-index eventCount 应剔除跳过事件");
   });
 });

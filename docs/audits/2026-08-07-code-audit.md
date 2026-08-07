@@ -444,3 +444,19 @@ plannerResult = await plannerCollected.promise;  // 走不到
 **测试**：+2 新用例（warmup 脱敏断言更新、insert 防重 2 断言）。769 全绿。前端测试轮：`frontend-test-runs/2026-08-08-batch4c-frontend.md`。
 
 **至此审计报告全部发现闭环**：🔴 4/4 · 🟠 27/27 · 🟡 30 项（4a/4b/4c）· BUG 系列 37 项（含 BUG-037）。基线遗留：全量 tsc 6 处既有类型错误（novel-json/write/chat-context 等，非审计引入，行未在修复 diff 内）。
+
+---
+
+## 17. 剩余清理闭环（2026-08-08，typecheck 全绿 + 审计登记项）
+
+> 分支：`20260808-cleanup-remaining` → master（ff-only）。全量测试 775 项：773 pass / 0 fail / 2 skip。**typecheck 从 7 错误到全绿（exit 0）**。
+
+| 项 | 修复 |
+|---|---|
+| world_relation_add 零校验（3c 审计登记） | agents 版（src/agents/world-tools.ts）+ **主会话版（src/chat/world-tools.ts，审计修正遗漏）**均补 ID pattern + label minLength 1 |
+| tsc 7 处类型错误 | novel-json `DEFAULTS[key] as string`；VisibilityHint.source 改内核枚举联合（对齐 write/visualizer）；chat-context 三处（getSessionFile ?? ""、extractMessageText 收窄、getModel as never + apiKey ?? ""）；search vector/hybrid embedder 守卫 |
+| visualizer source 运行时校验（审计修正） | 对齐 modality 端点 400 先例——编译期断言不构成「非法值拒绝」，补运行时枚举校验 |
+| 测试补缺 6 项 | env-store 引号往返、app-config 坏值归一、files 删除冲突 409、resolve preferredName、import-card 畸形守卫 6 变体、chapter-index 实际写入数 |
+| validate.test.ts 缺字段（4b 遗漏） | WriteResult 字面量补 chapterEventCounts |
+
+**最终状态**：审计报告全部发现闭环 + typecheck 全绿 + CI 775 全绿。剩余基线项：packages 级 tsconfig（含 tests）5 处既有测试类型错误（app-config/validate 测试数据，非运行时影响）；storyTime 运行时工具路径无格式校验（既有设计，与全部兄弟工具一致）。

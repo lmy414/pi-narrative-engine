@@ -429,7 +429,8 @@ export class ChatContext {
       const sm = handle.host.session.sessionManager;
       onDisk.push({
         id: handle.id,
-        path: sm.getSessionFile(),
+        // 🟡：getSessionFile 可能返回 undefined（会话未落盘），兜底空串
+        path: sm.getSessionFile() ?? "",
         cwd: active.dir,
         created: new Date(handle.createdAt),
         modified: new Date(handle.updatedAt),
@@ -582,7 +583,8 @@ export class ChatContext {
       if (message.role === "toolResult") continue;
       const historical: HistoricalChatMessage = {
         role: String(message.role),
-        text: extractMessageText(message.content),
+        // 🟡：联合类型成员（BashExecutionMessage 等）无 content 字段，显式收窄
+        text: extractMessageText((message as { content?: unknown }).content),
         ts: entry.timestamp,
       };
       if (message.role === "assistant") {
@@ -831,8 +833,16 @@ export class ChatContext {
     // 无显式 "default" 配置，env 兜底
     try {
       const envConfig = loadLlmConfigFromEnv();
-      const model = getModel(envConfig.model.provider, envConfig.model.name as never);
-      return { model, runtimeApiKey: { provider: envConfig.model.provider, apiKey: envConfig.apiKey } };
+      // 🟡：类型对齐（provider 字符串 → KnownProvider、apiKey 可能缺省）——
+      // 与上分支 `as never` 约定一致（pi-ai 模型表第二参为字面量联合）
+      const model = getModel(envConfig.model.provider as never, envConfig.model.name as never);
+      return {
+        model,
+        runtimeApiKey: {
+          provider: envConfig.model.provider as never,
+          apiKey: envConfig.apiKey ?? "",
+        },
+      };
     } catch {
       return {};
     }

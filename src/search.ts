@@ -51,6 +51,8 @@ export class Search {
     const limit = opts?.topK ?? 10;
     const storyTime = opts?.storyTime;
     if (!storyTime) throw new Error("storyTime is required for search results");
+    // 🟡：embedder 可空（forceFulltext 模式）——vector 被直接调用时兜底抛错
+    if (!this.embedder) throw new Error("vector 检索需要 embedder（当前为 fulltext 模式）");
     // query 文本 → 向量
     const queryEmbedding = await this.embedder.embed(query);
     // 搜 Entity 节点（embedding 字段）
@@ -67,6 +69,8 @@ export class Search {
     const limit = opts?.topK ?? 10;
     const storyTime = opts?.storyTime;
     if (!storyTime) throw new Error("storyTime is required for search results");
+    // 🟡：embedder 可空守卫（同 vector——直接调用时兜底抛错）
+    if (!this.embedder) throw new Error("hybrid 检索需要 embedder（当前为 fulltext 模式）");
     const queryEmbedding = await this.embedder.embed(query);
     // hybrid 搜 Fact（同时有 searchable 和 embedding 字段）
     const hits = await this.wg.search.hybrid("Fact", {

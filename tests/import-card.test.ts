@@ -50,6 +50,16 @@ test("extractCardData: 无法识别格式抛错", () => {
   assert.throws(() => extractCardData({ foo: "bar" }), /无法识别/);
 });
 
+test("extractCardData: 畸形输入（null/数组/原始值）可诊断抛错（🟡 4b 审计补测）", () => {
+  assert.throws(() => extractCardData(null), /顶层必须是对象/);
+  assert.throws(() => extractCardData([1, 2]), /顶层必须是对象/);
+  assert.throws(() => extractCardData("字符串"), /顶层必须是对象/);
+  assert.throws(() => extractCardData(42), /顶层必须是对象/);
+  // spec 非字符串 / data 为数组 → 走无法识别（不再 TypeError）
+  assert.throws(() => extractCardData({ spec: 123 }), /无法识别/);
+  assert.throws(() => extractCardData({ spec: "chara_card_v2", data: [1] }), /无法识别/);
+});
+
 // ---------------------------------------------------------------------------
 // extractPngChunks（手工构造最小 PNG）
 // ---------------------------------------------------------------------------

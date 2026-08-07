@@ -77,7 +77,8 @@ export function _normalizeNovelJson(
     typeof raw.name === "string" && raw.name ? raw.name : path.basename(projectDir);
   const pick = (key: keyof typeof DEFAULTS, type: "string"): string => {
     const v = raw[key];
-    return typeof v === type ? (v as string) : DEFAULTS[key];
+    // 🟡：DEFAULTS 经 Omit 后索引访问返回 unknown，显式断言 string
+    return typeof v === type ? (v as string) : (DEFAULTS[key] as string);
   };
   return {
     // 保留未知字段（前端可能扩展）

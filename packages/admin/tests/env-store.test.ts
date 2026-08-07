@@ -182,3 +182,17 @@ test("writeEnvFile: 并发写不同 key 不丢更新（🟠-8）", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("writeEnvFile: 含引号值 quote/unquote 往返无损（🟡 4b 审计补测）", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-env-"));
+  try {
+    const envPath = join(dir, ".env");
+    // 含双引号的值（含空格触发引号包装）
+    const tricky = 'a "b" c';
+    await writeEnvFile(envPath, { PI_DEBUG: tricky });
+    const result = await readEnvFile(envPath);
+    assert.equal(result.values.PI_DEBUG, tricky, "引号值写读往返应无损（unquoteValue 反转义对称）");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

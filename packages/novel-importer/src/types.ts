@@ -127,7 +127,8 @@ export interface VisibilityHint {
   target_hint: string;
   property: string;
   confidence: number;
-  source: string;
+  /** 🟡：对齐内核 VisibilitySource 枚举（此前 string 导致 setVisibility 类型不匹配） */
+  source: "experienced" | "informed" | "witnessed";
   storyTime: string; // = setVisibility options.validFrom
   isExplicit: boolean;
 }
