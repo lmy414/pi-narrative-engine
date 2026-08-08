@@ -38,13 +38,13 @@ function getEntityAtStoryTime(entityId, storyTime) {
   const entity = MOCK_ENTITIES.find(e => e.entityId === entityId);
   if (!entity) return null;
   const snapshot = JSON.parse(JSON.stringify(entity));
-  // 按 storyTime 过滤属性：只保留 validFrom <= storyTime 且 validTo > storyTime 的声明
+  // 0.3.0：properties 为 StateDeclaration[]——实体自身声明 + 时变声明叠加（同 property 取最新）
+  const own = Array.isArray(snapshot.properties) ? snapshot.properties : [];
   const relevant = MOCK_DECLARATIONS.filter(d => d.entityId === entityId && d.validFrom <= storyTime && (d.validTo === 'Infinity' || d.validTo > storyTime));
-  // 保留实体基础属性（name 等非声明驱动字段），再叠加声明驱动的时变属性，
-  // 否则 search 的 name.includes(term) 永远命中空串
-  snapshot.properties = Object.assign({}, entity.properties);
-  for (const d of relevant) snapshot.properties[d.property] = d.value;
-  snapshot.alive = !(relevant.some(d => d.property === 'alive' && d.value === false));
+  const byProperty = new Map(own.map(d => [d.property, d]));
+  for (const d of relevant) byProperty.set(d.property, d);
+  snapshot.properties = Array.from(byProperty.values());
+  snapshot.alive = !(snapshot.properties.some(d => d.property === '状态' && d.description === '已退场'));
   return snapshot;
 }
 
@@ -171,10 +171,11 @@ const ApiMock = {
     const graph = getGraph(storyTime || currentStoryTime, false);
     const term = (q || '').toLowerCase();
     const results = graph.entities.filter(e => {
-      const name = (e.properties.name || '').toLowerCase();
+      // 0.3.0：name 直读 Entity.name 快照
+      const name = (e.name || '').toLowerCase();
       const summary = (e.summary || '').toLowerCase();
       return name.includes(term) || summary.includes(term);
-    }).map(e => ({ id: e.entityId, type: 'entity', entityType: e.entityType, name: e.properties.name, summary: e.summary }));
+    }).map(e => ({ id: e.entityId, type: 'entity', entityType: e.entityType, name: e.name, summary: e.summary }));
     return ok({ results });
   },
 
@@ -208,7 +209,7 @@ const ApiMock = {
     return ok({ updated: true });
   },
 
-  async addProperty(id, property, value, storyTime, modality = 'fact') {
+  async addProperty(id, property, description, storyTime, modality = 'fact') {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
@@ -221,7 +222,7 @@ const ApiMock = {
       declarationId: `decl-${Date.now()}`,
       entityId: id,
       property,
-      value,
+      description,
       modality,
       validFrom: storyTime || currentStoryTime,
       validTo: 'Infinity'
@@ -273,9 +274,9 @@ const ApiMock = {
       storyTime: storyTime || currentStoryTime,
       entityId: id,
       entityType: entity.entityType,
-      summary: `${entity.properties.name} 退场`,
+      summary: `${entity.name} 退场`,
       source: 'user',
-      newFacts: [{ entityId: id, property: 'alive', value: false, modality: 'fact' }],
+      newFacts: [{ entityId: id, property: '状态', description: '已退场', modality: 'fact' }],
       causes: [],
       recordedAt: new Date().toISOString()
     });

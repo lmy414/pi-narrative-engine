@@ -49,44 +49,72 @@ const ENTITY_TYPES = {
   concept: { label: '概念', color: '#d97757', bg: '#ffedd5' }
 };
 
+// 0.3.0 形状：实体带 name/aliases 展示快照，properties 为 StateDeclaration[]（含 description/modality/validFrom）
 const MOCK_ENTITIES = [
-  { entityId: 'char-01', entityType: 'character', summary: '年轻的星舰舰长，执着于寻找失踪的父亲', properties: { name: '林远航', age: 28, gender: '男', faction: '星际联盟', role: '主角' }, alive: true },
-  { entityId: 'char-02', entityType: 'character', summary: '神秘的导航员，似乎知道舰长父亲的下落', properties: { name: '艾莉亚', age: 26, gender: '女', faction: '游商公会', role: '女主' }, alive: true },
-  { entityId: 'char-03', entityType: 'character', summary: '星际联盟退役上将，林远航的导师', properties: { name: '老陈', age: 58, gender: '男', faction: '星际联盟', role: '导师' }, alive: true },
-  { entityId: 'loc-01', entityType: 'location', summary: '人类在猎户座旋臂边缘的前哨站', properties: { name: '第七星港', region: '猎户座旋臂', type: '太空站' }, alive: true },
-  { entityId: 'loc-02', entityType: 'location', summary: '传说中藏有远古文明遗迹的星云', properties: { name: '迷雾星云', region: '未知星域', type: '星云' }, alive: true },
-  { entityId: 'item-01', entityType: 'item', summary: '父亲留下的星图碎片，指向迷雾星云深处', properties: { name: '破碎星图', owner: '林远航', type: '遗物' }, alive: true },
-  { entityId: 'item-02', entityType: 'item', summary: '可穿透星云干扰的稀有矿石', properties: { name: '共鸣水晶', type: '材料' }, alive: true },
-  { entityId: 'concept-01', entityType: 'concept', summary: '一种古老的星际航行技术', properties: { name: '星门协议', type: '知识' }, alive: true }
+  { entityId: 'char-01', entityType: 'character', name: '林远航', aliases: ['远航'], summary: '年轻的星舰舰长，执着于寻找失踪的父亲', alive: true, properties: [
+    { declarationId: 'decl-10', entityId: 'char-01', property: '名字', description: '林远航', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-11', entityId: 'char-01', property: '年龄', description: '28 岁', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-12', entityId: 'char-01', property: '性别', description: '男', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-13', entityId: 'char-01', property: '阵营', description: '星际联盟', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] },
+  { entityId: 'char-02', entityType: 'character', name: '艾莉亚', aliases: [], summary: '神秘的导航员，似乎知道舰长父亲的下落', alive: true, properties: [
+    { declarationId: 'decl-20', entityId: 'char-02', property: '名字', description: '艾莉亚', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-21', entityId: 'char-02', property: '阵营', description: '游商公会', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-22', entityId: 'char-02', property: '信念.关于_林远航.目的', description: '怀疑他在寻找星门协议', modality: 'belief', validFrom: 'ch002.ev003', validTo: 'Infinity' }
+  ] },
+  { entityId: 'char-03', entityType: 'character', name: '老陈', aliases: [], summary: '星际联盟退役上将，林远航的导师', alive: false, properties: [
+    { declarationId: 'decl-30', entityId: 'char-03', property: '名字', description: '老陈', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-31', entityId: 'char-03', property: '状态', description: '已退场', modality: 'fact', validFrom: 'ch004.ev006', validTo: 'Infinity' }
+  ] },
+  { entityId: 'loc-01', entityType: 'location', name: '第七星港', aliases: [], summary: '人类在猎户座旋臂边缘的前哨站', alive: true, properties: [
+    { declarationId: 'decl-40', entityId: 'loc-01', property: '名字', description: '第七星港', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-41', entityId: 'loc-01', property: '类型', description: '太空站', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] },
+  { entityId: 'loc-02', entityType: 'location', name: '迷雾星云', aliases: [], summary: '传说中藏有远古文明遗迹的星云', alive: true, properties: [
+    { declarationId: 'decl-50', entityId: 'loc-02', property: '名字', description: '迷雾星云', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-51', entityId: 'loc-02', property: '类型', description: '星云', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] },
+  { entityId: 'item-01', entityType: 'item', name: '破碎星图', aliases: [], summary: '父亲留下的星图碎片，指向迷雾星云深处', alive: true, properties: [
+    { declarationId: 'decl-60', entityId: 'item-01', property: '名字', description: '破碎星图', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-61', entityId: 'item-01', property: '类型', description: '遗物', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] },
+  { entityId: 'item-02', entityType: 'item', name: '共鸣水晶', aliases: [], summary: '可穿透星云干扰的稀有矿石', alive: true, properties: [
+    { declarationId: 'decl-70', entityId: 'item-02', property: '名字', description: '共鸣水晶', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-71', entityId: 'item-02', property: '类型', description: '材料', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] },
+  { entityId: 'concept-01', entityType: 'concept', name: '星门协议', aliases: [], summary: '一种古老的星际航行技术', alive: true, properties: [
+    { declarationId: 'decl-80', entityId: 'concept-01', property: '名字', description: '星门协议', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+    { declarationId: 'decl-81', entityId: 'concept-01', property: '类型', description: '知识', modality: 'fact', validFrom: 'ch001.ev001', validTo: 'Infinity' }
+  ] }
 ];
 
 const MOCK_RELATIONS = [
-  { sourceId: 'char-01', targetId: 'char-02', label: '同行', storyTime: 'ch001.ev001', closed: false },
-  { sourceId: 'char-01', targetId: 'char-03', label: '师从', storyTime: 'ch001.ev001', closed: false },
-  { sourceId: 'char-01', targetId: 'item-01', label: '持有', storyTime: 'ch001.ev002', closed: false },
-  { sourceId: 'char-02', targetId: 'loc-01', label: '来自', storyTime: 'ch001.ev001', closed: false },
-  { sourceId: 'char-01', targetId: 'loc-02', label: '前往', storyTime: 'ch003.ev005', closed: false },
-  { sourceId: 'item-01', targetId: 'loc-02', label: '指向', storyTime: 'ch001.ev002', closed: false },
-  { sourceId: 'item-02', targetId: 'concept-01', label: '关联', storyTime: 'ch002.ev003', closed: false },
-  { sourceId: 'char-03', targetId: 'concept-01', label: '研究', storyTime: 'ch002.ev003', closed: true, closedAt: 'ch004.ev006' }
+  { sourceId: 'char-01', targetId: 'char-02', label: '同行', description: '一同在曙光号上航行', storyTime: 'ch001.ev001', closed: false },
+  { sourceId: 'char-01', targetId: 'char-03', label: '师从', description: '林远航在老陈麾下服役过', storyTime: 'ch001.ev001', closed: false },
+  { sourceId: 'char-01', targetId: 'item-01', label: '持有', description: '破碎星图在舰长手中', storyTime: 'ch001.ev002', closed: false },
+  { sourceId: 'char-02', targetId: 'loc-01', label: '来自', description: '艾莉亚在第七星港长大', storyTime: 'ch001.ev001', closed: false },
+  { sourceId: 'char-01', targetId: 'loc-02', label: '前往', description: '曙光号正驶向迷雾星云', storyTime: 'ch003.ev005', closed: false },
+  { sourceId: 'item-01', targetId: 'loc-02', label: '指向', description: '星图碎片标注的位置', storyTime: 'ch001.ev002', closed: false },
+  { sourceId: 'item-02', targetId: 'concept-01', label: '关联', description: '共鸣水晶是星门协议的关键材料', storyTime: 'ch002.ev003', closed: false },
+  { sourceId: 'char-03', targetId: 'concept-01', label: '研究', description: '老陈生前研究星门协议', storyTime: 'ch002.ev003', closed: true, closedAt: 'ch004.ev006' }
 ];
 
 const MOCK_EVENTS = [
-  { eventId: 'evt-01', type: 'birth', storyTime: 'ch001.ev001', entityId: 'char-01', entityType: 'character', summary: '林远航登上「曙光号」，开始寻找父亲的旅程', source: 'user', newFacts: [{ entityId: 'char-01', property: 'location', value: '第七星港', modality: 'fact' }], causes: [], recordedAt: '2026-07-15T10:00:00Z' },
-  { eventId: 'evt-02', type: 'birth', storyTime: 'ch001.ev001', entityId: 'char-02', entityType: 'character', summary: '艾莉亚以导航员身份加入曙光号', source: 'engine', newFacts: [{ entityId: 'char-02', property: 'faction', value: '游商公会', modality: 'fact' }], causes: [], recordedAt: '2026-07-15T10:05:00Z' },
-  { eventId: 'evt-03', type: 'change', storyTime: 'ch001.ev002', entityId: 'char-01', entityType: 'character', summary: '林远航从遗物箱中发现父亲留下的破碎星图', source: 'engine', newFacts: [{ entityId: 'char-01', property: 'hasItem', value: '破碎星图', modality: 'fact' }], invalidated: [{ declarationId: 'decl-01', property: 'hasItem' }], causes: ['evt-01'], recordedAt: '2026-07-15T11:00:00Z' },
-  { eventId: 'evt-04', type: 'change', storyTime: 'ch002.ev003', entityId: 'item-02', entityType: 'item', summary: '在第七星港黑市获得共鸣水晶样本', source: 'engine', newFacts: [{ entityId: 'item-02', property: 'owner', value: '林远航', modality: 'fact' }], causes: ['evt-01'], recordedAt: '2026-07-16T09:30:00Z' },
-  { eventId: 'evt-05', type: 'change', storyTime: 'ch003.ev005', entityId: 'char-01', entityType: 'character', summary: '曙光号启程前往迷雾星云', source: 'user', newFacts: [{ entityId: 'char-01', property: 'location', value: '迷雾星云', modality: 'fact' }], invalidated: [{ declarationId: 'decl-02', property: 'location' }], causes: ['evt-03'], recordedAt: '2026-07-17T14:00:00Z' },
-  { eventId: 'evt-06', type: 'death', storyTime: 'ch004.ev006', entityId: 'char-03', entityType: 'character', summary: '老陈为掩护曙光号撤离，留在第七星港', source: 'engine', newFacts: [{ entityId: 'char-03', property: 'alive', value: false, modality: 'fact' }], causes: ['evt-04'], recordedAt: '2026-07-18T20:00:00Z' },
-  { eventId: 'evt-07', type: 'birth', storyTime: 'ch005.ev007', entityId: 'loc-02', entityType: 'location', summary: '迷雾星云深处发现远古星门遗迹', source: 'engine', newFacts: [{ entityId: 'loc-02', property: 'hasRuin', value: true, modality: 'fact' }], causes: ['evt-05'], recordedAt: '2026-07-20T08:00:00Z' }
+  { eventId: 'evt-01', type: 'birth', storyTime: 'ch001.ev001', entityId: 'char-01', entityType: 'character', summary: '林远航登上「曙光号」，开始寻找父亲的旅程', source: 'user', newFacts: [{ entityId: 'char-01', property: '位置', description: '第七星港', modality: 'fact' }], causes: [], recordedAt: '2026-07-15T10:00:00Z' },
+  { eventId: 'evt-02', type: 'birth', storyTime: 'ch001.ev001', entityId: 'char-02', entityType: 'character', summary: '艾莉亚以导航员身份加入曙光号', source: 'engine', newFacts: [{ entityId: 'char-02', property: '阵营', description: '游商公会', modality: 'fact' }], causes: [], recordedAt: '2026-07-15T10:05:00Z' },
+  { eventId: 'evt-03', type: 'change', storyTime: 'ch001.ev002', entityId: 'char-01', entityType: 'character', summary: '林远航从遗物箱中发现父亲留下的破碎星图', source: 'engine', newFacts: [{ entityId: 'char-01', property: '持有物品', description: '破碎星图', modality: 'fact' }], invalidated: [{ declarationId: 'decl-01', property: '持有物品' }], causes: ['evt-01'], recordedAt: '2026-07-15T11:00:00Z' },
+  { eventId: 'evt-04', type: 'change', storyTime: 'ch002.ev003', entityId: 'item-02', entityType: 'item', summary: '在第七星港黑市获得共鸣水晶样本', source: 'engine', newFacts: [{ entityId: 'item-02', property: '主人', description: '林远航', modality: 'fact' }], causes: ['evt-01'], recordedAt: '2026-07-16T09:30:00Z' },
+  { eventId: 'evt-05', type: 'change', storyTime: 'ch003.ev005', entityId: 'char-01', entityType: 'character', summary: '曙光号启程前往迷雾星云', source: 'user', newFacts: [{ entityId: 'char-01', property: '位置', description: '迷雾星云', modality: 'fact' }], invalidated: [{ declarationId: 'decl-02', property: '位置' }], causes: ['evt-03'], recordedAt: '2026-07-17T14:00:00Z' },
+  { eventId: 'evt-06', type: 'death', storyTime: 'ch004.ev006', entityId: 'char-03', entityType: 'character', summary: '老陈为掩护曙光号撤离，留在第七星港', source: 'engine', newFacts: [{ entityId: 'char-03', property: '状态', description: '已退场', modality: 'fact' }], causes: ['evt-04'], recordedAt: '2026-07-18T20:00:00Z' },
+  { eventId: 'evt-07', type: 'birth', storyTime: 'ch005.ev007', entityId: 'loc-02', entityType: 'location', summary: '迷雾星云深处发现远古星门遗迹', source: 'engine', newFacts: [{ entityId: 'loc-02', property: '发现', description: '远古星门遗迹', modality: 'fact' }], causes: ['evt-05'], recordedAt: '2026-07-20T08:00:00Z' }
 ];
 
 const MOCK_DECLARATIONS = [
-  { declarationId: 'decl-01', entityId: 'char-01', property: 'hasItem', value: null, modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch001.ev002', closeReason: 'ev002 发现破碎星图（hasItem 转移）' },
-  { declarationId: 'decl-02', entityId: 'char-01', property: 'location', value: '第七星港', modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch003.ev005', closeReason: 'ev005 启程前往迷雾星云' },
-  { declarationId: 'decl-03', entityId: 'char-01', property: 'location', value: '迷雾星云', modality: 'fact', source: 'engine', validFrom: 'ch003.ev005', validTo: 'Infinity' },
-  { declarationId: 'decl-04', entityId: 'char-02', property: 'faction', value: '游商公会', modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'Infinity' },
-  { declarationId: 'decl-05', entityId: 'char-03', property: 'alive', value: true, modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'ch004.ev006', closeReason: 'ev006 为掩护曙光号撤离' }
+  { declarationId: 'decl-01', entityId: 'char-01', property: '持有物品', description: '（无）', modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch001.ev002', closeReason: 'ev002 发现破碎星图（持有物品转移）' },
+  { declarationId: 'decl-02', entityId: 'char-01', property: '位置', description: '第七星港', modality: 'fact', source: 'engine', validFrom: 'ch001.ev001', validTo: 'ch003.ev005', closeReason: 'ev005 启程前往迷雾星云' },
+  { declarationId: 'decl-03', entityId: 'char-01', property: '位置', description: '迷雾星云', modality: 'fact', source: 'engine', validFrom: 'ch003.ev005', validTo: 'Infinity' },
+  { declarationId: 'decl-04', entityId: 'char-02', property: '阵营', description: '游商公会', modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'Infinity' },
+  { declarationId: 'decl-05', entityId: 'char-03', property: '状态', description: '在世', modality: 'fact', source: 'user', validFrom: 'ch001.ev001', validTo: 'ch004.ev006', closeReason: 'ev006 为掩护曙光号撤离' }
 ];
 
 const MOCK_VISIBILITY = [
@@ -233,7 +261,7 @@ const MOCK_SCHEDULER_PLANS = {
         ],
         knowledgeGained: ['星门遗迹深处可能存在远古文明数据库'],
         stateChanges: [
-          { entityId: 'char-01', property: 'location', value: '星门遗迹入口', modality: 'fact' }
+          { entityId: 'char-01', property: 'location', description: '星门遗迹入口', modality: 'fact' }
         ],
         thought: '星门遗迹比我想象的更加宏大。如果父亲真的来过这里，他一定留下了什么线索。'
       },
@@ -323,7 +351,7 @@ const MOCK_SCHEDULER_PLANS = {
         ],
         knowledgeGained: ['星门协议需要三把钥匙激活'],
         stateChanges: [
-          { entityId: 'char-01', property: 'location', value: '曙光号舰桥', modality: 'fact' }
+          { entityId: 'char-01', property: 'location', description: '曙光号舰桥', modality: 'fact' }
         ],
         thought: '艾莉亚知道些什么，但她不愿意说。我必须找到父亲失踪的真相，哪怕要冒更大的风险。'
       },
@@ -351,7 +379,7 @@ const MOCK_SCHEDULER_PLANS = {
         ],
         knowledgeGained: ['曙光号燃料不足，深入星云风险极高'],
         stateChanges: [
-          { entityId: 'char-03', property: 'location', value: '曙光号舰桥', modality: 'fact' }
+          { entityId: 'char-03', property: 'location', description: '曙光号舰桥', modality: 'fact' }
         ],
         thought: '这孩子和他父亲一个脾气。但作为导师，我必须阻止他做出可能致命的决定。'
       }
@@ -392,7 +420,7 @@ const MOCK_SCHEDULER_PLANS = {
         emotion: '期待而紧张',
         relationUpdates: [],
         knowledgeGained: ['星门遗迹处于休眠状态，需要特定频率激活'],
-        stateChanges: [{ entityId: 'loc-02', property: 'status', value: '扫描中', modality: 'fact' }],
+        stateChanges: [{ entityId: 'loc-02', property: 'status', description: '扫描中', modality: 'fact' }],
         thought: '这就是父亲提到过的远古星门。如果我能激活它，也许就能找到他失踪的线索。'
       },
       {
@@ -424,8 +452,8 @@ const MOCK_SCHEDULER_PLANS = {
     diffusion: {
       appliedEventIds: ['evt-07', 'evt-08'],
       changes: [
-        { entityId: 'char-01', property: 'knowledge', value: '星门激活频率', modality: 'fact' },
-        { entityId: 'loc-02', property: 'status', value: '已扫描', modality: 'fact' }
+        { entityId: 'char-01', property: 'knowledge', description: '星门激活频率', modality: 'fact' },
+        { entityId: 'loc-02', property: 'status', description: '已扫描', modality: 'fact' }
       ],
       visibilityChanges: [
         { characterId: 'char-01', declarationId: 'decl-03', source: 'witnessed', confidence: 1.0 },

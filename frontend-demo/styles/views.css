@@ -1402,6 +1402,20 @@ body .detail-drawer {
   letter-spacing: 0.03em;
   font-family: var(--font-mono);
 }
+/* 0.3.0 决策①：概览位（graph Inspector / entity-detail 属性面板）声明 modality 徽标 */
+.decl-modality {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-family: var(--font-mono);
+  background-color: var(--brand-50);
+  color: var(--brand-700);
+}
 .detail-drawer .modality-tag.factive {
   background-color: var(--success-50);
   color: var(--success-700);

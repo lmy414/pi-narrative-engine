@@ -119,7 +119,7 @@ function eventEntity(entityId) {
 
 function eventEntityName(entityId) {
   const e = eventEntity(entityId);
-  return e ? ((e.properties && e.properties.name) || entityId) : entityId;
+  return e ? (e.name || entityId) : entityId;
 }
 
 function eventEntityTypeLabel(entityId) {
@@ -139,7 +139,7 @@ function eventInvalidText(inv) {
   if (!inv) return '';
   const decl = ApiRuntime.isMock ? (MOCK_DECLARATIONS || []).find(d => d.declarationId === inv.declarationId) : null;
   if (decl) {
-    const v = decl.value == null ? '∅' : decl.value;
+    const v = decl.description == null ? '∅' : decl.description;
     return `${eventEntityName(decl.entityId)}.${decl.property} = ${v}`;
   }
   return inv.property || inv.declarationId || '';
@@ -185,7 +185,7 @@ function eventCardHtml(ev, selectedId, expandedIds) {
   let extraHtml = '';
   if (ev.newFacts && ev.newFacts.length) {
     const facts = ev.newFacts.map(f =>
-      `<div class="ev-extra-fact"><span class="ev-fact-dot ev-dot-new"></span>${escapeHtml(eventEntityName(f.entityId))}.${escapeHtml(f.property)} = ${escapeHtml(f.value == null ? '∅' : f.value)}</div>`
+      `<div class="ev-extra-fact"><span class="ev-fact-dot ev-dot-new"></span>${escapeHtml(eventEntityName(f.entityId))}.${escapeHtml(f.property)} = ${escapeHtml(f.description == null ? '∅' : f.description)}</div>`
     ).join('');
     extraHtml += `<div class="ev-extra-block"><div class="ev-extra-label">新事实</div>${facts}</div>`;
   }
@@ -302,7 +302,7 @@ function eventCausalPanelHtml(ev) {
   let factHtml = '';
   if (ev.newFacts && ev.newFacts.length) {
     factHtml = ev.newFacts.map(f =>
-      `<div class="ev-fact-item ev-fact-new"><span class="ev-fact-dot ev-dot-new"></span><span class="ev-fact-text">${escapeHtml(eventEntityName(f.entityId))}.${escapeHtml(f.property)} = ${escapeHtml(f.value == null ? '∅' : f.value)}</span></div>`
+      `<div class="ev-fact-item ev-fact-new"><span class="ev-fact-dot ev-dot-new"></span><span class="ev-fact-text">${escapeHtml(eventEntityName(f.entityId))}.${escapeHtml(f.property)} = ${escapeHtml(f.description == null ? '∅' : f.description)}</span></div>`
     ).join('');
   }
 

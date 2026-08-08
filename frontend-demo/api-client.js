@@ -63,20 +63,25 @@
   function del(path, transform) { return request('DELETE', path, undefined, transform); }
   function part(value) { return encodeURIComponent(String(value)); }
 
-  function declarationsToProperties(declarations) {
-    var properties = {};
-    (declarations || []).forEach(function (declaration) {
-      properties[declaration.property] = declaration.value;
+  /** 0.3.0 决策①：实体属性改为声明列表展示，不再折对象（同 property 多条并发声明全量保留） */
+  function entityName(entity) {
+    if (!entity) return '';
+    // 0.3.0：Entity.name 快照优先（包侧 birth/改名自动同步）；「名字」声明兜底
+    if (entity.name) return entity.name;
+    var decl = (entity.properties || []).find(function (p) {
+      return p.property === '名字' || p.property === 'name';
     });
-    return properties;
+    return decl ? decl.description : '';
   }
 
   function normalizeEntity(entity) {
     if (!entity || typeof entity !== 'object') return entity;
     var declarations = Array.isArray(entity.properties) ? entity.properties : (entity.declarations || []);
+    // 0.3.0：properties 透传声明数组（与后端 StateDeclaration[] 同形），
+    // 不再折成 {property: value} 对象（删除的 value 字段无法再折叠）
     return Object.assign({}, entity, {
       entityType: entity.entityType || entity.type,
-      properties: Array.isArray(entity.properties) ? declarationsToProperties(declarations) : (entity.properties || {}),
+      properties: declarations,
       declarations: declarations
     });
   }
@@ -104,7 +109,8 @@
           id: result.entityId,
           type: 'entity',
           entityType: result.type || entity.entityType,
-          name: entity.properties.name || result.entityId,
+          // 0.3.0：直读 Entity.name 快照（退场实体不退化英文 ID）
+          name: entityName(entity) || result.entityId,
           summary: entity.summary || ''
         };
       })
@@ -168,7 +174,7 @@
     getEntity: function (id, storyTime) { return get('/entities/' + part(id), { storyTime: storyTime }, normalizeEntity); },
     getEntityHistory: function (id) { return get('/entities/' + part(id) + '/history', undefined, normalizeHistory); },
     updateSummary: function (id, summary) { return post('/entities/' + part(id) + '/summary', { summary: summary }); },
-    addProperty: function (id, property, value, storyTime, modality) { return post('/entities/' + part(id) + '/props', { property: property, value: value, storyTime: storyTime, modality: modality === undefined ? 'fact' : modality }); },
+    addProperty: function (id, property, description, storyTime, modality) { return post('/entities/' + part(id) + '/props', { property: property, description: description, storyTime: storyTime, modality: modality === undefined ? 'fact' : modality }); },
     closeDeclaration: function (declarationId, entityId, storyTime) { return post('/declarations/close', { declarationId: declarationId, entityId: entityId, storyTime: storyTime }); },
     addRelation: function (sourceId, targetId, label, storyTime) { return post('/relations', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime }); },
     closeRelation: function (sourceId, targetId, label, storyTime) { return post('/relations/close', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime }); },

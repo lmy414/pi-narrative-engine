@@ -1171,7 +1171,7 @@ function stOrStageRoleHtml(outputs, cast) {
     }).join(' ');
     const knowledge = (o.knowledgeGained || []).map((k) => `<li>${escapeHtml(k)}</li>`).join('');
     const stateChanges = (o.stateChanges || []).map((sc) =>
-      `<li>${escapeHtml(sc.entityId)}.${escapeHtml(sc.property)} → ${escapeHtml(String(sc.value))}</li>`
+      `<li>${escapeHtml(sc.entityId)}.${escapeHtml(sc.property)} → ${escapeHtml(String(sc.description))}</li>`
     ).join('');
     return `<div class="st-or-role-output">
       <div class="st-or-role-name">${escapeHtml(name)}</div>
@@ -1197,7 +1197,7 @@ function stOrStageDiffusionHtml(diffusion) {
   if (!diffusion) return '';
   const evtCount = (diffusion.appliedEventIds || []).length;
   const changes = (diffusion.changes || []).map((c) =>
-    `<li>${escapeHtml(c.entityId)}.${escapeHtml(c.property)} [${escapeHtml(c.modality)}] → ${escapeHtml(String(c.value))}</li>`
+    `<li>${escapeHtml(c.entityId)}.${escapeHtml(c.property)} [${escapeHtml(c.modality)}] → ${escapeHtml(String(c.description))}</li>`
   ).join('');
   const visChanges = (diffusion.visibilityChanges || []).map((v) =>
     `<li>${escapeHtml(v.characterId)} 知晓 ${escapeHtml(v.declarationId)} (${escapeHtml(v.source)}, ${v.confidence})</li>`

@@ -47,7 +47,8 @@ function summarizeEvent(ev) {
   if (ev && Array.isArray(ev.newFacts) && ev.newFacts.length) {
     for (const f of ev.newFacts.slice(0, 2)) {
       const label = detailPropLabel(f && f.property);
-      const v = (f && f.value == null) ? '∅' : (f && f.value);
+      // 0.3.0：newFacts 值为 description
+      const v = (f && f.description == null) ? '∅' : (f && f.description);
       const txt = (typeof v === 'string' && v.length > 40) ? v.slice(0, 40) + '…' : v;
       parts.push(`${label} → ${txt}`);
     }
@@ -82,7 +83,8 @@ function detailPropLabel(key) {
 }
 
 function detailEntityName(entity) {
-  return entity?.properties?.name || entity?.entityId || '';
+  // 0.3.0：Entity.name 快照优先（退场实体不退化英文 ID）
+  return entity?.name || entity?.entityId || '';
 }
 
 /** 获取生效 StoryTime：App.storyTime 为空时兜底取 storyTimes 最后一项。
@@ -112,9 +114,9 @@ function detailCurrentProps() {
   return (src && src.properties) || {};
 }
 
-// 声明 → "属性 = 值" 展示文本（可见性矩阵行名等）
+// 声明 → "属性 = 描述" 展示文本（可见性矩阵行名等；0.3.0 值字段为 description）
 function detailDeclText(decl) {
-  const v = decl.value == null ? '∅' : decl.value;
+  const v = decl.description == null ? '∅' : decl.description;
   return `${detailPropLabel(decl.property)} = ${v}`;
 }
 
@@ -302,14 +304,17 @@ function detailPanelHtml(tab) {
 // ---- 属性 ----
 
 function detailPropertiesPanel() {
-  const props = detailCurrentProps();
-  const entries = Object.entries(props);
-  const rows = entries.map(([k, v]) => `
+  // 0.3.0 决策①：属性面板改为声明列表（同 property 多条并发全量保留，modality 徽标）
+  const decls = detailCurrentProps();
+  const rows = (Array.isArray(decls) ? decls : [])
+    .filter((d) => d.property !== '名字' && d.property !== 'name')
+    .map((d) => `
     <div class="property-row">
-      <div class="property-name">${escapeHtml(detailPropLabel(k))}</div>
-      <div class="property-value" title="${escapeHtml(v)}">${escapeHtml(v)}</div>
+      <div class="property-name">${escapeHtml(detailPropLabel(d.property))}</div>
+      <div class="property-value" title="${escapeHtml(d.description)}">${escapeHtml(d.description)}</div>
+      ${d.modality && d.modality !== 'fact' ? `<span class="decl-modality">${escapeHtml(d.modality)}</span>` : ''}
       <div class="property-actions">
-        <button class="property-edit-btn" onclick="detailEditProperty(${q(k)}, ${q(String(v))})">${icon('pencil', 'w-3 h-3')} 编辑</button>
+        <button class="property-edit-btn" onclick="detailEditProperty(${q(d.property)}, ${q(d.description)})">${icon('pencil', 'w-3 h-3')} 编辑</button>
       </div>
     </div>`).join('');
   return `
@@ -341,7 +346,7 @@ function detailDeclarationsPanel() {
         <div class="declaration-attr-value">
           <span class="decl-attr-name">${escapeHtml(detailPropLabel(d.property))}</span>
           <span class="decl-attr-eq">=</span>
-          <span class="decl-attr-val">${escapeHtml(d.value == null ? '∅' : d.value)}</span>
+          <span class="decl-attr-val">${escapeHtml(d.description == null ? '∅' : d.description)}</span>
         </div>
         <span class="declaration-status ${closed ? 'closed' : 'active'}">${closed ? '已闭合' : '生效中'}</span>
       </div>

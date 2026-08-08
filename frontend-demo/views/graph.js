@@ -121,7 +121,7 @@ ViewRender.graph = () => {
   const matchesFilter = (e) => {
     if (typeFilter !== 'all' && e.entityType !== typeFilter) return false;
     if (searchFilter) {
-      const hay = `${e.properties && e.properties.name ? e.properties.name : e.entityId} ${e.summary || ''} ${e.entityId}`.toLowerCase();
+      const hay = `${e.name || e.entityId} ${e.summary || ''} ${e.entityId}`.toLowerCase();
       if (!hay.includes(searchFilter)) return false;
     }
     if (viewNeighborIds && !viewNeighborIds.has(e.entityId)) return false;
@@ -145,7 +145,7 @@ ViewRender.graph = () => {
     { id: 'omniscient', label: '全知视角' },
     ...entities
       .filter((e) => e.entityType === 'character')
-      .map((e) => ({ id: e.entityId, label: `${(e.properties && e.properties.name) || e.entityId} 视角` })),
+      .map((e) => ({ id: e.entityId, label: `${e.name || e.entityId} 视角` })),
   ]
     .map((o) => `<option value="${escapeHtml(o.id)}"${o.id === characterView ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
     .join('');
@@ -224,7 +224,7 @@ function cleanupGraphView() {
 
 function graphEntityItemHtml(e, selectedId) {
   const type = ENTITY_TYPES[e.entityType] || { label: e.entityType, color: '#8a8a8a' };
-  const name = (e.properties && e.properties.name) || e.entityId;
+  const name = e.name || e.entityId;
   return `
   <div class="entity-item${e.entityId === selectedId ? ' selected' : ''}" onclick="graphSelectEntity(${q(e.entityId)})" data-entity-id="${escapeHtml(e.entityId)}">
     <span class="entity-dot" style="background:${type.color}"></span>
@@ -250,16 +250,18 @@ function graphInspectorHtml(inspectorId) {
   if (!entity) return '';
 
   const type = ENTITY_TYPES[entity.entityType] || { label: entity.entityType, color: '#8a8a8a', bg: '#f0f0f0' };
-  const name = (entity.properties && entity.properties.name) || entity.entityId;
+  const name = entity.name || entity.entityId;
 
-  // 属性
-  const props = Object.entries(entity.properties || {})
-    .filter(([k]) => k !== 'name')
-    .map(([k, v]) => `
+  // 属性（0.3.0 决策①：声明列表展示——property + description + modality 徽标；
+  // 名字声明剔除（标题已显示 Entity.name 快照），避免重复）
+  const props = (entity.properties || [])
+    .filter((d) => d.property !== '名字' && d.property !== 'name')
+    .map((d) => `
       <div class="prop-row">
-        <span class="prop-key">${escapeHtml(k)}</span>
-        <span class="prop-value">${escapeHtml(String(v))}</span>
-        <button type="button" class="prop-edit" title="编辑 ${escapeHtml(k)}" onclick="editGraphProperty(${q(entity.entityId)}, ${q(k)})">${icon('pencil', 'w-3.5 h-3.5')}</button>
+        <span class="prop-key">${escapeHtml(d.property)}</span>
+        <span class="prop-value">${escapeHtml(d.description)}</span>
+        ${d.modality && d.modality !== 'fact' ? `<span class="decl-modality">${escapeHtml(d.modality)}</span>` : ''}
+        <button type="button" class="prop-edit" title="编辑 ${escapeHtml(d.property)}" onclick="editGraphProperty(${q(entity.entityId)}, ${q(d.property)})">${icon('pencil', 'w-3.5 h-3.5')}</button>
       </div>`)
     .join('');
   const aliveRow = entity.alive === undefined ? '' : `
@@ -279,7 +281,7 @@ function graphInspectorHtml(inspectorId) {
       const other = (graphData.entities || []).find((e) => e.entityId === otherId);
       if (!other) return '';
       const otherType = ENTITY_TYPES[other.entityType] || { color: '#8a8a8a' };
-      const otherName = (other.properties && other.properties.name) || other.entityId;
+      const otherName = other.name || other.entityId;
       return `
       <div class="rel-row" onclick="graphSelectEntity(${q(otherId)})" title="选中 ${escapeHtml(otherName)}">
         <span class="entity-dot" style="background:${otherType.color}"></span>
@@ -360,7 +362,7 @@ function graphInit3D() {
   const typeFilter = graphState('graphType', 'all');
   const searchFilter = (graphState('graphFilter', '') || '').toLowerCase();
   let entities = (data.entities || []).filter((e) => typeFilter === 'all' || e.entityType === typeFilter);
-  if (searchFilter) entities = entities.filter((e) => ((e.properties && e.properties.name) || e.entityId).toLowerCase().includes(searchFilter));
+  if (searchFilter) entities = entities.filter((e) => (e.name || e.entityId).toLowerCase().includes(searchFilter));
   // BUG-029：角色视角模式——仅保留该角色及其直接关系邻居
   const viewNeighborIds = characterViewNeighborIds(graphState('characterView', 'omniscient'), data.relations);
   if (viewNeighborIds) entities = entities.filter((e) => viewNeighborIds.has(e.entityId));
@@ -370,7 +372,7 @@ function graphInit3D() {
     .map((r) => ({ source: r.sourceId, target: r.targetId, label: r.label }));
   const nodes = entities.map((e) => ({
     id: e.entityId,
-    name: (e.properties && e.properties.name) || e.entityId,
+    name: e.name || e.entityId,
     type: e.entityType
   }));
 
@@ -585,7 +587,11 @@ let _graphPropEditTarget = null;
 function editGraphProperty(entityId, key) {
   const graphData = graphState('graphData', { entities: [] });
   const entity = (graphData.entities || []).find((e) => e.entityId === entityId);
-  const value = entity && entity.properties ? entity.properties[key] : '';
+  // 0.3.0：属性为声明数组，预填取同 property 的最新 description
+  const decl = entity && Array.isArray(entity.properties)
+    ? entity.properties.find((d) => d.property === key)
+    : null;
+  const value = decl ? decl.description : '';
   _graphPropEditTarget = { entityId, key };
   openModal(
     `编辑属性 · ${escapeHtml(key)}`,

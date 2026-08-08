@@ -108,12 +108,15 @@ test("normalizes graph and entity declaration arrays at the client boundary", as
   const snapshot = {
     entityId: "char-1",
     type: "character",
+    name: "阿明",
+    aliases: [],
     summary: "主角",
     validFrom: "ch001.ev001",
     validTo: "Infinity",
+    // 0.3.0：properties 为 StateDeclaration[]（description 键）
     properties: [
-      { declarationId: "d1", entityId: "char-1", property: "name", value: "阿明", validFrom: "ch001.ev001", validTo: "Infinity" },
-      { declarationId: "d2", entityId: "char-1", property: "mood", value: "平静", validFrom: "ch001.ev001", validTo: "Infinity" },
+      { declarationId: "d1", entityId: "char-1", property: "名字", description: "阿明", modality: "fact", validFrom: "ch001.ev001", validTo: "Infinity" },
+      { declarationId: "d2", entityId: "char-1", property: "mood", description: "平静", modality: "fact", validFrom: "ch001.ev001", validTo: "Infinity" },
     ],
   };
   const { client } = loadClient([
@@ -123,12 +126,14 @@ test("normalizes graph and entity declaration arrays at the client boundary", as
 
   const graph = await client.getGraph("ch001.ev001", false);
   assert.equal(graph.data.entities[0].entityType, "character");
-  assert.deepEqual(graph.data.entities[0].properties, { name: "阿明", mood: "平静" });
+  assert.equal(graph.data.entities[0].name, "阿明");
+  // 0.3.0 决策①：不再折对象，properties 透传声明数组
+  assert.deepEqual(graph.data.entities[0].properties, snapshot.properties);
   assert.equal(graph.data.entities[0].declarations.length, 2);
   assert.deepEqual(graph.data.relations, [{ label: "friend" }]);
 
   const entity = await client.getEntity("char-1", "ch001.ev001");
-  assert.deepEqual(entity.data.properties, { name: "阿明", mood: "平静" });
+  assert.deepEqual(entity.data.properties, snapshot.properties);
   assert.equal(entity.data.declarations[0].declarationId, "d1");
 });
 
@@ -160,7 +165,8 @@ test("maps real search result fields to the frontend entity result shape", async
     type: "character",
     score: 0.9,
     matchType: "fulltext",
-    snapshot: { summary: "主角", properties: [{ property: "name", value: "阿明" }] },
+    // 0.3.0：搜索快照带 name（EntitySnapshot.name）
+    snapshot: { name: "阿明", summary: "主角", properties: [{ property: "名字", description: "阿明" }] },
   }] }, error: null } }]);
   const result = await client.search("阿明", "ch001.ev001");
   assert.deepEqual(result.data.results, [{
@@ -171,9 +177,10 @@ test("maps real search result fields to the frontend entity result shape", async
 test("preserves history fields and adds frontend entity/properties/declarations", async () => {
   const history = {
     entities: [{ entityId: "char-1", type: "character", summary: "主角", validFrom: "t1", validTo: "Infinity" }],
+    // 0.3.0：facts 用 description 键
     facts: [
-      { declarationId: "old", property: "mood", value: "平静", validFrom: "t1", validTo: "t2", createdAt: "r1" },
-      { declarationId: "new", property: "mood", value: "愤怒", validFrom: "t2", validTo: "Infinity", updatedAt: "r2" },
+      { declarationId: "old", property: "mood", description: "平静", validFrom: "t1", validTo: "t2", createdAt: "r1" },
+      { declarationId: "new", property: "mood", description: "愤怒", validFrom: "t2", validTo: "Infinity", updatedAt: "r2" },
     ],
     relations: [{ relationId: "rel-1", validFrom: "t1", validTo: "Infinity" }],
   };
@@ -185,7 +192,8 @@ test("preserves history fields and adds frontend entity/properties/declarations"
     ...history.relations[0], storyTime: "t1", closed: false,
   }]);
   assert.equal(result.data.entity.entityType, "character");
-  assert.deepEqual(result.data.entity.properties, { mood: "愤怒" });
+  // 0.3.0 决策①：entity.properties = 未闭合声明数组（不再折对象）
+  assert.deepEqual(result.data.entity.properties, [history.facts[1]]);
   assert.deepEqual(result.data.declarations, history.facts);
 });
 
