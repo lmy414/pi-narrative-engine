@@ -107,7 +107,6 @@ viewLoaders.graph = graphLoadData;
 
 ViewRender.graph = () => {
   const typeFilter = graphState('graphType', 'all');
-  const searchFilter = (graphState('graphFilter', '') || '').toLowerCase();
   const selectedId = graphState('selectedEntityId', null);
   const inspectorId = graphState('inspectorEntityId', selectedId);
   const includeClosed = graphState('includeClosed', false);
@@ -120,10 +119,8 @@ ViewRender.graph = () => {
 
   const matchesFilter = (e) => {
     if (typeFilter !== 'all' && e.entityType !== typeFilter) return false;
-    if (searchFilter) {
-      const hay = `${e.name || e.entityId} ${e.summary || ''} ${e.entityId}`.toLowerCase();
-      if (!hay.includes(searchFilter)) return false;
-    }
+    // F-1 修复（2026-08-08）：搜索过滤由 graphSearchEntities 做 DOM 级即时过滤，
+    // 渲染层不再按 searchFilter 过滤列表（否则清空输入时行集合不完整、列表残留过滤结果）
     if (viewNeighborIds && !viewNeighborIds.has(e.entityId)) return false;
     return true;
   };
@@ -287,6 +284,7 @@ function graphInspectorHtml(inspectorId) {
         <span class="entity-dot" style="background:${otherType.color}"></span>
         <span class="rel-name">${escapeHtml(otherName)}</span>
         <span class="rel-meta"><span class="rel-label">${escapeHtml(r.label)}</span>${icon(out ? 'arrow-right' : 'arrow-left', 'w-3 h-3 rel-arrow')}</span>
+        ${r.description ? `<span class="rel-desc" title="${escapeHtml(r.description)}">${escapeHtml(r.description)}</span>` : ''}
       </div>`;
     })
     .join('');
@@ -525,7 +523,10 @@ function setGraphType(type) {
   renderView();
 }
 
-/** 搜索：立即过滤实体列表 DOM；3D 场景防抖重建（避免每键一次 WebGL 重建） */
+/**
+ * 搜索：立即过滤实体列表 DOM（F-1 修复后渲染层不再按搜索过滤，
+ * 行集合始终完整，清空输入即恢复全量）；3D 场景防抖重建（避免每键一次 WebGL 重建）
+ */
 function graphSearchEntities(value) {
   setGraphState('graphFilter', value.toLowerCase());
   const kw = value.toLowerCase();

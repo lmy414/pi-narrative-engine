@@ -593,6 +593,7 @@ function openQuickRelation() {
       <div><label class="text-sm text-muted">源实体 ID</label><input id="qr-source" class="input" value="${escapeHtml(App.viewState.selectedEntityId || '')}"></div>
       <div><label class="text-sm text-muted">目标实体 ID</label><input id="qr-target" class="input"></div>
       <div><label class="text-sm text-muted">关系标签</label><input id="qr-label" class="input" value="关联"></div>
+      <div><label class="text-sm text-muted">关系描述（可选）</label><input id="qr-desc" class="input" placeholder="如：一同在曙光号上航行"></div>
       <div><label class="text-sm text-muted">故事时间</label><input id="qr-st" class="input" value="${escapeHtml(App.storyTime || '')}"></div>
     </div>`,
     `<button class="btn btn-ghost" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="submitQuickRelation()">保存</button>`);
@@ -601,9 +602,11 @@ function openQuickRelation() {
 async function submitQuickRelation() {
   const source = $('#qr-source').value, target = $('#qr-target').value;
   const label = $('#qr-label').value, st = $('#qr-st').value;
+  // P2-1（2026-08-08）：0.3.0 关系 description 字段透传（可选）
+  const desc = ($('#qr-desc') ? $('#qr-desc').value : '').trim();
   closeModal();
   await withLoading(async () => {
-    await apiCall('addRelation', source, target, label, st);
+    await apiCall('addRelation', source, target, label, st, desc || undefined);
     toast('关系已添加', 'success');
     renderView({ reload: true });
   });

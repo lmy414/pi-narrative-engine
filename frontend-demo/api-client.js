@@ -176,7 +176,7 @@
     updateSummary: function (id, summary) { return post('/entities/' + part(id) + '/summary', { summary: summary }); },
     addProperty: function (id, property, description, storyTime, modality) { return post('/entities/' + part(id) + '/props', { property: property, description: description, storyTime: storyTime, modality: modality === undefined ? 'fact' : modality }); },
     closeDeclaration: function (declarationId, entityId, storyTime) { return post('/declarations/close', { declarationId: declarationId, entityId: entityId, storyTime: storyTime }); },
-    addRelation: function (sourceId, targetId, label, storyTime) { return post('/relations', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime }); },
+    addRelation: function (sourceId, targetId, label, storyTime, description) { return post('/relations', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime, ...(description ? { description: description } : {}) }); },
     closeRelation: function (sourceId, targetId, label, storyTime) { return post('/relations/close', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime }); },
     killEntity: function (id, storyTime) { return post('/entities/' + part(id) + '/kill', { storyTime: storyTime }); },
     getVisibility: function (declId, storyTime) { return get('/declarations/' + part(declId) + '/visibility', { storyTime: storyTime }); },

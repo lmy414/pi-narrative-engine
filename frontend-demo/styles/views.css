@@ -871,6 +871,17 @@ body .launcher-wrap .launcher-menu-btn {
 }
 .rel-label { font-size: 11px; color: var(--text-400); }
 .rel-arrow { color: var(--text-400); }
+/* 0.3.0：关系叙事描述（Inspector 关系行副行，单行截断） */
+.rel-desc {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--text-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 2px;
+}
+.rel-row { flex-wrap: wrap; }
 
 .event-row {
   padding: 8px;
@@ -1511,6 +1522,13 @@ body .detail-drawer {
   margin-top: 6px;
   font-size: 11px;
   color: var(--text-400);
+}
+/* 0.3.0：关系叙事描述（详情关系卡） */
+.detail-drawer .relation-card-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-400);
+  line-height: 1.5;
 }
 .detail-drawer .relation-card-actions {
   display: flex;

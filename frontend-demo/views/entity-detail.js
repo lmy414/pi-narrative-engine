@@ -398,6 +398,7 @@ function detailRelationsPanel() {
         <span class="font-mono">${escapeHtml(r.storyTime)} → ${closed ? escapeHtml(r.closedAt) : '（未闭合）'}</span>
         <span class="declaration-status ${closed ? 'closed' : 'active'}">${closed ? '已闭合' : '生效中'}</span>
       </div>
+      ${r.description ? `<div class="relation-card-desc" title="${escapeHtml(r.description)}">${escapeHtml(r.description)}</div>` : ''}
       ${closed ? '' : `
       <div class="relation-card-actions">
         <button class="decl-action-btn close" onclick="detailCloseRelation(${q(r.sourceId)}, ${q(r.targetId)}, ${q(r.label)})">闭合</button>
