@@ -1,7 +1,8 @@
 # underworld-graph API 变更应对预案（依赖面盘点 + 准备措施）
 
 > 日期：2026-08-08
-> 状态：📋 **已记录（预案阶段，未实施）**——实施前需按「开放决策点」对齐
+> 状态：📦 **已闭环（2026-08-08）**——D1 升级时机已拍板（立即升级 0.3.0），实施由升级计划接管：
+> `docs/plans/2026-08-08-underworld-graph-0.3.0-upgrade.md`（含 P1 版本锁定 / P2 契约金丝雀 / P6 写接口补齐，均已决策搭车）
 > 提出人：用户（问题 3/核心组件前瞻）
 > 相关：`underworld-graph`（独立仓库，d:\claude\pi-ex\underworld-graph）、`narrative-engine/package.json`、`src/ports/`、`src/visualizer/routes.ts`、`docs/frontend-requirements.md` §11
 
