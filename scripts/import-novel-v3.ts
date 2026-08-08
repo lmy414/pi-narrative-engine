@@ -110,23 +110,28 @@ function parseArgs(argv: string[]): CliOptions {
     opts.worldGraph = path.resolve("novel", ".pi", "world-graph-v3");
   }
 
-  // API key 读取顺序：命令行 → ~/.pi/agent/auth.json → 环境变量
+  // API key 读取顺序：命令行 → auth.json（%APPDATA%/narrative-engine/pi-agent 或 ~/.pi/agent，opencode-go 网关）→ 环境变量
+  // 2026-08-08：本机凭证在应用级 auth.json（opencode-go key），importer provider 已对齐 opencode-go
   if (!opts.apiKey) {
-    try {
-      const raw = readFileSync(
-        path.join(process.env.USERPROFILE || "", ".pi", "agent", "auth.json"),
-        "utf8",
-      );
-      const json = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
-      const authJson = JSON.parse(json);
-      if (authJson.deepseek?.key) opts.apiKey = authJson.deepseek.key;
-    } catch {
-      /* ignore */
+    const candidates = [
+      path.join(process.env.APPDATA || "", "narrative-engine", "pi-agent", "auth.json"),
+      path.join(process.env.USERPROFILE || "", ".pi", "agent", "auth.json"),
+    ];
+    for (const authPath of candidates) {
+      try {
+        const raw = readFileSync(authPath, "utf8");
+        const json = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
+        const authJson = JSON.parse(json);
+        if (authJson["opencode-go"]?.key) { opts.apiKey = authJson["opencode-go"].key; break; }
+        if (authJson.deepseek?.key) { opts.apiKey = authJson.deepseek.key; break; }
+      } catch {
+        /* ignore */
+      }
     }
   }
   if (!opts.apiKey) opts.apiKey = process.env.DEEPSEEK_API_KEY || "";
   if (!opts.apiKey) {
-    console.error("Error: 无法获取 API key（--api-key / ~/.pi/agent/auth.json / $DEEPSEEK_API_KEY 均未找到）");
+    console.error("Error: 无法获取 API key（--api-key / auth.json / $DEEPSEEK_API_KEY 均未找到）");
     process.exit(1);
   }
 

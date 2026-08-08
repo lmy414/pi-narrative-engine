@@ -335,7 +335,7 @@ const LLM_BATCH_SIZE = 25;
 /**
  * 默认 LLM provider（与 V2 一致）
  */
-const DEFAULT_PROVIDER = "deepseek";
+const DEFAULT_PROVIDER = "opencode-go";
 
 /**
  * 构造真实 LLM 调用器（绑定 model + apiKey）
