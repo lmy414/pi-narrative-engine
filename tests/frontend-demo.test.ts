@@ -415,7 +415,10 @@ function loadGraphView(): { context: any; stats: { created: number; graphData: n
   };
   const container: any = {
     clientWidth: 800, clientHeight: 600, innerHTML: "",
-    querySelector: () => null, appendChild: () => {},
+    // BUG-039：canvas 存活检查（增量更新 vs 容器替换销毁重建的判定依据）
+    __canvasAlive: false,
+    querySelector: (sel: string) => (sel === "canvas" && container.__canvasAlive ? ({} as any) : null),
+    appendChild: () => {},
   };
   const fakeDocEl: any = {};
   const context: any = {
@@ -428,7 +431,7 @@ function loadGraphView(): { context: any; stats: { created: number; graphData: n
       return context.App.viewState[routeId];
     },
     $: () => container, $$: () => [],
-    ForceGraph3D: () => (container: any) => { stats.created++; return mockInstance; },
+    ForceGraph3D: () => (container: any) => { stats.created++; container.__canvasAlive = true; return mockInstance; },
     THREE: {
       Group: function () { this.add = () => {}; },
       SphereGeometry: function () {}, BoxGeometry: function () {},
@@ -461,11 +464,31 @@ test("BUG-036: graphInit3D 首次调用创建实例并 zoomToFit，第二次走�
   const createdAfterFirst = stats.created;
   const zoomAfterFirst = stats.zoomToFit;
 
-  // 第二次：_graph3d 已存在 → 走增量更新路径
+  // 第二次：_graph3d 已存在 + 同容器（canvas 存活） → 走增量更新路径
   context.graphInit3D();
   assert.equal(stats.created, createdAfterFirst, "第二次调用不应创建新 ForceGraph3D 实例");
   assert.ok(stats.graphData >= 1, "第二次调用应通过 graphData 增量更新");
   assert.equal(stats.zoomToFit, zoomAfterFirst, "第二次调用不应触发 zoomToFit");
+});
+
+test("BUG-039: 容器被替换（canvas 废弃）时第二次调用销毁重建并取景", () => {
+  const { context, stats } = loadGraphView();
+  context.setGraphState("graphData", {
+    entities: [{ entityId: "e1", entityType: "character", properties: { name: "A" } }],
+    relations: [],
+  });
+  // 首次：创建实例（canvas 存活）
+  context.graphInit3D();
+  assert.equal(stats.created, 1);
+
+  // 模拟 ViewRender.graph 整体替换容器：旧 canvas 随旧容器废弃
+  const container = context.$() as any;
+  container.__canvasAlive = false;
+
+  // 第二次：_graph3d 存在但 canvas 已死 → 销毁重建 + 取景（修复前只剩标签层）
+  context.graphInit3D();
+  assert.equal(stats.created, 2, "容器替换后应销毁重建（修复前增量更新导致场景只剩标签层）");
+  assert.ok(stats.zoomToFit >= 1, "重建后应重新取景");
 });
 
 // ============ 🟠-23: 转义族回归（2026-08-08） ============

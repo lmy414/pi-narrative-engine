@@ -378,7 +378,11 @@ function graphInit3D() {
   // 仅更新 graphData + 重建标签层，不销毁 WebGL 实例、不触发 zoomToFit。
   // StoryTime 步进、筛选、视角变更等数据变化均走此路径，避免"拉远再拉近"跳动。
   // 用户可通过 resetSceneView() 按钮手动重新取景。
-  if (_graph3d) {
+  //
+  // BUG-039（2026-08-09）：ViewRender.graph 每次渲染会整体替换 #graph-3d 容器——
+  // 旧 canvas 随旧容器被丢弃，若仍走增量更新则新容器只剩标签层（节点/连线消失）。
+  // 增量更新前检查容器内 canvas 是否存活；已随旧容器废弃则销毁重建。
+  if (_graph3d && container.querySelector('canvas')) {
     _graph3d.graphData({ nodes, links });
     const oldLayer = container.querySelector('.graph-3d-labels');
     if (oldLayer) oldLayer.remove();
