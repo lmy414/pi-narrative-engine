@@ -107,6 +107,10 @@ function currentProjectBarHtml(active) {
 // =================== 新建项目内嵌表单 ===================
 
 function newProjectFormHtml() {
+  // 前端 UI 补全（2026-08-09）：没有任何项目时新建表单默认展开——
+  // 此前永远折叠（.form-body max-height:0），「创建并激活」按钮默认不可见，
+  // 用户误以为"前端没有新建工程按钮"
+  const collapsed = projectsList().length > 0;
   return `
     <div class="form-panel" id="new-project-form">
       <div class="form-header" onclick="toggleNewProjectForm()">
@@ -114,9 +118,9 @@ function newProjectFormHtml() {
           <div class="form-icon">${icon('file-plus-2', 'w-4 h-4')}</div>
           <span class="text-sm font-medium">创建新项目</span>
         </div>
-        <i data-lucide="chevron-down" class="w-4 h-4 chevron" id="new-project-chevron"></i>
+        <i data-lucide="chevron-down" class="w-4 h-4 chevron${collapsed ? '' : ' rotated'}" id="new-project-chevron"></i>
       </div>
-      <div class="form-body" id="new-project-form-body">
+      <div class="form-body${collapsed ? '' : ' expanded'}" id="new-project-form-body">
         <div class="pt-4 space-y-4">
           <div>
             <label class="block text-sm font-medium mb-1.5" style="color:var(--text-700)">目录路径 <span style="color:var(--error-500)">*</span><span class="text-xs font-normal ml-1" style="color:var(--text-400)">必填</span></label>

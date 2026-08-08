@@ -430,14 +430,30 @@ async function createProject() {
     await apiCall('activateProject', dir);
     resetProjectScopedState();
     const active = await apiCall('getActiveProject');
+    const displayName = active.active?.name || name || dir.split(/[\\/]/).pop();
     App.activeProject = {
       dir,
-      relativePath: active.active?.name || name || dir.split(/[\\/]/).pop(),
-      meta: { name: active.active?.name || name || dir.split(/[\\/]/).pop() }
+      relativePath: displayName,
+      meta: { name: displayName }
     };
     const status = await apiCall('getStatus');
     App.storyTimes = status.storyTimes || [];
     App.storyTime = App.storyTimes[App.storyTimes.length - 1] || null;
+    // 前端 UI 补全（2026-08-09）：新建项目立即加入「我的项目」列表——
+    // 此前列表纯靠扫描根（scanRoots）驱动，新建项目若在扫描根外则永远看不到，
+    // 用户创建后回项目页列表仍为空，误以为"无法新建工程"
+    const scanned = App.viewState.scannedProjects || (App.viewState.scannedProjects = []);
+    if (!scanned.some((p) => p.dir === dir)) {
+      scanned.push({
+        dir,
+        relativePath: displayName,
+        chapterCount: 0,
+        lastModified: new Date().toISOString(),
+        needsMigration: false,
+        stats: null,
+        meta: { name: displayName, worldGraphDir: '.pi/world-graph-v3', chaptersDir: '正文', storyTimeFormat: 'ch{NNN}.ev{NNN}' }
+      });
+    }
     toast('项目已创建并激活', 'success');
     navigate('#/graph');
   });
