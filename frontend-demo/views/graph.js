@@ -416,8 +416,17 @@ function graphInit3D() {
   _graph3d.d3Force('charge').strength(-160);
   if (_graph3d.d3Force('link')) _graph3d.d3Force('link').distance(70);
   graph3dLabelLayer(container, nodes);
-  // 力布局收敛后自动取景
-  setTimeout(() => { if (_graph3d) _graph3d.zoomToFit(600, 40); }, 800);
+  // 布局取景：等力模拟收敛（onEngineStop）后再 zoomToFit——固定 800ms 取景时
+  // 布局未收敛，节点继续移动会移出视野（标签 v.z>1 隐藏 → 场景"节点缺失"，
+  // 列表 15 个场景只见 9 个）。onEngineStop 兜底 8s（布局可能不收敛时仍能取景）。
+  let didFit = false;
+  const fitOnce = () => {
+    if (didFit || !_graph3d) return;
+    didFit = true;
+    _graph3d.zoomToFit(600, 40);
+  };
+  if (typeof _graph3d.onEngineStop === 'function') _graph3d.onEngineStop(fitOnce);
+  setTimeout(fitOnce, 8000);
 }
 
 /** 实体选中：3D 场景未就绪时回退 selectEntity 全量重渲 */
