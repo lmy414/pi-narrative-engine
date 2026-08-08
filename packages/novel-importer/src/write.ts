@@ -349,7 +349,7 @@ export async function writeToGraph(
     }
     try {
       if (r.action === "open") {
-        await wg.addRelation(sourceId, targetId, r.label, r.storyTime);
+        await wg.addRelation(sourceId, targetId, r.label, r.storyTime, r.description ? { description: r.description } : undefined);
       } else {
         await wg.closeRelation(sourceId, targetId, r.label, r.storyTime);
       }

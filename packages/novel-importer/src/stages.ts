@@ -355,6 +355,10 @@ export async function extractRelations(
         if (!r.label || typeof r.label !== "string") {
           errors.push(`relations[${i}].label 缺失`);
         }
+        // 0.3.0：description 可选，非字符串直接丢弃（内核 opts 只收 string）
+        if (r.description !== undefined && typeof r.description !== "string") {
+          delete r.description;
+        }
         if (!r.storyTime || !isValidStoryTime(r.storyTime)) {
           errors.push(`relations[${i}].storyTime 非法: ${r.storyTime}`);
         }

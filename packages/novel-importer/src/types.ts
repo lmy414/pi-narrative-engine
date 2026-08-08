@@ -111,6 +111,8 @@ export interface RelationHint {
   label: string;
   storyTime: string;
   action: "open" | "close";
+  /** 0.3.0：关系叙事描述（可选，写内核 RelationNode.description） */
+  description?: string;
   /** 调试用：原文依据（≤200字），写入 _v3_dump.json */
   evidence?: string;
 }

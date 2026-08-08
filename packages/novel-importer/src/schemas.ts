@@ -182,8 +182,11 @@ export const RelationsSchema = Type.Object({
       source_hint: Type.String({ description: "源实体规范名" }),
       target_hint: Type.String({ description: "目标实体规范名" }),
       label: Type.String({
-        description: "关系标签：knows/located_in/owns/part_of/related_to 或自定义",
+        description: "关系标签（0.3.0 中文词表）：朋友/师徒/恋人/亲属/同事/同学/邻居/上下级/同盟/敌对/认识/located_in 或自定义中文",
       }),
+      description: Type.Optional(Type.String({
+        description: "关系叙事描述（可选，一句话说明关系性质/背景）",
+      })),
       storyTime: Type.String({ description: "关系建立/解除的故事时刻 ch{章:03d}.ev{事件:03d}" }),
       action: StringEnum(["open", "close"], {
         description: "open=关系建立; close=关系解除",
