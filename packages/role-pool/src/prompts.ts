@@ -163,14 +163,15 @@ export function buildUserMessage(
  * 格式化单条 Fact 为可读文本
  *
  * 2026-07-25（审计 P1/P2）：
- * - 带属主名：`- [属主] property: value（modality）`，解决动态层无归属问题
+ * - 带属主名：`- [属主] property: description（modality）`，解决动态层无归属问题
  *   （动态层可包含其他实体的可见声明，仅渲染 property 会让 LLM 分不清是谁的）
  * - 已闭合声明标注（旧）：知识持续语义下旧状态仍注入，需与当前状态区分
  */
 function formatFact(fact: FactSnapshot): string {
-  const valueText = fact.valueText ?? String(fact.value);
+  // 0.3.0：value/valueText 双轨删除，统一 description
+  const description = fact.description;
   const owner = fact.ownerName ?? fact.entityId;
   const closed = fact.validTo && fact.validTo !== "Infinity";
   const modality = closed ? `${fact.modality}·旧` : fact.modality;
-  return `- [${owner}] ${fact.property}: ${valueText}（${modality}）`;
+  return `- [${owner}] ${fact.property}: ${description}（${modality}）`;
 }

@@ -18,7 +18,7 @@ test("toRoleOutputs: 去掉 state_changes 和 characterId 字段", () => {
       actor: "林冲",
       action: "举杯",
       state_changes: [
-        { entityId: "linchong", property: "mood", value: "怒", modality: "fact" },
+        { entityId: "linchong", property: "mood", description: "怒", modality: "fact" },
       ],
     },
   ];
@@ -43,7 +43,7 @@ test("toRoleOutputs: 保留其他 6 字段", () => {
       thought: "多年未见",
       knowledge_gained: ["师父老了"],
       state_changes: [
-        { entityId: "linchong", property: "mood", value: "怀念", modality: "fact" },
+        { entityId: "linchong", property: "mood", description: "怀念", modality: "fact" },
       ],
     },
   ];
@@ -79,7 +79,7 @@ test("extractStateChanges: 单角色单变更", () => {
       actor: "林冲",
       action: "举杯",
       state_changes: [
-        { entityId: "linchong", property: "mood", value: "怒", modality: "fact" },
+        { entityId: "linchong", property: "mood", description: "怒", modality: "fact" },
       ],
     },
   ];
@@ -87,7 +87,7 @@ test("extractStateChanges: 单角色单变更", () => {
   assert.equal(facts.length, 1);
   assert.equal(facts[0].entityId, "linchong");
   assert.equal(facts[0].property, "mood");
-  assert.equal(facts[0].value, "怒");
+  assert.equal(facts[0].description, "怒");
   assert.equal(facts[0].modality, "fact");
 });
 
@@ -98,8 +98,8 @@ test("extractStateChanges: 多角色多变更扁平化", () => {
       actor: "林冲",
       action: "a1",
       state_changes: [
-        { entityId: "linchong", property: "mood", value: "怒", modality: "fact" },
-        { entityId: "linchong", property: "location", value: "山神庙", modality: "fact" },
+        { entityId: "linchong", property: "mood", description: "怒", modality: "fact" },
+        { entityId: "linchong", property: "location", description: "山神庙", modality: "fact" },
       ],
     },
     {
@@ -107,7 +107,7 @@ test("extractStateChanges: 多角色多变更扁平化", () => {
       actor: "武松",
       action: "a2",
       state_changes: [
-        { entityId: "wusong", property: "drunk", value: true, modality: "belief" },
+        { entityId: "wusong", property: "drunk", description: "true", modality: "belief" },
       ],
     },
   ];
@@ -127,7 +127,7 @@ test("extractStateChanges: 无 state_changes 的角色被跳过", () => {
       actor: "武松",
       action: "a2",
       state_changes: [
-        { entityId: "wusong", property: "mood", value: "喜", modality: "fact" },
+        { entityId: "wusong", property: "mood", description: "喜", modality: "fact" },
       ],
     },
   ];
@@ -144,14 +144,14 @@ test("extractStateChanges: 全部无 state_changes 返回空数组", () => {
   assert.deepEqual(extractStateChanges(outputs), []);
 });
 
-test("extractStateChanges: 结构兼容 newFacts（entityId/property/value/modality）", () => {
+test("extractStateChanges: 结构兼容 newFacts（entityId/property/description/modality）", () => {
   const outputs: RoleAgentOutput[] = [
     {
       characterId: "x",
       actor: "x",
       action: "y",
       state_changes: [
-        { entityId: "e1", property: "p1", value: 42, modality: "hypothesis" },
+        { entityId: "e1", property: "p1", description: "42", modality: "hypothesis" },
       ],
     },
   ];

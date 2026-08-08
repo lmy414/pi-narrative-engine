@@ -10,8 +10,8 @@ const mockCard: SillyTavernCard = {
 };
 
 const mockFacts: FactSnapshot[] = [
-  { declarationId: "d1", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-1" },
-  { declarationId: "d2", entityId: "linchong", property: "location", value: "山神庙", modality: "fact", validFrom: "ch-1" },
+  { declarationId: "d1", entityId: "linchong", property: "mood", description: "愤怒", modality: "fact", validFrom: "ch-1" },
+  { declarationId: "d2", entityId: "linchong", property: "location", description: "山神庙", modality: "fact", validFrom: "ch-1" },
 ];
 
 const mockMember: CastMember = {
@@ -115,8 +115,8 @@ test("buildUserMessage: 动态层渲染属主名（P1 归属）", () => {
     characterId: "linchong",
     staticCard: mockMember.staticCard,
     dynamicFacts: [
-      { declarationId: "d1", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
-      { declarationId: "d2", entityId: "luqian", property: "plan", value: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦" },
+      { declarationId: "d1", entityId: "linchong", property: "mood", description: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
+      { declarationId: "d2", entityId: "luqian", property: "plan", description: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦" },
     ],
   };
   const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-1", cast: [member] };
@@ -139,8 +139,8 @@ test("buildUserMessage: 已闭合声明标注（旧）（P2 历史/当前区分�
     characterId: "linchong",
     staticCard: mockMember.staticCard,
     dynamicFacts: [
-      { declarationId: "d1", entityId: "linchong", property: "mood", value: "放松", modality: "fact", validFrom: "ch-1", validTo: "ch-2", ownerName: "林冲" },
-      { declarationId: "d2", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-2", validTo: "Infinity", ownerName: "林冲" },
+      { declarationId: "d1", entityId: "linchong", property: "mood", description: "放松", modality: "fact", validFrom: "ch-1", validTo: "ch-2", ownerName: "林冲" },
+      { declarationId: "d2", entityId: "linchong", property: "mood", description: "愤怒", modality: "fact", validFrom: "ch-2", validTo: "Infinity", ownerName: "林冲" },
     ],
   };
   const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-2", cast: [member] };
@@ -154,9 +154,9 @@ test("buildUserMessage: 检索 label 渲染为分组小标题（审计偏差 2�
     characterId: "linchong",
     staticCard: mockMember.staticCard,
     dynamicFacts: [
-      { declarationId: "d1", entityId: "linchong", property: "mood", value: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲", label: "林冲的可见状态" },
-      { declarationId: "d2", entityId: "luqian", property: "plan", value: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦", label: "陆谦的阴谋" },
-      { declarationId: "d3", entityId: "linchong", property: "location", value: "山神庙", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
+      { declarationId: "d1", entityId: "linchong", property: "mood", description: "愤怒", modality: "fact", validFrom: "ch-1", ownerName: "林冲", label: "林冲的可见状态" },
+      { declarationId: "d2", entityId: "luqian", property: "plan", description: "火烧草料场", modality: "hypothesis", validFrom: "ch-1", ownerName: "陆谦", label: "陆谦的阴谋" },
+      { declarationId: "d3", entityId: "linchong", property: "location", description: "山神庙", modality: "fact", validFrom: "ch-1", ownerName: "林冲" },
     ],
   };
   const cmd: InteractCommand = { eventInstruction: "测试", storyTime: "ch-1", cast: [member] };

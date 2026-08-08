@@ -48,7 +48,7 @@ async function makeProject(dir: string, name: string): Promise<void> {
     storyTime: "t1",
     entityId: `e-${name}`,
     entityType: "character",
-    newFacts: [{ entityId: `e-${name}`, property: "name", value: name, modality: "fact" }],
+    newFacts: [{ entityId: `e-${name}`, property: "name", description: name, modality: "fact" }],
   });
   wg.close();
 }
@@ -131,7 +131,7 @@ test("setActive: allowInit 激活新项目后世界图可用", async () => {
     storyTime: "t1",
     entityId: "e-new",
     entityType: "character",
-    newFacts: [{ entityId: "e-new", property: "name", value: "新角色", modality: "fact" }],
+    newFacts: [{ entityId: "e-new", property: "name", description: "新角色", modality: "fact" }],
   });
   const entities = await handle.wg.getAllEntities("t1");
   assert.equal(entities.length, 1);

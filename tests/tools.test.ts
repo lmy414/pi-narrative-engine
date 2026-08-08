@@ -132,7 +132,7 @@ test("world_entity_create 逻辑: birthEntity 后 getEntityAt 可读", async () 
   assert.ok(snap, "应返回快照");
   assert.equal(snap!.entityId, "macbeth");
   assert.equal(snap!.type, "character");
-  assert.ok(snap!.properties.find(p => p.property === "name" && p.value === "Macbeth"));
+  assert.ok(snap!.properties.find(p => p.property === "name" && p.description === "Macbeth"));
   wg.close();
 });
 
@@ -209,12 +209,12 @@ test("world_event_apply 逻辑: processEvent(change) 更新属性", async () => 
     newFacts: [{
       entityId: "macbeth",
       property: "title",
-      value: "King",
+      description: "King",
       modality: "fact",
     }],
   });
   const snap = await wg.getEntityAt("macbeth", "act2-scene1");
-  assert.ok(snap!.properties.find(p => p.property === "title" && p.value === "King"), "应有新 title");
+  assert.ok(snap!.properties.find(p => p.property === "title" && p.description === "King"), "应有新 title");
   // 旧 title 声明应已闭合
   assert.ok(
     !snap!.properties.find(p => p.declarationId === oldTitle.declarationId),
@@ -264,7 +264,7 @@ test("world_event_chain 逻辑: traceCauses 沿 causedBy 回溯", async () => {
     newFacts: [{
       entityId: "macbeth",
       property: "title",
-      value: "King",
+      description: "King",
       modality: "fact",
     }],
   });

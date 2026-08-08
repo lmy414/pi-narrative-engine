@@ -42,8 +42,8 @@ export interface FactSnapshot {
   declarationId: string;
   entityId: string;
   property: string;
-  value: unknown;
-  valueText?: string;
+  /** 0.3.0：value/valueText 双轨删除，统一为 description（string 契约） */
+  description: string;
   modality: "fact" | "belief" | "hypothesis";
   validFrom: string;
   /**
@@ -54,7 +54,7 @@ export interface FactSnapshot {
   /**
    * 属主名称（如 "彩叶"）
    * 2026-07-25 新增（审计 P1）：由调度器在组装 dynamicFacts 时解析 entityId 填入，
-   * role-pool 渲染为 `- [属主] property: value（modality）`，解决动态层无归属问题
+   * role-pool 渲染为 `- [属主] property: description（modality）`，解决动态层无归属问题
    */
   ownerName?: string;
   /**
@@ -174,7 +174,7 @@ export interface RetrievalItem {
      * 对应 wg.search.fulltext(nodeKind, ...) 第一个参数
      * 取值："Entity" / "Fact" / "Relation" / "Visibility"
      * - Entity：检索实体（角色/地点/物品/概念）的 summary + properties
-     * - Fact：检索状态声明（property / valueText 字段已声明 searchable）
+     * - Fact：检索状态声明（property / description 字段已声明 searchable）
      * - Relation：检索关系（label 字段）
      */
     nodeType?: "Entity" | "Fact" | "Relation" | "Visibility";

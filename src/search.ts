@@ -41,7 +41,7 @@ export class Search {
     const limit = opts?.topK ?? 10;
     const storyTime = opts?.storyTime;
     if (!storyTime) throw new Error("storyTime is required for search results");
-    // 搜 Fact 节点（property + valueText 是 searchable 字段）
+    // 搜 Fact 节点（property + description 是 searchable 字段；0.3.0 起 value/valueText 已删除）
     const hits = await this.wg.search.fulltext("Fact", { query, limit });
     // 从 Fact hit 提取 entityId，去重，关联到 Entity 快照
     return this.resolveEntitiesFromFacts(hits, storyTime, "fulltext");

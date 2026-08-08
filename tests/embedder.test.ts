@@ -14,7 +14,7 @@ test("Embedder.embedEntity 接收 EntitySnapshot", { skip: isCI }, async () => {
     validFrom: "act1-scene1",
     validTo: "Infinity",
     properties: [
-      { declarationId: "d1", entityId: "macbeth", property: "name", value: "Macbeth", modality: "fact", validFrom: "act1-scene1", validTo: "Infinity" },
+      { declarationId: "d1", entityId: "macbeth", property: "name", description: "Macbeth", modality: "fact", validFrom: "act1-scene1", validTo: "Infinity" },
     ],
   });
   assert.equal(vec.length, 512, "向量应为 512 维");
@@ -26,7 +26,7 @@ test("Embedder.embedFact 接收 StateDeclaration", { skip: isCI }, async () => {
     declarationId: "d1",
     entityId: "macbeth",
     property: "name",
-    value: "Macbeth",
+    description: "Macbeth",
     modality: "fact",
     validFrom: "act1-scene1",
     validTo: "Infinity",

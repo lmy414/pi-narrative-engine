@@ -130,7 +130,7 @@ test("interact: PriorAction 不含 thought/emotion/state_changes", async () => {
     action: "举杯",
     thought: "心中暗想",
     emotion: "愤怒",
-    state_changes: [{ entityId: "linchong", property: "mood", value: "怒", modality: "fact" }],
+    state_changes: [{ entityId: "linchong", property: "mood", description: "怒", modality: "fact" }],
   };
   const secondOutput: RoleAgentOutput = {
     characterId: "wusong",

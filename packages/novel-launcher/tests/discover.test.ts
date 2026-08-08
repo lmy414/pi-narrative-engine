@@ -246,7 +246,7 @@ test("discoverProjects includeStats：world.db 探测（stats 计数 + needsMigr
       storyTime: "ch001.ev001",
       entityId: "e-1",
       entityType: "character",
-      newFacts: [{ entityId: "e-1", property: "name", value: "阿明", modality: "fact" }],
+      newFacts: [{ entityId: "e-1", property: "name", description: "阿明", modality: "fact" }],
     });
     wg.close();
 

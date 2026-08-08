@@ -131,7 +131,7 @@ test("world_event_apply：processEvent 收到正确事件（source=engine）", a
     type: "change",
     storyTime: "ch001.ev001",
     entityId: "ent_a",
-    newFacts: [{ entityId: "ent_a", property: "mood", value: "怒", modality: "fact" }],
+    newFacts: [{ entityId: "ent_a", property: "mood", description: "怒", modality: "fact" }],
   });
   const evt = m.calls.processEvent[0] as Record<string, unknown>;
   assert.equal(evt.eventId, "evt_x");
@@ -177,8 +177,8 @@ test("entity_get_limited：properties 按角色可见声明过滤", async () => 
     entityId: "ent_a",
     type: "character",
     properties: [
-      { declarationId: "decl-1", property: "mood", value: "怒" },
-      { declarationId: "decl-2", property: "location", value: "梁山" },
+      { declarationId: "decl-1", property: "mood", description: "怒" },
+      { declarationId: "decl-2", property: "location", description: "梁山" },
     ],
   };
   m.set.view = [{ declarationId: "decl-1" }];

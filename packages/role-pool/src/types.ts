@@ -30,13 +30,13 @@ export interface FactSnapshot {
   declarationId: string;
   entityId: string;
   property: string;
-  value: unknown;
-  valueText?: string;
+  /** 0.3.0：value/valueText 双轨删除，统一为 description（string 契约） */
+  description: string;
   modality: "fact" | "belief" | "hypothesis";
   validFrom: string;
   /** 失效时刻（"Infinity" = 未闭合）；已闭合的为历史知识，渲染时标注（旧） */
   validTo?: string;
-  /** 属主名称（调度器解析 entityId 后填入）；渲染为 `- [属主] property: value（modality）` */
+  /** 属主名称（调度器解析 entityId 后填入）；渲染为 `- [属主] property: description（modality）` */
   ownerName?: string;
   /** 检索项语义标签（planner 提供）；渲染为分组小标题，说明信息来源/用途 */
   label?: string;
@@ -107,7 +107,8 @@ export interface RoleAgentOutput {
 export interface StateChange {
   entityId: string;
   property: string;
-  value: unknown;
+  /** 0.3.0：value → description（string 契约，与 world_event_apply 的 newFacts 一致） */
+  description: string;
   modality: "fact" | "belief" | "hypothesis";
 }
 

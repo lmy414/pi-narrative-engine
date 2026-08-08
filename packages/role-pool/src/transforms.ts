@@ -48,7 +48,7 @@ export function toRoleOutputs(
  * 提取所有角色的 state_changes，扁平化为一个数组
  *
  * 返回结构兼容 world_event_apply 的 newFacts 字段
- * （StateChange 与 newFacts 元素结构一致：entityId/property/value/modality）
+ * （StateChange 与 newFacts 元素结构一致：entityId/property/description/modality）
  *
  * @param outputs 角色池原始输出
  */

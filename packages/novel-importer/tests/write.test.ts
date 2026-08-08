@@ -182,14 +182,14 @@ test("🟠-15: 同 property 多条未闭合声明全部闭合（不只最后一�
       type: "change",
       storyTime: "ch001.ev001",
       entityId: "ent_a",
-      newFacts: [{ entityId: "ent_a", property: "位置", value: "旧1", modality: "fact" }],
+      newFacts: [{ entityId: "ent_a", property: "位置", description: "旧1", modality: "fact" }],
     });
     await wg.processEvent({
       eventId: "evt_b",
       type: "change",
       storyTime: "ch001.ev002",
       entityId: "ent_a",
-      newFacts: [{ entityId: "ent_a", property: "位置", value: "旧2", modality: "fact" }],
+      newFacts: [{ entityId: "ent_a", property: "位置", description: "旧2", modality: "fact" }],
     });
     // 导入器写入第三条 change（同 property）→ 自动闭合应闭**全部**未闭合声明
     const events: EventHint[] = [
@@ -206,7 +206,7 @@ test("🟠-15: 同 property 多条未闭合声明全部闭合（不只最后一�
     assert.ok(snap, "实体应存在");
     const open = snap!.properties.filter((p) => p.property === "位置");
     assert.equal(open.length, 1, "同 property 多条未闭合应全部闭合，只剩新声明");
-    assert.equal(open[0]!.value, "新");
+    assert.equal(open[0]!.description, "新");
   });
 });
 

@@ -96,17 +96,17 @@ test("完整工作流：创建实体 → 关系 → 事件 → 可见性 → 检
     newFacts: [{
       entityId: "duncan",
       property: "status",
-      value: "dead",
+      description: "dead",
       modality: "fact",
     }],
   });
 
   // 4. 验证 bi-temporal：act1-scene1 时 duncan title 是 King，act2-scene1 时 status 是 dead
   const duncanAct1 = await wg.getEntityAt("duncan", "act1-scene1");
-  assert.ok(duncanAct1!.properties.find(p => p.property === "title" && p.value === "King"), "act1 应有 title=King");
+  assert.ok(duncanAct1!.properties.find(p => p.property === "title" && p.description === "King"), "act1 应有 title=King");
 
   const duncanAct2 = await wg.getEntityAt("duncan", "act2-scene1");
-  assert.ok(duncanAct2!.properties.find(p => p.property === "status" && p.value === "dead"), "act2 应有 status=dead");
+  assert.ok(duncanAct2!.properties.find(p => p.property === "status" && p.description === "dead"), "act2 应有 status=dead");
 
   // 5. inferVisibility + character_view
   await wg.inferVisibility("act1-scene1");

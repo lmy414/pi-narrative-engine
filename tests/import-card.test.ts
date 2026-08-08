@@ -157,7 +157,7 @@ test("importCardToWorldGraph: 卡无 name 时兜底 entityId", async () => {
   } as any;
   const result = await importCardToWorldGraph(wg, { name: "", description: "无名氏" } as any, "ch-1", "ent_char_noname");
   const nameFact = events[0].newFacts.find((f: any) => f.property === "name");
-  assert.equal(nameFact.value, "ent_char_noname");
+  assert.equal(nameFact.description, "ent_char_noname");
   assert.ok(result.factCount >= 1);
 });
 

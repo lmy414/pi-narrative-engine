@@ -170,7 +170,7 @@ async function makeProject(dir: string, name: string, entityValue: string): Prom
     storyTime: "t1",
     entityId: `e-${name}`,
     entityType: "character",
-    newFacts: [{ entityId: `e-${name}`, property: "name", value: entityValue, modality: "fact" }],
+    newFacts: [{ entityId: `e-${name}`, property: "name", description: entityValue, modality: "fact" }],
   });
   wg.close();
 }
@@ -196,8 +196,8 @@ before(async () => {
       entityType: "character",
       summary: "主角",
       newFacts: [
-        { entityId: "viz1", property: "name", value: "阿明", modality: "fact" },
-        { entityId: "viz1", property: "mood", value: "平静", modality: "fact" },
+        { entityId: "viz1", property: "name", description: "阿明", modality: "fact" },
+        { entityId: "viz1", property: "mood", description: "平静", modality: "fact" },
       ],
     });
     await wgB.processEvent({
@@ -206,7 +206,7 @@ before(async () => {
       storyTime: "t1",
       entityId: "viz2",
       entityType: "location",
-      newFacts: [{ entityId: "viz2", property: "name", value: "客栈", modality: "fact" }],
+      newFacts: [{ entityId: "viz2", property: "name", description: "客栈", modality: "fact" }],
     });
     await wgB.processEvent({
       eventId: "evt-change-mood",
@@ -214,7 +214,7 @@ before(async () => {
       storyTime: "t2",
       entityId: "viz1",
       invalidated: [{ declarationId: "decl-viz1-mood-t1", property: "mood" }],
-      newFacts: [{ entityId: "viz1", property: "mood", value: "愤怒", modality: "fact" }],
+      newFacts: [{ entityId: "viz1", property: "mood", description: "愤怒", modality: "fact" }],
     });
     await wgB.addRelation("viz1", "viz2", "located_in", "t1");
     await wgB.setVisibility("viz1", "decl-viz2-name-t1", {
@@ -479,7 +479,7 @@ test("闭环: create → activate(空库自动初始化) → status/graph 可用
     entityId: "e-loop",
     entityType: "character",
     summary: "闭环角色",
-    newFacts: [{ entityId: "e-loop", property: "name", value: "小闭", modality: "fact" }],
+    newFacts: [{ entityId: "e-loop", property: "name", description: "小闭", modality: "fact" }],
   });
   assert.equal(ev.ok, true);
   const graph = await api("/graph?storyTime=ch001.ev001");
@@ -1127,7 +1127,7 @@ test("GET /api/graph 指定 storyTime 返回实体与关系", async () => {
   const e1 = r.data.entities.find((e: any) => e.entityId === "viz1");
   assert.equal(e1.summary, "主角");
   const mood = e1.properties.find((p: any) => p.property === "mood");
-  assert.equal(mood.value, "愤怒", "t2 时刻应看到 change 后的新值");
+  assert.equal(mood.description, "愤怒", "t2 时刻应看到 change 后的新值");
 });
 
 test("GET /api/graph 缺 storyTime → 400 STORY_TIME_REQUIRED", async () => {
@@ -1156,7 +1156,7 @@ test("GET /api/entities/:id/history 含已闭合声明与关系历史", async ()
   const r = await api("/entities/viz1/history");
   assert.equal(r.ok, true);
   const oldMood = r.data.facts.find(
-    (f: any) => f.property === "mood" && f.value === "平静",
+    (f: any) => f.property === "mood" && f.description === "平静",
   );
   assert.ok(oldMood, "历史应含旧 mood 声明");
   assert.equal(oldMood.validTo, "t2", "旧声明应已在 t2 闭合");
@@ -1224,7 +1224,7 @@ test("POST /api/events 应用 change，强制 source=user，旧声明闭合", as
     entityId: "viz1",
     source: "engine", // 应被服务端强制覆盖为 "user"
     invalidated: [{ declarationId: "decl-viz1-name-t1", property: "name" }],
-    newFacts: [{ entityId: "viz1", property: "name", value: "明明", modality: "fact" }],
+    newFacts: [{ entityId: "viz1", property: "name", description: "明明", modality: "fact" }],
   });
   assert.equal(r.status, 200);
   assert.equal(r.ok, true);
@@ -1233,12 +1233,12 @@ test("POST /api/events 应用 change，强制 source=user，旧声明闭合", as
   // 新值生效
   const snap = await api("/entities/viz1?storyTime=t3");
   const name = snap.data.properties.find((p: any) => p.property === "name");
-  assert.equal(name.value, "明明");
+  assert.equal(name.description, "明明");
 
   // 旧声明已闭合
   const history = await api("/entities/viz1/history");
   const oldName = history.data.facts.find(
-    (f: any) => f.property === "name" && f.value === "阿明",
+    (f: any) => f.property === "name" && f.description === "阿明",
   );
   assert.equal(oldName.validTo, "t3");
 
@@ -1355,7 +1355,7 @@ test("POST /api/events 非法 body → 400 VALIDATION_ERROR", async () => {
     type: "change",
     storyTime: "t3",
     entityId: "viz1",
-    newFacts: [{ entityId: "viz1", property: "x", value: 1, modality: "not-a-modality" }],
+    newFacts: [{ entityId: "viz1", property: "x", description: "1", modality: "not-a-modality" }],
   });
   assert.equal(r.status, 400);
   assert.equal(r.ok, false);
@@ -1371,13 +1371,13 @@ test("entities/:id/props：属性编辑（旧声明闭合 + 新声明生效）�
     storyTime: "t6",
     entityId: "e-b5",
     entityType: "character",
-    newFacts: [{ entityId: "e-b5", property: "name", value: "临时", modality: "fact" }],
+    newFacts: [{ entityId: "e-b5", property: "name", description: "临时", modality: "fact" }],
   });
 
   // 首次设置 mood（无旧声明可闭合）
   const r1 = await sendJson("POST", "/entities/e-b5/props", {
     property: "mood",
-    value: "平静",
+    description: "平静",
     storyTime: "t6",
   });
   assert.equal(r1.ok, true);
@@ -1388,14 +1388,14 @@ test("entities/:id/props：属性编辑（旧声明闭合 + 新声明生效）�
   // 再次编辑：旧声明闭合 + 新值生效
   const r2 = await sendJson("POST", "/entities/e-b5/props", {
     property: "mood",
-    value: "愤怒",
+    description: "愤怒",
     storyTime: "t7",
   });
   assert.equal(r2.ok, true);
   assert.equal(r2.data.closedDeclarationId, decl1, "应闭合上一版 mood 声明");
 
   const snap = await api("/entities/e-b5?storyTime=t7");
-  assert.equal(snap.data.properties.find((p: any) => p.property === "mood").value, "愤怒");
+  assert.equal(snap.data.properties.find((p: any) => p.property === "mood").description, "愤怒");
   const history = await api("/entities/e-b5/history");
   assert.equal(
     history.data.facts.find((f: any) => f.declarationId === decl1).validTo,
@@ -1406,14 +1406,14 @@ test("entities/:id/props：属性编辑（旧声明闭合 + 新声明生效）�
   // 错误路径
   const nf = await sendJson("POST", "/entities/e-ghost/props", {
     property: "x",
-    value: 1,
+    description: "1",
     storyTime: "t7",
   });
   assert.equal(nf.status, 404);
   assert.equal(nf.error?.code, "ENTITY_NOT_FOUND");
   const bad = await sendJson("POST", "/entities/e-b5/props", {
     property: "x",
-    value: 1,
+    description: "1",
     storyTime: "t7",
     modality: "nope",
   });

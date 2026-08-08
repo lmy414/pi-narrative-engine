@@ -33,7 +33,7 @@ test("RoleAgentOutput: 全字段填充", () => {
     state_changes: [{
       entityId: "linchong",
       property: "mood",
-      value: "怀念",
+      description: "怀念",
       modality: "fact",
     }],
   };
@@ -42,9 +42,9 @@ test("RoleAgentOutput: 全字段填充", () => {
 });
 
 test("StateChange: modality 三值", () => {
-  const fact: StateChange = { entityId: "a", property: "p", value: 1, modality: "fact" };
-  const belief: StateChange = { entityId: "a", property: "p", value: 1, modality: "belief" };
-  const hypo: StateChange = { entityId: "a", property: "p", value: 1, modality: "hypothesis" };
+  const fact: StateChange = { entityId: "a", property: "p", description: "1", modality: "fact" };
+  const belief: StateChange = { entityId: "a", property: "p", description: "1", modality: "belief" };
+  const hypo: StateChange = { entityId: "a", property: "p", description: "1", modality: "hypothesis" };
   assert.equal(fact.modality, "fact");
   assert.equal(belief.modality, "belief");
   assert.equal(hypo.modality, "hypothesis");
@@ -56,7 +56,7 @@ test("CastMember: 静态层 + 动态层", () => {
     declarationId: "d1",
     entityId: "linchong",
     property: "mood",
-    value: "愤怒",
+    description: "愤怒",
     modality: "fact",
     validFrom: "ch-1",
   }];

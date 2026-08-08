@@ -7,7 +7,7 @@ import type { WorldGraph } from "underworld-graph";
 function makeMockWg(
   entities: Map<string, {
     summary: string;
-    properties: Array<{ declarationId: string; entityId: string; property: string; value: unknown; modality: "fact" | "belief" | "hypothesis" }>;
+    properties: Array<{ declarationId: string; entityId: string; property: string; description: string; modality: "fact" | "belief" | "hypothesis" }>;
     validFrom: string;
   }>,
 ): WorldGraph {
@@ -50,9 +50,9 @@ test("defaultStaticCardLoader: 从 Fact 提取已知字段（name/personality）
     ["linchong", {
       summary: "summary",
       properties: [
-        { declarationId: "d1", entityId: "linchong", property: "name", value: "林冲", modality: "fact" },
-        { declarationId: "d2", entityId: "linchong", property: "personality", value: "刚烈", modality: "fact" },
-        { declarationId: "d3", entityId: "linchong", property: "scenario", value: "宋徽宗年间", modality: "fact" },
+        { declarationId: "d1", entityId: "linchong", property: "name", description: "林冲", modality: "fact" },
+        { declarationId: "d2", entityId: "linchong", property: "personality", description: "刚烈", modality: "fact" },
+        { declarationId: "d3", entityId: "linchong", property: "scenario", description: "宋徽宗年间", modality: "fact" },
       ],
       validFrom: "ch-0",
     }],
@@ -68,7 +68,7 @@ test("defaultStaticCardLoader: name 字段在 Fact 中时覆盖 entityId", async
     ["c1", {
       summary: "",
       properties: [
-        { declarationId: "d1", entityId: "c1", property: "name", value: "武松", modality: "fact" },
+        { declarationId: "d1", entityId: "c1", property: "name", description: "武松", modality: "fact" },
       ],
       validFrom: "ch-0",
     }],
@@ -94,8 +94,8 @@ test("defaultStaticCardLoader: 未知 property 字段被忽略（不进入 card�
     ["c3", {
       summary: "",
       properties: [
-        { declarationId: "d1", entityId: "c3", property: "mood", value: "怒", modality: "fact" },
-        { declarationId: "d2", entityId: "c3", property: "location", value: "山神庙", modality: "fact" },
+        { declarationId: "d1", entityId: "c3", property: "mood", description: "怒", modality: "fact" },
+        { declarationId: "d2", entityId: "c3", property: "location", description: "山神庙", modality: "fact" },
       ],
       validFrom: "ch-0",
     }],
