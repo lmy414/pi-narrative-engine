@@ -1,8 +1,11 @@
 # underworld-graph 0.1.2 → 0.3.x 升级计划（引擎适配 + novel 重建）
 
 > 日期：2026-08-08
-> 状态：✅ **决策已齐，待开工**
-> 目标版本：**0.3.1**（0.3.1 = 0.3.0 API + 协议 GPL→MIT，无接口变化；本文所有「0.3.0 契约」即 0.3.1 契约）
+> 状态：✅ **已闭环（2026-08-08）**——6 阶段全部完成
+> 提交记录：docs 计划 c8fb07d → 阶段1 6797907 → 阶段2 e2e680b → 阶段3 02e4a0a → 阶段4a 2b74369 → 阶段4b a459dd2 → 阶段5 f752bdc → 阶段6 a8695b0（master）
+> 测试轮：`docs/audits/frontend-test-runs/2026-08-08-wg-030-frontend.md`（14/15 通过，F-1/P2-1/P2-2 已修）
+> 契约金丝雀：`tests/underworld-graph-contract.test.ts`（8 项，下次包升级即红）
+> 遗留登记：①写接口补齐（closeDeclaration/deleteEntity/updateEntityProps）包 0.3.1 无方法 → 登记回上游 underworld-graph；②importer 关系 label 中文枚举引导已改（下次导入生效，本批 novel 库仍为英文 label）
 > 提出人：用户（上游世界图包大更新同步升级）
 > 前置文档：`docs/plans/2026-08-08-underworld-graph-api-change-preparedness.md`（0.2.0 预案，本文档 supersede 其 D1 升级时机决策）
 > 上游设计：`underworld-graph/docs/field-redesign-plan-2026-08-08.md`、包 CHANGELOG 0.2.0/0.3.0
