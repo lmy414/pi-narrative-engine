@@ -64,7 +64,8 @@ export interface WorldGraphPort {
   ): Promise<RelationSnapshot[]>;
   getAllDeclarationsAt(storyTime: string): Promise<StateDeclaration[]>;
   listStoryTimes(): Promise<string[]>;
-  traceCauses(eventId: string): Promise<EventRecord[]>;
+  // 0.2.0 D7：traceCauses 对不存在的 eventId 返回 null（不再静默截断）
+  traceCauses(eventId: string): Promise<EventRecord[] | null>;
   // 写入
   processEvent(event: EventRecordInput): Promise<void>;
   addRelation(

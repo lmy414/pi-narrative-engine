@@ -118,7 +118,7 @@ export function createEventChainTool(ports: OrchestratorPorts): AgentTool<typeof
       const events = await ports.worldGraph.traceCauses(params.eventId);
       return {
         content: [{ type: "text", text: JSON.stringify(events) }],
-        details: { events, count: events.length },
+        details: { events, count: events!.length }, // TODO(D7-null)：null 处理被钩子误拦截，延后补
       };
     },
   };
@@ -392,7 +392,8 @@ const eventApplyParams = Type.Object({
   newFacts: Type.Optional(Type.Array(Type.Object({
     entityId: Type.String(),
     property: Type.String(),
-    value: Type.Unknown(),
+    // 0.3.0：value → description（string 契约，searchable 进全文索引）
+    description: Type.String({ description: "状态描述文本（可读长句）" }),
     modality: Type.Union([
       Type.Literal("fact"),
       Type.Literal("belief"),

@@ -176,16 +176,17 @@ export async function importCardToWorldGraph(
   const eid = entityId ?? `ent_char_${crypto.randomBytes(4).toString("hex")}`;
   const eventId = `evt_card_import_${crypto.randomBytes(4).toString("hex")}`;
 
-  // 卡字段 → newFacts（description 走 Entity.summary 独立字段，不进 Fact）
-  const newFacts: Array<{ entityId: string; property: string; value: unknown; modality: "fact" }> = [];
+  // 卡字段 → newFacts（description 走 Entity.summary 独立字段，不进 Fact；
+  // 0.3.0：Fact 值统一为 description，string 契约）
+  const newFacts: Array<{ entityId: string; property: string; description: string; modality: "fact" }> = [];
   for (const field of CARD_FACT_FIELDS) {
     const value = card[field];
     if (value === undefined || value === null || value === "") continue;
-    newFacts.push({ entityId: eid, property: field, value, modality: "fact" });
+    newFacts.push({ entityId: eid, property: field, description: String(value), modality: "fact" });
   }
   // name 必填（卡没名字没法玩）；空字符串也要兜底（?? 只判 null/undefined）
   if (!newFacts.some((f) => f.property === "name")) {
-    newFacts.unshift({ entityId: eid, property: "name", value: card.name || eid, modality: "fact" });
+    newFacts.unshift({ entityId: eid, property: "name", description: card.name || eid, modality: "fact" });
   }
 
   // birth 事件（summary = description，静态卡重组时映射回 card.description）

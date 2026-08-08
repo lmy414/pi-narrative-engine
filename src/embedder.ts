@@ -131,22 +131,22 @@ export class Embedder {
 
   /**
    * 实体向量化
-   * 文本构建：entityId + type + 各 property: value
+   * 文本构建：entityId + type + 各 property: description（0.3.0 起 StateDeclaration 无 value/valueText）
    */
   async embedEntity(snapshot: EntitySnapshot): Promise<number[]> {
     const parts: string[] = [snapshot.entityId, snapshot.type];
     for (const prop of snapshot.properties) {
-      parts.push(`${prop.property}: ${String(prop.value)}`);
+      parts.push(`${prop.property}: ${prop.description}`);
     }
     return this.embed(parts.join(" "));
   }
 
   /**
    * 状态声明向量化
-   * 文本构建：property + value + modality
+   * 文本构建：property + description + modality
    */
   async embedFact(decl: StateDeclaration): Promise<number[]> {
-    const text = `${decl.property} ${String(decl.value)} ${decl.modality}`;
+    const text = `${decl.property} ${decl.description} ${decl.modality}`;
     return this.embed(text);
   }
 

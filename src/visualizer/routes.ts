@@ -65,6 +65,12 @@ function requireStoryTime(url: URL): string {
   return st;
 }
 
+/** 最新 storyTime（空图回退 "Infinity"）——0.2.0 D5 起 updateEntitySummary 需要 storyTime */
+async function latestStoryTime(wg: WorldGraph): Promise<string> {
+  const times = await wg.listStoryTimes();
+  return times.length > 0 ? times[times.length - 1]! : "Infinity";
+}
+
 /** 请求体字段校验 */
 function requireFields(body: unknown, fields: string[]): Record<string, unknown> {
   if (body === null || typeof body !== "object") {
@@ -269,7 +275,8 @@ async function handleGet(
   if (head === "events") {
     if (id && sub === "chain") {
       const chain = await wg.traceCauses(id);
-      ok(res, { events: chain });
+      // 0.2.0 D7：traceCauses 对不存在的 eventId 返回 null → 空数组（前端契约不变）
+      ok(res, { events: chain ?? [] });
       return;
     }
     if (segments.length === 1) {
@@ -312,11 +319,14 @@ async function handlePost(
     return;
   }
 
-  // POST /api/entities/:id/summary — body { summary }
+  // POST /api/entities/:id/summary — body { summary, storyTime? }
   if (head === "entities" && id && sub === "summary") {
     const obj = requireFields(body, ["summary"]);
-    await wg.updateEntitySummary(id, String(obj.summary));
-    ok(res, { entityId: id });
+    // 0.2.0 D5：updateEntitySummary 需要 storyTime（摘要变更写 change 事件可回溯）；
+    // body 缺省时取最新 storyTime
+    const storyTime = obj.storyTime ? String(obj.storyTime) : await latestStoryTime(wg);
+    await wg.updateEntitySummary(id, String(obj.summary), storyTime);
+    ok(res, { entityId: id, storyTime });
     return;
   }
 
@@ -375,9 +385,9 @@ async function handlePost(
   // 全部经 change/death 事件落事件日志（因果可回溯），事件 ID 由后端生成
   // ==========================================================================
 
-  // POST /api/entities/:id/props — body { property, value, modality?, storyTime }
+  // POST /api/entities/:id/props — body { property, description, modality?, storyTime }
   if (head === "entities" && id && sub === "props") {
-    const obj = requireFields(body, ["property", "value", "storyTime"]);
+    const obj = requireFields(body, ["property", "description", "storyTime"]);
     const property = String(obj.property);
     const storyTime = String(obj.storyTime);
     const modality = obj.modality === undefined ? "fact" : String(obj.modality);
@@ -400,7 +410,8 @@ async function handlePost(
       entityId: id,
       source: "user",
       invalidated: current ? [{ declarationId: current.declarationId, property }] : undefined,
-      newFacts: [{ entityId: id, property, value: obj.value, modality: modality as "fact" | "belief" | "hypothesis" }],
+      // 0.3.0：value → description（string 契约）
+      newFacts: [{ entityId: id, property, description: String(obj.description), modality: modality as "fact" | "belief" | "hypothesis" }],
     } as EventRecordInput);
     // 取新声明 ID（processEvent 不返回，按 validFrom 回查）
     const after = await wg.getEntityAt(id, storyTime);

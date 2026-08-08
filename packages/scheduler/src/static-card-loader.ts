@@ -64,22 +64,23 @@ export async function defaultStaticCardLoader(
     return { name: characterId, description: "" };
   }
 
+  // 0.3.0：名字取 Entity.name 展示快照（包侧 birth/改名自动同步），缺失时回退 entityId
   const card: SillyTavernCard = {
-    name: characterId,
+    name: snap.name || characterId,
     description: snap.summary,
   };
 
-  // 透传已知 SillyTavernCard 字段
+  // 透传已知 SillyTavernCard 字段（0.3.0：声明值取 description）
   for (const prop of snap.properties) {
     if ((KNOWN_FIELDS as readonly string[]).includes(prop.property)) {
-      (card as Record<string, unknown>)[prop.property] = prop.value;
+      (card as Record<string, unknown>)[prop.property] = prop.description;
     }
   }
 
-  // 若 name 字段在 Fact 中存在，覆盖默认的 entityId
+  // name Fact 兜底（快照未同步时仍可取到名字）
   const nameFact = snap.properties.find((p) => p.property === "name");
-  if (nameFact) {
-    card.name = String(nameFact.value);
+  if (nameFact && !card.name) {
+    card.name = nameFact.description;
   }
 
   return card;

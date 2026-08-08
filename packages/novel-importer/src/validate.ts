@@ -6,9 +6,9 @@
  * spec L1008-1040：
  * 1. 向量补齐：reembedAll（注入式 embedder）
  *    - Entity 用 validFrom 时刻快照（不含后续变更的 properties）
- *    - embedEntity 文本：snap.summary + properties.map(p => p.property + ":" + (p.valueText ?? String(p.value))).join(" ")
- *      注意：getEntityAt 返回的 properties 中没有 valueText，必须从 value 兜底生成
- *    - embedFact 文本：decl.property + ":" + (decl.valueText ?? String(decl.value))
+ *    - embedEntity 文本：snap.summary + properties.map(p => p.property + ":" + p.description).join(" ")
+ *    - embedFact 文本：decl.property + ":" + decl.description
+ *      （0.3.0 起 StateDeclaration 无 value/valueText，描述统一取 description）
  *
  * 2. P0 校验（必过，失败报错退出）：
  *    - 章节完整性 / birth 存在 / birth 不重复 / causedBy 链 / Fact.entityId 存在
@@ -45,11 +45,8 @@ import { isValidStoryTime } from "./storytime.ts";
  * 把 TextEmbedder（仅 embed(text)）适配为 EmbedderLike（embedEntity/embedFact）
  *
  * spec L1013-1015 文本拼接规则：
- * - embedEntity: snap.summary + properties.map(p => p.property + ":" + (p.valueText ?? String(p.value))).join(" ")
- * - embedFact:   decl.property + ":" + (decl.valueText ?? String(decl.value))
- *
- * ⚠️ getEntityAt 返回的 properties 中没有 valueText 字段（虽然 schema 是 optional），
- *    所以 embedEntity 必须用 String(p.value) 兜底。
+ * - embedEntity: snap.summary + properties.map(p => p.property + ":" + p.description).join(" ")
+ * - embedFact:   decl.property + ":" + decl.description
  */
 export function makeEmbedder(textEmbedder: TextEmbedder): EmbedderLike {
   return {
@@ -57,15 +54,13 @@ export function makeEmbedder(textEmbedder: TextEmbedder): EmbedderLike {
       const parts: string[] = [];
       if (snap.summary) parts.push(snap.summary);
       for (const p of snap.properties) {
-        // valueText 兜底（getEntityAt 实现未填入 valueText）
-        const valText = (p as { valueText?: string }).valueText ?? String(p.value);
-        parts.push(`${p.property}:${valText}`);
+        // 0.3.0：StateDeclaration 无 value/valueText，描述直接取 description
+        parts.push(`${p.property}:${p.description}`);
       }
       return textEmbedder.embed(parts.join(" "));
     },
     async embedFact(decl: StateDeclaration): Promise<number[]> {
-      const valText = decl.valueText ?? String(decl.value);
-      return textEmbedder.embed(`${decl.property}:${valText}`);
+      return textEmbedder.embed(`${decl.property}:${decl.description}`);
     },
   };
 }

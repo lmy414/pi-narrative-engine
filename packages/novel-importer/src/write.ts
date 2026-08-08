@@ -205,7 +205,7 @@ export async function writeToGraph(
         const newFacts = newFactsFiltered.map((f) => ({
           entityId, // birth 事件：内核会丢弃，但 schema 要求填
           property: f.property,
-          value: f.value,
+          description: String(f.value), // 0.3.0：value → description（string 契约）
           modality: f.modality, // birth 事件：内核会丢弃，硬编码 fact
         }));
 
@@ -256,7 +256,7 @@ export async function writeToGraph(
           newFactsRaw.push({
             entityId: factEntityId,
             property: f.property,
-            value: f.value,
+            description: String(f.value), // 0.3.0：value → description（string 契约）
             modality: f.modality, // change 事件保留 modality
           });
         }

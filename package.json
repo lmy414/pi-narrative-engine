@@ -22,7 +22,7 @@
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
     "epub2": "^3.0.2",
-    "underworld-graph": "^0.1.2"
+    "underworld-graph": "0.3.1"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "^0.77.0",
