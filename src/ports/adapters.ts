@@ -48,8 +48,8 @@ export function createWorldGraphAdapter(wg: WorldGraph): WorldGraphPort {
     listStoryTimes: () => wg.listStoryTimes(),
     traceCauses: (eventId) => wg.traceCauses(eventId),
     processEvent: (event) => wg.processEvent(event),
-    addRelation: (sourceId, targetId, label, storyTime) =>
-      wg.addRelation(sourceId, targetId, label, storyTime),
+    addRelation: (sourceId, targetId, label, storyTime, opts) =>
+      wg.addRelation(sourceId, targetId, label, storyTime, opts),
     closeRelation: (sourceId, targetId, label, storyTime) =>
       wg.closeRelation(sourceId, targetId, label, storyTime),
     setVisibility: (characterId, declarationId, opts) =>

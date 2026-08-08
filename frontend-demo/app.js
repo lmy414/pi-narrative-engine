@@ -574,10 +574,10 @@ async function submitQuickEvent() {
     entityId,
     summary: $('#qe-summary').value
   };
-  // birth 事件补实体类型与名称（newFacts.name → 实体属性 name），否则新实体无名显示 entityId
+  // birth 事件补实体类型与名称（newFacts「名字」→ 包侧自动同步 Entity.name 快照；0.3.0 键为 description）
   if (type === 'birth') {
     body.entityType = $('#qe-etype').value;
-    if (name) body.newFacts = [{ entityId, property: 'name', value: name, modality: 'fact' }];
+    if (name) body.newFacts = [{ entityId, property: '名字', description: name, modality: 'fact' }];
   }
   closeModal();
   await withLoading(async () => {

@@ -73,6 +73,7 @@ export interface WorldGraphPort {
     targetId: string,
     label: string,
     storyTime: string,
+    opts?: { description?: string },
   ): Promise<void>;
   closeRelation(
     sourceId: string,

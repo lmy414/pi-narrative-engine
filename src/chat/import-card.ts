@@ -36,6 +36,15 @@ export const CARD_FACT_FIELDS = [
   "alternate_greetings",
 ] as const;
 
+/**
+ * 卡字段 → world-graph property 键
+ * 0.3.0 决策②：name 改写为「名字」以吃包侧 Entity.name 快照自动同步；
+ * 其余卡字段保留英文键（static-card-loader KNOWN_FIELDS 直配，无需映射表）
+ */
+export function cardFieldToProperty(field: string): string {
+  return field === "name" ? "名字" : field;
+}
+
 export interface ParsedCard {
   name: string;
   description: string;
@@ -177,16 +186,16 @@ export async function importCardToWorldGraph(
   const eventId = `evt_card_import_${crypto.randomBytes(4).toString("hex")}`;
 
   // 卡字段 → newFacts（description 走 Entity.summary 独立字段，不进 Fact；
-  // 0.3.0：Fact 值统一为 description，string 契约）
+  // 0.3.0：Fact 值统一为 description，string 契约；name 键 →「名字」吃包侧快照同步）
   const newFacts: Array<{ entityId: string; property: string; description: string; modality: "fact" }> = [];
   for (const field of CARD_FACT_FIELDS) {
     const value = card[field];
     if (value === undefined || value === null || value === "") continue;
-    newFacts.push({ entityId: eid, property: field, description: String(value), modality: "fact" });
+    newFacts.push({ entityId: eid, property: cardFieldToProperty(field), description: String(value), modality: "fact" });
   }
   // name 必填（卡没名字没法玩）；空字符串也要兜底（?? 只判 null/undefined）
-  if (!newFacts.some((f) => f.property === "name")) {
-    newFacts.unshift({ entityId: eid, property: "name", description: card.name || eid, modality: "fact" });
+  if (!newFacts.some((f) => f.property === "名字")) {
+    newFacts.unshift({ entityId: eid, property: "名字", description: card.name || eid, modality: "fact" });
   }
 
   // birth 事件（summary = description，静态卡重组时映射回 card.description）

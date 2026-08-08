@@ -358,7 +358,14 @@ function runP1Checks(ctx: ValidationContext): string[] {
   }
 
   // ---- 1. property 命名规范（建议，不强制） ----
+  // 0.3.0 词表：中文（对齐 novel 规则集 planner 规则集.md）；旧英文键保留兼容旧数据
   const knownProps = new Set([
+    // 中文词表（character/location/item/concept）
+    "名字", "性格", "背景", "说话风格", "目标", "能力", "外貌", "位置", "心情", "健康", "当前行动", "职业",
+    "描述", "类型", "天气", "时段", "氛围",
+    "材质", "主人", "历史", "状态", "磨损",
+    "规则", "范围", "元素",
+    // 旧英文键（兼容导入历史数据）
     "name", "personality", "background", "speaking_style", "goals",
     "abilities", "appearance", "location", "mood", "health", "current_action",
     "description", "type", "weather", "time_of_day", "atmosphere",
@@ -376,7 +383,7 @@ function runP1Checks(ctx: ValidationContext): string[] {
       }
       if (!knownProps.has(f.property)) {
         warnings.push(
-          `P1: 事件 ${item.eventId} 的 new_facts[${i}].property "${f.property}" 不在建议命名表中`,
+          `P1: 事件 ${item.eventId} 的 new_facts[${i}].property "${f.property}" 不在中文词表中（角色=名字/性格/背景/说话风格/目标/能力/外貌/位置/心情/健康/当前行动/职业；地点=名字/描述/类型/天气/时段/氛围；物品=名字/材质/主人/历史/能力/状态/位置/磨损；概念=名字/规则/范围/元素）`,
         );
       }
     }

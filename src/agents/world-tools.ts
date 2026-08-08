@@ -391,7 +391,7 @@ const eventApplyParams = Type.Object({
   entityId: Type.String(),
   newFacts: Type.Optional(Type.Array(Type.Object({
     entityId: Type.String(),
-    property: Type.String(),
+    property: Type.String({ description: "属性名（中文词表：角色=名字/性格/背景/说话风格/目标/能力/外貌/位置/心情/健康/当前行动/职业；跨实体=信念.关于_{对象}.{方面}）" }),
     // 0.3.0：value → description（string 契约，searchable 进全文索引）
     description: Type.String({ description: "状态描述文本（可读长句）" }),
     modality: Type.Union([
@@ -519,7 +519,8 @@ const relationAddParams = Type.Object({
   // 静默写入 `rel--label-...` 垃圾关系（与 🟠-20 同源）；非空 + ID 格式校验
   sourceId: Type.String({ pattern: "^[A-Za-z0-9_.:-]+$" }),
   targetId: Type.String({ pattern: "^[A-Za-z0-9_.:-]+$" }),
-  label: Type.String({ description: "关系标签（如 friend / located_in / 敌人）", minLength: 1 }),
+  label: Type.String({ description: "关系标签（角色规则集中文枚举：仇敌/朋友/师徒/结义/恋人/上下级/亲属/同盟/敌对/认识/邻居/同事；located_in 为系统保留词勿翻译）", minLength: 1 }),
+  description: Type.Optional(Type.String({ description: "关系叙事描述（可选长句）" })),
   storyTime: Type.String(),
 });
 
@@ -532,7 +533,13 @@ export function createRelationAddTool(ports: OrchestratorPorts): AgentTool<typeo
     parameters: relationAddParams,
     ...SEQUENTIAL,
     async execute(_id, params: Static<typeof relationAddParams>) {
-      await ports.worldGraph.addRelation(params.sourceId, params.targetId, params.label, params.storyTime);
+      await ports.worldGraph.addRelation(
+        params.sourceId,
+        params.targetId,
+        params.label,
+        params.storyTime,
+        params.description ? { description: params.description } : undefined,
+      );
       const details = { ok: true, sourceId: params.sourceId, targetId: params.targetId, label: params.label };
       return {
         content: [{ type: "text", text: `关系已新增：${params.sourceId} -[${params.label}]-> ${params.targetId}` }],

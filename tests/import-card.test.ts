@@ -141,11 +141,11 @@ test("importCardToWorldGraph: birth + 字段 Facts + 自产自知可见性", asy
   assert.equal(events[0].entityType, "character");
   assert.equal(events[0].summary, "金发少女", "description 应写入 Entity.summary");
   const props = events[0].newFacts.map((f: any) => f.property);
-  assert.deepEqual(props, ["name", "personality", "first_mes"], "只写有值字段，description 不进 Fact");
+  assert.deepEqual(props, ["名字", "personality", "first_mes"], "只写有值字段（name 键 →「名字」），description 不进 Fact");
   // 自产自知：每个 Fact 一条 Visibility
   assert.equal(visibilities.length, 3);
   assert.equal(visibilities[0].cid, "ent_char_test0001");
-  assert.equal(visibilities[0].did, "decl-ent_char_test0001-name-ch-1");
+  assert.equal(visibilities[0].did, "decl-ent_char_test0001-名字-ch-1");
   assert.equal(visibilities[0].opts.source, "experienced");
 });
 
@@ -156,7 +156,7 @@ test("importCardToWorldGraph: 卡无 name 时兜底 entityId", async () => {
     setVisibility: async () => {},
   } as any;
   const result = await importCardToWorldGraph(wg, { name: "", description: "无名氏" } as any, "ch-1", "ent_char_noname");
-  const nameFact = events[0].newFacts.find((f: any) => f.property === "name");
+  const nameFact = events[0].newFacts.find((f: any) => f.property === "名字");
   assert.equal(nameFact.description, "ent_char_noname");
   assert.ok(result.factCount >= 1);
 });

@@ -82,7 +82,7 @@ test("WorldGraphPort 适配器：方法透传 + 参数保留", async () => {
   assert.equal(calls.processEvent[0].eventId, "evt_x");
 
   await port.addRelation("char_a", "char_b", "friend", "ch001.ev001");
-  assert.deepEqual(calls.addRelation, ["char_a", "char_b", "friend", "ch001.ev001"]);
+  assert.deepEqual(calls.addRelation, ["char_a", "char_b", "friend", "ch001.ev001", undefined]);
 
   await port.setVisibility("char_a", "decl-1", {
     state: "known",

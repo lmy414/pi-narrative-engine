@@ -168,7 +168,7 @@ test("world_relation_add：addRelation 收到 source/target/label/storyTime", as
     label: "friend",
     storyTime: "ch001.ev001",
   });
-  assert.deepEqual(m.calls.addRelation, ["char_a", "char_b", "friend", "ch001.ev001"]);
+  assert.deepEqual(m.calls.addRelation, ["char_a", "char_b", "friend", "ch001.ev001", undefined]);
 });
 
 test("entity_get_limited：properties 按角色可见声明过滤", async () => {

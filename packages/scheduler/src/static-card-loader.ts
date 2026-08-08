@@ -43,6 +43,15 @@ const KNOWN_FIELDS = [
 ] as const;
 
 /**
+ * 中文 property → SillyTavernCard 字段映射（0.3.0 词表：写侧中文）
+ * 目前仅「名字」→ name（import-card 侧 name 键改写后回读）；
+ * 其余中文词表条目（性格/背景…）暂无对应卡字段，留在卡 description 内即可
+ */
+const PROPERTY_TO_CARD_FIELD: Record<string, string> = {
+  "名字": "name",
+};
+
+/**
  * 默认 staticCard 加载器
  *
  * @param wg 世界图实例
@@ -70,17 +79,19 @@ export async function defaultStaticCardLoader(
     description: snap.summary,
   };
 
-  // 透传已知 SillyTavernCard 字段（0.3.0：声明值取 description）
+  // 透传已知 SillyTavernCard 字段（0.3.0：声明值取 description；
+  // 中文 property 经 PROPERTY_TO_CARD_FIELD 映射，未映射的不进卡）
   for (const prop of snap.properties) {
-    if ((KNOWN_FIELDS as readonly string[]).includes(prop.property)) {
-      (card as Record<string, unknown>)[prop.property] = prop.description;
+    const cardField = PROPERTY_TO_CARD_FIELD[prop.property] ?? prop.property;
+    if ((KNOWN_FIELDS as readonly string[]).includes(cardField)) {
+      (card as Record<string, unknown>)[cardField] = prop.description;
     }
   }
 
-  // name Fact 兜底（快照未同步时仍可取到名字）
-  const nameFact = snap.properties.find((p) => p.property === "name");
-  if (nameFact && !card.name) {
-    card.name = nameFact.description;
+  // 「名字」Fact 兜底（快照未同步时仍可取到名字）
+  if (!card.name) {
+    const nameFact = snap.properties.find((p) => PROPERTY_TO_CARD_FIELD[p.property] === "name");
+    if (nameFact) card.name = nameFact.description;
   }
 
   return card;

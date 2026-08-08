@@ -330,11 +330,12 @@ async function handlePost(
     return;
   }
 
-  // POST /api/relations — body { sourceId, targetId, label, storyTime }
+  // POST /api/relations — body { sourceId, targetId, label, storyTime, description? }
   if (head === "relations" && segments.length === 1) {
     const obj = requireFields(body, ["sourceId", "targetId", "label", "storyTime"]);
     await wg.addRelation(
       String(obj.sourceId), String(obj.targetId), String(obj.label), String(obj.storyTime),
+      obj.description ? { description: String(obj.description) } : undefined,
     );
     ok(res, { sourceId: obj.sourceId, targetId: obj.targetId, label: obj.label });
     return;
