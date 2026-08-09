@@ -11,6 +11,7 @@
 | [../README.md](../README.md) | 项目门面：简介、架构、快速开始（SDK 独立应用形态） | 所有人 |
 | [../CHANGELOG.md](../CHANGELOG.md) | 变更记录 | 所有人 |
 | [frontend-requirements.md](frontend-requirements.md) | **前端目标规格 v2.1**（交付对接唯一规格：全局契约/页面/编排/验收清单） | 前后端实施与验收 |
+| [hanako-reference.md](hanako-reference.md) | **Hanako 设计参考手册**（设计需求时优先借鉴/移植 openhanako 的方法与写法；模式库+出处索引+移植纪律） | AI/开发者 |
 | [frontend-test-discipline.md](frontend-test-discipline.md) | 前端测试纪律（硬约束：改 frontend-demo 必跑测试轮） | AI/开发者 |
 | [frontend-backend-api-audit.md](frontend-backend-api-audit.md) | 前后端 API 契约核对报告 | 开发者 |
 | [ux/frontend-ux-requirements.md](ux/frontend-ux-requirements.md) | 前端 UX 需求 v1.0（功能/内容/交互，不含视觉） | 开发者/设计师 |
@@ -31,6 +32,7 @@
 | [plans/2026-08-08-novel-project-structure-v3.md](plans/2026-08-08-novel-project-structure-v3.md) | 小说工程结构 v3 重新约定需求记录（章节/事件粒度 + 额外文件区域，已记录未实施） |
 | [plans/2026-08-08-underworld-graph-api-change-preparedness.md](plans/2026-08-08-underworld-graph-api-change-preparedness.md) | underworld-graph API 变更应对预案（依赖面盘点 + 契约金丝雀等准备措施，已记录未实施） |
 | [plans/2026-08-08-prompt-engineering-audit.md](plans/2026-08-08-prompt-engineering-audit.md) | 提示词工程审计与同类产品调研规划（现状=0 盘点 + 调研范围，已记录未实施） |
+| [plans/2026-08-08-prompt-research.md](plans/2026-08-08-prompt-research.md) | **提示词工程调研报告**（2026-08-09 完成：编码助手×酒馆×pi SDK 三线 + 现状盘点 + 五 agent 落地映射清单；实施待决策） |
 | [plans/2026-08-08-floating-chat-module-coupling.md](plans/2026-08-08-floating-chat-module-coupling.md) | 模块割裂治理：跨视图悬浮对话与结果直达（排期：尚早，持续优化） |
 | [plans/2026-08-08-rust-shell-packaging.md](plans/2026-08-08-rust-shell-packaging.md) | Rust 前端壳层打包（后续建议，排期：尚早；区别于已弃用的 Rust 重写前端方案） |
 | [2026-08-04-documentation-inventory.md](2026-08-04-documentation-inventory.md) | 文档盘点与分类（本索引的底稿） |

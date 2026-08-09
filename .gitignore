@@ -16,3 +16,7 @@ tauri-app/src-tauri/target/
 
 # 运行时生成的章节数据（属于小说项目，不入引擎仓库）
 chapters/
+
+# 工具痕迹（安全扫描 hook 状态 / IDE 会话产物，不入库）
+.mimosa/
+.trae/

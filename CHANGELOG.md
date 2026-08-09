@@ -21,6 +21,39 @@
 
 ### 文档
 
+- **结构 v3 记录 D12（git 管理规则与数据库方案）**：`docs/plans/2026-08-08-novel-project-structure-v3.md` §七（2026-08-09）——
+  定案 git 管理规则（创作资产+世界图文本入库；world.db/sessions/logs/.mimosa 排除）；
+  数据库困惑三方案（A 现状维持 / B 文本快照替代【推荐】/ C 事件重放远期）；
+  查证事实：world.db 已被 git 跟踪、.mimosa/ 工具痕迹误入库、underworld-graph 无事件重放 API、
+  _v3_dump.json 为导入基线快照。仅记录决策，未改代码与 gitignore。
+
+- **记录提示词工程用户决策 D9 + 结构 v3 定案 D10/D11**（2026-08-09）：
+  - `prompt-research.md` §九 D9——渲染规则集收回引擎自维护，**只保留文风规则给外部编辑**（回答 D8 待确认项①；文风→`规则集/文风规则.md`，格式/禁止→引擎内置）
+  - `2026-08-08-novel-project-structure-v3.md` §七 D10/D11——结构 v3 核心定案：项目=文件夹、引擎识别**小说.json**定位；一章一个 .md（D1=A，事件锚点区分）；顶层小说.json+Reme.md；内容文件夹（笔记/草稿/设定/大纲，用户与代理可编辑）；规则集文件夹（文风规则.md/检查规则.md/自定义规则.md）；**规则集采用 Skill 渐进式披露机制加载到渲染器**
+  - 决策点表 D1/D2/D4/D6 标记已定案；待确认项（小说.json 改名、Reme.md 拼写、检查/自定义规则归属、章节命名）记录在案。仅记录决策，未改代码与文件。
+
+- **记录提示词工程用户决策 D8**：`docs/plans/2026-08-08-prompt-research.md` §九（2026-08-09）——
+  角色规则集.md（角色扮演规则，46 行）整体收回引擎自维护，不再开放外部编辑；记录了注入链路
+  （loadRoleRuleSet → role-pool buildSystemPrompt / orchestrator buildRoleSystemPrompt / role_rule_set 工具）、
+  实施要点与待确认项（渲染规则集是否同样收回、文件去留）。仅记录决策，未改代码与规则集文件。
+
+- **记录提示词工程首条用户决策（D7）**：`docs/plans/2026-08-08-prompt-research.md` §九（2026-08-09）——
+  planner 规则集.md 的检索策略（5 条）/信息差原则/数量控制（3-8 条）不再提供编辑，作为引擎自维护内容
+  （归引擎内置 `packages/scheduler/src/prompts.ts`）；记录了现状矛盾（规则集 3-8 vs 引擎内置 5-15）、
+  实施要点与待确认项（property 词表归属、数量硬上限）。仅记录决策，未改代码与规则集文件。
+
+- **新增提示词工程调研报告**：`docs/plans/2026-08-08-prompt-research.md`（2026-08-09）——问题 4 调研落地：
+  三线素材（Claude Code 实测 system prompt / Anthropic 官方方法论 / AGENTS.md·Cursor 规范 / pi SDK·HanaAgent
+  组装实现 / SillyTavern 酒馆角色卡·PHI 尾置·世界书·Regex，均按官方文档与源码核对）+
+  现状盘点（主 agent 零定制；orchestrator 简化版 vs 子包成熟模板两代并存；**renderRuleSet 加载后未注入 renderer 缺口**）+
+  五 agent 落地映射清单（R1-R5/P1-P3/RE1-RE3/RN1-RN5/M1-M3/X1-X5）与实施决策点；
+  `docs/README.md` 活跃流程区同步登记。实施前待用户决策。
+
+- **新增 Hanako 设计参考手册**：`docs/hanako-reference.md`（2026-08-09）——研读 `D:\claude\openhanako`
+  （HanaAgent v0.442，Apache-2.0）后整理的借鉴地图：22 个模式条目均标注上游出处文件路径、
+  何时使用与移植要点，含美学惯例、不借鉴清单与移植纪律；`docs/README.md` 现行文档区同步登记。
+  后续设计需求优先按图索骥借鉴/移植 openhanako 实现。
+
 - `docs/api/unified-server.md` 按 pure-SDK 实际端点重写；`docs/api/README.md` 的 pi-tools 区块标注为历史文档；
   `docs/frontend-requirements.md` 缺口清单 B1~B8 状态同步（B5 受阻）。
 
