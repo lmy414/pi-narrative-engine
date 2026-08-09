@@ -83,7 +83,7 @@ export type {
   WarmupResult,
 } from "./embedder-status.ts";
 
-// novel.json 读写
+// 项目清单（小说.json）读写
 export {
   readNovelJson,
   writeNovelJson,

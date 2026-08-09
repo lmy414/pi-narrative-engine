@@ -1,6 +1,7 @@
 // packages/novel-launcher/src/discover.ts
 /**
- * 项目发现：扫描根目录下所有含 novel.json 的目录，读取元信息。
+ * 项目发现：扫描根目录下所有含项目清单（小说.json，兼容旧版 novel.json）的目录，
+ * 读取元信息。
  *
  * 命中项目后不再深入其子目录（避免误入 .pi/正文 等项目内部结构）。
  */
@@ -13,7 +14,17 @@ import { NovelLauncherError } from "./types.ts";
 import { probeWorldDb } from "./world-db-probe.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".pi"]);
-const NOVEL_JSON = "novel.json";
+// v3（2026-08-09）：小说.json 为主名，novel.json 为旧版兼容（读取回退）
+const NOVEL_JSON = "小说.json";
+const LEGACY_NOVEL_JSON = "novel.json";
+
+/** 解析项目清单路径：小说.json 优先，回退旧版 novel.json；都不存在返回主名路径 */
+function resolveNovelJsonPath(projectDir: string): string {
+  const primary = join(projectDir, NOVEL_JSON);
+  if (existsSync(primary)) return primary;
+  const legacy = join(projectDir, LEGACY_NOVEL_JSON);
+  return existsSync(legacy) ? legacy : primary;
+}
 
 const DEFAULT_META = {
   engine: "narrative-engine",
@@ -23,15 +34,15 @@ const DEFAULT_META = {
   storyTimeFormat: "ch{NNN}.ev{NNN}",
 } as const;
 
-/** 读取并解析 novel.json，缺失字段填默认值 */
+/** 读取并解析项目清单（小说.json 优先，兼容旧版 novel.json），缺失字段填默认值 */
 export async function _readNovelJson(projectDir: string): Promise<NovelProjectMeta> {
-  const filePath = join(projectDir, NOVEL_JSON);
+  const filePath = resolveNovelJsonPath(projectDir);
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
   } catch {
     throw new NovelLauncherError(
-      `novel.json 不存在或不可读: ${filePath}`,
+      `项目清单不存在或不可读: ${filePath}`,
       "NOVEL_JSON_NOT_FOUND",
     );
   }
@@ -40,7 +51,7 @@ export async function _readNovelJson(projectDir: string): Promise<NovelProjectMe
     data = JSON.parse(raw);
   } catch {
     throw new NovelLauncherError(
-      `novel.json 解析失败: ${filePath}`,
+      `项目清单解析失败: ${filePath}`,
       "INVALID_NOVEL_JSON",
     );
   }
@@ -48,7 +59,7 @@ export async function _readNovelJson(projectDir: string): Promise<NovelProjectMe
   // 后 `data.name` 抛 TypeError 崩溃并拖垮整个扫描（照抄 admin/novel-json.ts 守卫）
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
     throw new NovelLauncherError(
-      `novel.json 顶层应为对象: ${filePath}`,
+      `项目清单顶层应为对象: ${filePath}`,
       "INVALID_NOVEL_JSON",
     );
   }
@@ -113,9 +124,10 @@ export async function _discoverProjects(
     if (entry.name.startsWith(".")) continue;
 
     const childDir = join(rootDir, entry.name);
-    const novelJsonPath = join(childDir, NOVEL_JSON);
+    const hasProjectManifest =
+      existsSync(join(childDir, NOVEL_JSON)) || existsSync(join(childDir, LEGACY_NOVEL_JSON));
 
-    if (existsSync(novelJsonPath)) {
+    if (hasProjectManifest) {
       // 🟠-9（2026-08-08）：单项目失败隔离——损坏的 novel.json / 章节统计失败
       // 不拖垮整个扫描（此前 _readNovelJson 抛 TypeError 直接中断 discoverProjects）
       try {

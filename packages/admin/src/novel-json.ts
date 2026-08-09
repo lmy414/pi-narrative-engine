@@ -1,8 +1,9 @@
 // packages/admin/src/novel-json.ts
 /**
- * novel-json.ts — novel.json 读写
+ * novel-json.ts — 项目清单（小说.json）读写
  *
- * novel.json 是小说项目清单文件，位于 <小说工程>/novel.json。
+ * 小说.json 是小说项目清单文件，位于 <小说工程>/小说.json
+ * （v3 定案 2026-08-09；兼容读取旧版 novel.json）。
  * 设计依据：docs/plans/2026-07-29-config-ui-design.md §6.6 / §5.3.6
  *
  * 字段与 @pi/novel-launcher 的 NovelProjectMeta 对齐（同源），但本包不依赖
@@ -19,7 +20,7 @@ import { createWriteQueue } from "./serialize.ts";
 // 类型与默认值
 // ============================================================================
 
-/** novel.json 结构 */
+/** 项目清单结构（小说.json） */
 export interface NovelJson {
   /** 项目名 */
   name: string;
@@ -49,7 +50,7 @@ export interface NovelJsonReadResult {
   data: NovelJson | null;
 }
 
-/** 默认值（与 templates/novel/novel.json / @pi/novel-launcher 对齐） */
+/** 默认值（与 templates/novel/小说.json / @pi/novel-launcher 对齐） */
 const DEFAULTS: Omit<NovelJson, "name" | "createdAt"> = {
   engine: "narrative-engine",
   engineVersion: "0.1.0",
@@ -58,7 +59,13 @@ const DEFAULTS: Omit<NovelJson, "name" | "createdAt"> = {
   storyTimeFormat: "ch{NNN}.ev{NNN}",
 };
 
-const NOVEL_JSON_FILENAME = "novel.json";
+/**
+ * 主文件名（结构 v3 定案，2026-08-09）：小说.json 定位项目。
+ * 写操作统一写主名（旧项目经一次写即迁移出主文件）；读操作兼容旧名（见 resolveNovelJsonPath）。
+ */
+const NOVEL_JSON_FILENAME = "小说.json";
+/** 旧版文件名（v2，仅读取回退，老项目不破坏） */
+const LEGACY_NOVEL_JSON_FILENAME = "novel.json";
 
 // ============================================================================
 // 内部实现
@@ -99,7 +106,18 @@ export function _normalizeNovelJson(
 // ============================================================================
 
 /**
- * 读取 novel.json
+ * 解析项目清单文件路径：小说.json 优先，不存在回退旧版 novel.json；
+ * 两者都不存在时返回主名路径（供写操作创建）。
+ */
+function resolveNovelJsonPath(novelDir: string): string {
+  const primary = path.join(novelDir, NOVEL_JSON_FILENAME);
+  if (existsSync(primary)) return primary;
+  const legacy = path.join(novelDir, LEGACY_NOVEL_JSON_FILENAME);
+  return existsSync(legacy) ? legacy : primary;
+}
+
+/**
+ * 读取项目清单（小说.json 优先，兼容旧版 novel.json）
  *
  * - 文件不存在时返回 { exists: false, data: null }（不抛错）
  * - JSON 解析失败抛 AdminError("INVALID_NOVEL_JSON")
@@ -108,7 +126,7 @@ export function _normalizeNovelJson(
  * @param novelDir 小说工程目录绝对路径
  */
 export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResult> {
-  const filePath = path.join(novelDir, NOVEL_JSON_FILENAME);
+  const filePath = resolveNovelJsonPath(novelDir);
   if (!existsSync(filePath)) {
     return { path: filePath, exists: false, data: null };
   }
@@ -117,7 +135,7 @@ export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResu
     raw = await fs.readFile(filePath, "utf8");
   } catch (err) {
     throw new AdminError(
-      `novel.json 读取失败: ${(err as Error).message}`,
+      `项目清单读取失败: ${(err as Error).message}`,
       "NOVEL_JSON_READ_FAILED",
     );
   }
@@ -125,11 +143,11 @@ export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResu
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new AdminError(`novel.json 解析失败: ${filePath}`, "INVALID_NOVEL_JSON");
+    throw new AdminError(`项目清单解析失败: ${filePath}`, "INVALID_NOVEL_JSON");
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new AdminError(
-      `novel.json 顶层应为对象: ${filePath}`,
+      `项目清单顶层应为对象: ${filePath}`,
       "INVALID_NOVEL_JSON",
     );
   }
@@ -140,11 +158,11 @@ export async function readNovelJson(novelDir: string): Promise<NovelJsonReadResu
   };
 }
 
-/** 🟠-8（2026-08-08）：读-改-写串行化队列——并发写同一 novel.json 时防止基于旧值合并丢更新 */
+/** 🟠-8（2026-08-08）：读-改-写串行化队列——并发写同一项目清单时防止基于旧值合并丢更新 */
 const enqueueWrite = createWriteQueue();
 
 /**
- * 更新 novel.json（合并写）
+ * 更新项目清单（合并写）
  *
  * - 文件不存在时创建新文件（name 缺失用目录 basename）
  * - 已存在时：浅合并（updates 覆盖顶层字段）
@@ -165,14 +183,11 @@ async function writeNovelJsonInner(
   novelDir: string,
   updates: Partial<NovelJson>,
 ): Promise<NovelJson> {
+  // v3（2026-08-09）：写统一写主名 小说.json——读兼容双名取当前内容，
+  // 旧项目经一次写即完成主文件迁移（旧 novel.json 残留磁盘，文档说明可手动清理）
   const filePath = path.join(novelDir, NOVEL_JSON_FILENAME);
-  let current: NovelJson;
-  if (existsSync(filePath)) {
-    const result = await readNovelJson(novelDir);
-    current = result.data!;
-  } else {
-    current = _normalizeNovelJson({}, novelDir);
-  }
+  const result = await readNovelJson(novelDir);
+  const current = result.exists ? result.data! : _normalizeNovelJson({}, novelDir);
   const merged: NovelJson = { ...current, ...updates };
   // 原子写入（🟠-8：tmp 名带随机后缀，避免并发/跨进程踩踏）
   const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;

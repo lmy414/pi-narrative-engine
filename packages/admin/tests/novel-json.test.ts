@@ -10,6 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -67,11 +68,11 @@ test("readNovelJson: 文件不存在返回 exists=false", async () => {
   }
 });
 
-test("readNovelJson: 正常读取并填默认值", async () => {
+test("readNovelJson: 正常读取主名小说.json 并填默认值", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
   try {
     await writeFile(
-      join(dir, "novel.json"),
+      join(dir, "小说.json"),
       JSON.stringify({ name: "测试小说", createdAt: "2026-07-29" }),
       "utf8",
     );
@@ -81,6 +82,38 @@ test("readNovelJson: 正常读取并填默认值", async () => {
     assert.equal(result.data!.createdAt, "2026-07-29");
     assert.equal(result.data!.engine, "narrative-engine");
     assert.equal(result.data!.chaptersDir, "正文");
+    assert.equal(result.path.endsWith("小说.json"), true, "路径应指向主名");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readNovelJson: 仅旧版 novel.json 时兼容回退", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
+  try {
+    await writeFile(
+      join(dir, "novel.json"),
+      JSON.stringify({ name: "旧项目", createdAt: "2026-07-29" }),
+      "utf8",
+    );
+    const result = await readNovelJson(dir);
+    assert.equal(result.exists, true);
+    assert.equal(result.data!.name, "旧项目");
+    assert.equal(result.path.endsWith("novel.json"), true, "路径应指向旧名");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readNovelJson: 双名并存时主名优先", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
+  try {
+    await writeFile(join(dir, "小说.json"), JSON.stringify({ name: "主名" }), "utf8");
+    await writeFile(join(dir, "novel.json"), JSON.stringify({ name: "旧名" }), "utf8");
+    const result = await readNovelJson(dir);
+    assert.equal(result.exists, true);
+    assert.equal(result.data!.name, "主名");
+    assert.equal(result.path.endsWith("小说.json"), true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -89,7 +122,7 @@ test("readNovelJson: 正常读取并填默认值", async () => {
 test("readNovelJson: 非法 JSON 抛 INVALID_NOVEL_JSON", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
   try {
-    await writeFile(join(dir, "novel.json"), "{ not json", "utf8");
+    await writeFile(join(dir, "小说.json"), "{ not json", "utf8");
     await assert.rejects(
       () => readNovelJson(dir),
       (err: Error) => err instanceof AdminError && err.code === "INVALID_NOVEL_JSON",
@@ -102,7 +135,7 @@ test("readNovelJson: 非法 JSON 抛 INVALID_NOVEL_JSON", async () => {
 test("readNovelJson: 顶层非对象抛 INVALID_NOVEL_JSON", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
   try {
-    await writeFile(join(dir, "novel.json"), "[1,2,3]", "utf8");
+    await writeFile(join(dir, "小说.json"), "[1,2,3]", "utf8");
     await assert.rejects(
       () => readNovelJson(dir),
       (err: Error) => err instanceof AdminError && err.code === "INVALID_NOVEL_JSON",
@@ -112,13 +145,13 @@ test("readNovelJson: 顶层非对象抛 INVALID_NOVEL_JSON", async () => {
   }
 });
 
-test("writeNovelJson: 文件不存在时创建", async () => {
+test("writeNovelJson: 文件不存在时创建主名小说.json", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
   try {
     const result = await writeNovelJson(dir, { name: "新小说" });
     assert.equal(result.name, "新小说");
     assert.equal(result.engine, "narrative-engine");
-    const content = await readFile(join(dir, "novel.json"), "utf8");
+    const content = await readFile(join(dir, "小说.json"), "utf8");
     const parsed = JSON.parse(content);
     assert.equal(parsed.name, "新小说");
   } finally {
@@ -126,7 +159,7 @@ test("writeNovelJson: 文件不存在时创建", async () => {
   }
 });
 
-test("writeNovelJson: 已存在文件合并写", async () => {
+test("writeNovelJson: 旧项目（仅 novel.json）写后迁移出主名", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-novel-"));
   try {
     await writeFile(
@@ -138,6 +171,11 @@ test("writeNovelJson: 已存在文件合并写", async () => {
     assert.equal(result.name, "新名");
     assert.equal(result.chaptersDir, "新正文");
     assert.equal(result.engine, "narrative-engine", "未更新字段保留");
+    // 主名已创建、内容为合并结果；旧文件保留（残留，文档说明可手动清理）
+    const main = JSON.parse(await readFile(join(dir, "小说.json"), "utf8"));
+    assert.equal(main.name, "新名");
+    const legacyExists = existsSync(join(dir, "novel.json"));
+    assert.equal(legacyExists, true, "旧文件不自动删除");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

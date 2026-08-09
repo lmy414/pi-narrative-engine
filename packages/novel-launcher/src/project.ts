@@ -41,7 +41,7 @@ export function _resolveScript(name: string): string {
 
 /** 模板文件清单（源名 → 目标名；{{name}}/{{date}} 变量替换） */
 const TEMPLATE_FILES: Array<[string, string]> = [
-  ["novel.json", "novel.json"],
+  ["小说.json", "小说.json"],
   ["规则集.md", "规则集.md"],
   ["planner 规则集.md", "planner 规则集.md"],
   ["角色规则集.md", "角色规则集.md"],

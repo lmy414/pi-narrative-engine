@@ -25,7 +25,7 @@ import type { Embedder } from "../embedder.ts";
 export interface ProjectHandle {
   /** 项目目录绝对路径 */
   dir: string;
-  /** novel.json 元信息 */
+  /** 项目清单元信息（小说.json） */
   meta: NovelProjectMeta;
   /** 世界图实例 */
   wg: WorldGraph;
@@ -97,7 +97,7 @@ export class ProjectRegistry {
       meta = await getProjectMeta(abs);
     } catch (err) {
       throw new RegistryError(
-        `项目未找到 novel.json: ${abs}（${(err as Error).message}）`,
+        `项目未找到项目清单（小说.json，旧版为 novel.json）: ${abs}（${(err as Error).message}）`,
         "NOVEL_JSON_NOT_FOUND",
       );
     }

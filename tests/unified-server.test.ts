@@ -230,11 +230,11 @@ before(async () => {
   // 应用配置目录（避免写入真实 %APPDATA%）
   appConfigDir = join(root, "appconfig");
 
-  // 模板固件（createProject 内联实现需要）
+  // 模板固件（createProject 内联实现需要；v3 主名为小说.json）
   const tplDir = join(root, "templates");
   mkdirSync(tplDir, { recursive: true });
   writeFileSync(
-    join(tplDir, "novel.json"),
+    join(tplDir, "小说.json"),
     JSON.stringify({ name: "{{name}}", engine: "narrative-engine", engineVersion: "0.1.0", worldGraphDir: ".pi/world-graph-v3", chaptersDir: "正文", storyTimeFormat: "ch{NNN}.ev{NNN}", createdAt: "{{date}}" }),
     "utf8",
   );

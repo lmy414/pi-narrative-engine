@@ -63,7 +63,7 @@ test("_resolveScript 不同脚本名都能解析", async () => {
 async function makeTemplates(root: string): Promise<string> {
   const dir = join(root, "templates");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "novel.json"), JSON.stringify({ name: "{{name}}", createdAt: "{{date}}" }), "utf8");
+  await writeFile(join(dir, "小说.json"), JSON.stringify({ name: "{{name}}", createdAt: "{{date}}" }), "utf8");
   await writeFile(join(dir, "规则集.md"), "# 规则 {{name}}\n", "utf8");
   await writeFile(join(dir, "planner 规则集.md"), "# planner\n", "utf8");
   await writeFile(join(dir, "角色规则集.md"), "# 角色\n", "utf8");
@@ -86,11 +86,11 @@ test("createProject: 内联创建目录骨架与模板六件套（变量替换�
     assert.ok(existsSync(join(dir, "正文", ".gitkeep")));
     assert.ok(existsSync(join(dir, ".pi", "world-graph-v3", ".gitkeep")));
     // 模板六件套
-    for (const f of ["novel.json", "规则集.md", "planner 规则集.md", "角色规则集.md", ".gitignore", "README.md"]) {
+    for (const f of ["小说.json", "规则集.md", "planner 规则集.md", "角色规则集.md", ".gitignore", "README.md"]) {
       assert.ok(existsSync(join(dir, f)), `缺少 ${f}`);
     }
     // 变量替换
-    const novelJson = JSON.parse(await readFile(join(dir, "novel.json"), "utf8"));
+    const novelJson = JSON.parse(await readFile(join(dir, "小说.json"), "utf8"));
     assert.equal(novelJson.name, "新项目");
     assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(novelJson.createdAt));
     assert.ok((await readFile(join(dir, "README.md"), "utf8")).includes("新项目"));

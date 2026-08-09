@@ -886,10 +886,10 @@ async function handleAdmin(
     }
     if (method === "PUT") {
       const obj = requireBody(body, []);
-      // M-Sec-3 修复：novel.json 是项目清单文件，此前不校验任何字段直接整体写入，
+      // M-Sec-3 修复：项目清单（小说.json）是项目配置文件，此前不校验任何字段直接整体写入，
       // 可写入非法结构破坏文件。校验：顶层必须是对象 + 已知字段必须是字符串。
       if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
-        const err = new Error("novel.json 更新体必须是 JSON 对象") as Error & { code?: string };
+        const err = new Error("小说.json 更新体必须是 JSON 对象") as Error & { code?: string };
         err.code = "INVALID_BODY";
         throw err;
       }
@@ -903,7 +903,7 @@ async function handleAdmin(
         "createdAt",
       ]) {
         if (key in obj && typeof obj[key] !== "string") {
-          const err = new Error(`novel.json 字段 ${key} 必须是字符串（收到 ${JSON.stringify(obj[key])}）`) as Error & { code?: string };
+          const err = new Error(`小说.json 字段 ${key} 必须是字符串（收到 ${JSON.stringify(obj[key])}）`) as Error & { code?: string };
           err.code = "INVALID_BODY";
           throw err;
         }

@@ -7,7 +7,7 @@
  * pure-SDK 架构下仅检查环境/依赖：
  * - Node 版本、原生绑定（better-sqlite3 / sharp / onnxruntime-node）
  * - templates/novel/ 模板目录、向量模型环境（缓存 / HF_ENDPOINT）
- * - 小说工程结构（可选：novel.json、规则集三件套、正文/、.pi/world-graph-v3/world.db）
+ * - 小说工程结构（可选：小说.json（兼容 novel.json）、规则集三件套、正文/、.pi/world-graph-v3/world.db）
  *
  * 已移除（pi 扩展时代遗留）：pi CLI 版本探测、dist/ 扩展产物检查、
  * .pi/extensions/ 布局检查（extensionDir 参数）。
@@ -214,8 +214,9 @@ export function _checkEmbedderEnv(baseDir: string): DoctorCheck {
 /** 检查小说工程结构（可选） */
 export async function _checkNovelStructure(novelDir: string): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
-  const items: Array<{ rel: string; desc: string }> = [
-    { rel: "novel.json", desc: "项目清单" },
+  const items: Array<{ rel: string; alt?: string; desc: string }> = [
+    // v3（2026-08-09）：小说.json 为主名，旧版 novel.json 兼容通过
+    { rel: "小说.json", alt: "novel.json", desc: "项目清单（旧版为 novel.json）" },
     { rel: "规则集.md", desc: "渲染规则集" },
     { rel: "planner 规则集.md", desc: "planner 规则集" },
     { rel: "角色规则集.md", desc: "角色规则集" },
@@ -225,8 +226,8 @@ export async function _checkNovelStructure(novelDir: string): Promise<DoctorChec
       desc: "世界图（首次运行自动创建）",
     },
   ];
-  for (const { rel, desc } of items) {
-    if (existsSync(join(novelDir, rel))) {
+  for (const { rel, alt, desc } of items) {
+    if (existsSync(join(novelDir, rel)) || (alt && existsSync(join(novelDir, alt)))) {
       checks.push({
         id: `novel-${rel}`,
         name: `工程结构 ${rel}`,

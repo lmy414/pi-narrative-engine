@@ -32,7 +32,7 @@ async function makeProject(
 ): Promise<void> {
   const dir = join(root, relPath);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "novel.json"), novelJson(name), "utf8");
+  await writeFile(join(dir, "小说.json"), novelJson(name), "utf8");
   if (chapters.length > 0) {
     const chDir = join(dir, "正文");
     await mkdir(chDir, { recursive: true });
@@ -42,7 +42,7 @@ async function makeProject(
   }
 }
 
-test("discoverProjects 扫描所有含 novel.json 的目录", async () => {
+test("discoverProjects 扫描所有含 小说.json 的目录", async () => {
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
     await makeProject(root, "projectA", "项目A", ["第1章.md"]);
@@ -65,14 +65,28 @@ test("discoverProjects 扫描所有含 novel.json 的目录", async () => {
   }
 });
 
+test("discoverProjects 仅旧版 novel.json 的项目兼容发现（v3 双名）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
+  try {
+    const dir = join(root, "legacyProj");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "novel.json"), novelJson("旧项目"), "utf8");
+    const projects = await discoverProjects(root);
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].meta.name, "旧项目");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("discoverProjects 命中项目后不再深入子目录", async () => {
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
     await makeProject(root, "projectA", "项目A");
-    // 项目 A 子目录里放伪 novel.json，不应被发现
+    // 项目 A 子目录里放伪 小说.json，不应被发现
     await mkdir(join(root, "projectA", "正文"), { recursive: true });
     await writeFile(
-      join(root, "projectA", "正文", "novel.json"),
+      join(root, "projectA", "正文", "小说.json"),
       novelJson("伪项目"),
       "utf8",
     );
@@ -140,7 +154,7 @@ test("getProjectMeta 读取单个项目元信息", async () => {
   }
 });
 
-test("getProjectMeta 缺失 novel.json 抛 NOVEL_JSON_NOT_FOUND", async () => {
+test("getProjectMeta 缺失 小说.json 抛 NOVEL_JSON_NOT_FOUND", async () => {
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
     await assert.rejects(
@@ -158,7 +172,7 @@ test("_readNovelJson 缺失字段填默认值", async () => {
   try {
     const dir = join(root, "projectA");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "novel.json"), JSON.stringify({ name: "项目A" }), "utf8");
+    await writeFile(join(dir, "小说.json"), JSON.stringify({ name: "项目A" }), "utf8");
     const meta = await _readNovelJson(dir);
     assert.equal(meta.name, "项目A");
     assert.equal(meta.engine, "narrative-engine");
@@ -177,7 +191,7 @@ test("_readNovelJson name 缺失时回退到目录名", async () => {
   try {
     const dir = join(root, "my-project");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "novel.json"), JSON.stringify({}), "utf8");
+    await writeFile(join(dir, "小说.json"), JSON.stringify({}), "utf8");
     const meta = await _readNovelJson(dir);
     assert.equal(meta.name, "my-project");
   } finally {
@@ -190,7 +204,7 @@ test("_readNovelJson 非法 JSON 抛 INVALID_NOVEL_JSON", async () => {
   try {
     const dir = join(root, "projectA");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "novel.json"), "{ not json", "utf8");
+    await writeFile(join(dir, "小说.json"), "{ not json", "utf8");
     await assert.rejects(
       () => _readNovelJson(dir),
       (err: Error) =>
@@ -284,7 +298,7 @@ test("_readNovelJson 顶层 null/数组/原始值抛 INVALID_NOVEL_JSON（🟠-9
     ] as Array<[string, string]>) {
       const dir = join(root, `proj-${label}`);
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "novel.json"), content, "utf8");
+      await writeFile(join(dir, "小说.json"), content, "utf8");
       await assert.rejects(
         () => _readNovelJson(dir),
         (err: Error) =>
@@ -301,9 +315,9 @@ test("discoverProjects 坏项目被隔离，兄弟/深层好项目仍列出（�
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
     await makeProject(root, "goodA", "好项目A");
-    // 坏项目：novel.json 顶层为 null（修复前 _readNovelJson 抛 TypeError 中断整个扫描）
+    // 坏项目：小说.json 顶层为 null（修复前 _readNovelJson 抛 TypeError 中断整个扫描）
     await mkdir(join(root, "bad"), { recursive: true });
-    await writeFile(join(root, "bad", "novel.json"), "null", "utf8");
+    await writeFile(join(root, "bad", "小说.json"), "null", "utf8");
     await makeProject(root, "nested/deep/goodB", "深项目B");
 
     const projects = await discoverProjects(root);

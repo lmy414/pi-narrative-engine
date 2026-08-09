@@ -7,7 +7,7 @@
  * - _ 前缀 = 包内部实现，不保证稳定
  */
 
-/** novel.json 结构（小说项目标识文件） */
+/** 项目清单结构（小说.json，兼容旧版 novel.json） */
 export interface NovelProjectMeta {
   /** 项目名 */
   name: string;
@@ -31,7 +31,7 @@ export interface NovelProject {
   dir: string;
   /** 相对扫描根目录的路径（用于显示） */
   relativePath: string;
-  /** novel.json 元信息 */
+  /** 项目清单元信息（小说.json） */
   meta: NovelProjectMeta;
   /** 章节数（chaptersDir 下的 .md 文件数，排除 .gitkeep） */
   chapterCount: number;

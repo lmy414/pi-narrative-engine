@@ -85,7 +85,7 @@ test("_checkNovelStructure: 完整工程结构", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-doctor-"));
   try {
     // 创建完整工程结构
-    await writeFile(join(dir, "novel.json"), "{}", "utf8");
+    await writeFile(join(dir, "小说.json"), "{}", "utf8");
     await writeFile(join(dir, "规则集.md"), "render", "utf8");
     await writeFile(join(dir, "planner 规则集.md"), "planner", "utf8");
     await writeFile(join(dir, "角色规则集.md"), "role", "utf8");
@@ -128,11 +128,11 @@ test("runDoctor: 仓库自身（不传 novelDir）", async () => {
 test("runDoctor: novelDir 提供时含工程结构检查", async () => {
   const novelDir = await mkdtemp(join(tmpdir(), "admin-doctor-"));
   try {
-    await writeFile(join(novelDir, "novel.json"), "{}", "utf8");
+    await writeFile(join(novelDir, "小说.json"), "{}", "utf8");
     const report = await runDoctor({ repoRoot, novelDir });
     const novelChecks = report.checks.filter((c) => c.id.startsWith("novel-"));
     assert.equal(novelChecks.length, 6);
-    const novelJsonCheck = report.checks.find((c) => c.id === "novel-novel.json");
+    const novelJsonCheck = report.checks.find((c) => c.id === "novel-小说.json");
     assert.equal(novelJsonCheck!.status, "pass");
   } finally {
     await rm(novelDir, { recursive: true, force: true });
