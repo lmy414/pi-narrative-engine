@@ -579,13 +579,13 @@ test("admin/config: .env 读取（不存在）→ 写入 → 回读", async () =
 });
 
 test("admin/rulesets: 写入 → 读取三件套", async () => {
-  const w = await sendJson("PUT", "/admin/rulesets/render", { content: "渲染规则 v1\n" });
+  const w = await sendJson("PUT", "/admin/rulesets/style", { content: "文风规则 v1\n" });
   assert.equal(w.ok, true);
-  assert.equal(w.data.content, "渲染规则 v1\n");
+  assert.equal(w.data.content, "文风规则 v1\n");
 
   const all = await api("/admin/rulesets");
-  const render = all.data.rulesets.find((r: any) => r.name === "render");
-  assert.equal(render.content, "渲染规则 v1\n");
+  const style = all.data.rulesets.find((r: any) => r.name === "style");
+  assert.equal(style.content, "文风规则 v1\n");
 });
 
 test("admin/rulesets: 未知规则集名报错", async () => {

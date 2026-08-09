@@ -18,6 +18,14 @@
  * - _ 前缀 = 包内部实现，不保证稳定
  */
 
+/**
+ * 规则集（v3 D9 拆分，2026-08-09）：
+ * - 文风规则.md（规则集/，外部可编辑）→ loadStyleRuleSet
+ * - 检查规则.md（规则集/，checker 校验）→ loadCheckRuleSet
+ * - 格式/禁止/输出契约已固化进 RENDERER_SYSTEM_PROMPT（引擎自维护）
+ * loadRuleSet 保留为兼容别名（等价 loadStyleRuleSet）。
+ */
+
 // ============ 公共 API ============
 
 // Re-export 核心渲染函数
@@ -26,8 +34,12 @@ export {
   renderToFile,
 } from "./renderer.ts";
 
-// Re-export 规则集加载
-export { loadRuleSet } from "./rule-loader.ts";
+// Re-export 规则集加载（v3 D9：文风/检查 拆分，loadRuleSet 兼容别名）
+export {
+  loadRuleSet,
+  loadStyleRuleSet,
+  loadCheckRuleSet,
+} from "./rule-loader.ts";
 
 // Re-export 章节文件读写（供 scheduler/检验工具复用）
 export {

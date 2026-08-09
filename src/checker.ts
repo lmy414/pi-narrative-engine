@@ -57,7 +57,7 @@ export interface CheckResult {
 /** 检验上下文（与 RenderCtx 对齐：规则集由调用方读取后传入） */
 export interface CheckCtx {
   llm: RenderLlmCaller;
-  /** 规则集.md 全文（由调用方通过 loadRuleSet 读取后传入） */
+  /** 检查规则全文（规则集/检查规则.md，v3 D9 拆分；由调用方通过 loadCheckRuleSet 读取后传入） */
   ruleSet: string;
   /** 项目根目录（chapterPath 必须落在其内；LLM 可控输入，防止任意文件读取） */
   cwd: string;

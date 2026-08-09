@@ -8,7 +8,7 @@
  * - WorldGraphPort → underworld-graph WorldGraph
  * - SearchPort → src/search.ts Search
  * - EmbedderPort → src/embedder.ts Embedder
- * - RulesetPort → loadPlannerRuleSet / loadRoleRuleSet / loadRuleSet
+ * - RulesetPort → loadPlannerRuleSet / loadRoleRuleSet / loadStyleRuleSet
  * （MemoryPort 已删除 - 2026-08-01 Task7）
  * - RendererPort → @pi/renderer chapter-io + @pi/scheduler insertChapterSection
  * - RolePoolPort → 本阶段未接线（角色由编排器直接驱动 Agent）
@@ -20,7 +20,7 @@ import type { Embedder } from "../embedder.ts";
 import { loadPlannerRuleSet } from "../planner-rule-loader.ts";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import {
-  loadRuleSet,
+  loadStyleRuleSet,
   ensureChapterFile,
   readChapter,
   readChapterSection,
@@ -77,12 +77,12 @@ export function createEmbedderAdapter(emb: Embedder): EmbedderPort {
   };
 }
 
-/** 文件规则集适配器：包装 3 个 loadXxxRuleSet */
+/** 文件规则集适配器：包装 3 个 loadXxxRuleSet（v3 D9：渲染侧为文风规则） */
 export function createFileRulesetAdapter(): RulesetPort {
   return {
     loadPlanner: (cwd) => loadPlannerRuleSet(cwd),
     loadRole: (cwd) => loadRoleRuleSet(cwd),
-    loadRender: (cwd) => loadRuleSet(cwd),
+    loadRender: (cwd) => loadStyleRuleSet(cwd),
   };
 }
 

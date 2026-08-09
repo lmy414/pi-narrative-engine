@@ -1,15 +1,15 @@
 // packages/admin/src/rulesets.ts
 /**
- * rulesets.ts — 规则集三件套读写与重置
+ * rulesets.ts — 规则集读写与重置（v3 D9/D11 拆分，2026-08-09）
  *
- * 设计依据：docs/plans/2026-07-29-config-ui-design.md §5.3.3 / §6.3
+ * 三件套迁入规则集文件夹（规则集/ 目录）：
+ * - 文风规则：规则集/文风规则.md（@pi/renderer 的 loadStyleRuleSet 读取——
+ *   渲染器唯一外部可编辑规则，D9 定案）
+ * - 检查规则：规则集/检查规则.md（checker 校验规则，@pi/renderer loadCheckRuleSet）
+ * - 自定义规则：规则集/自定义规则.md（预留：用户/代理可写，渐进披露可选读取）
  *
- * 三件套：
- * - 渲染规则集：规则集.md（@pi/renderer 的 loadRuleSet 读取）
- * - planner 规则集：planner 规则集.md（src/planner-rule-loader.ts 读取）
- * - 角色规则集：角色规则集.md（@pi/role-pool 的 loadRoleRuleSet 读取）
- *
- * 文件位于 <小说工程>/ 根目录，运行时每次调用重读，保存即生效。
+ * planner 规则集与角色规则集已收回引擎自维护（D7/D8），不再以文件存在。
+ * 文件位于 <小说工程>/规则集/ 下，运行时每次调用重读，保存即生效。
  */
 
 import { promises as fs, existsSync } from "node:fs";
@@ -22,13 +22,13 @@ import { AdminError } from "./types.ts";
 // ============================================================================
 
 /** 规则集名称（前端 tab key） */
-export type RulesetName = "render" | "planner" | "role";
+export type RulesetName = "style" | "check" | "custom";
 
 /** 规则集内容 */
 export interface RulesetContent {
   /** 规则集名称 */
   name: RulesetName;
-  /** 文件名（规则集.md / planner 规则集.md / 角色规则集.md） */
+  /** 相对路径（规则集/文风规则.md 等） */
   filename: string;
   /** 文件绝对路径 */
   path: string;
@@ -50,15 +50,15 @@ export interface ResetRulesetOptions {
   templatesDir: string;
 }
 
-/** 规则集名 → 文件名映射 */
+/** 规则集名 → 相对路径映射（v3：规则集/ 文件夹） */
 const RULESET_FILES: Record<RulesetName, string> = {
-  render: "规则集.md",
-  planner: "planner 规则集.md",
-  role: "角色规则集.md",
+  style: path.join("规则集", "文风规则.md"),
+  check: path.join("规则集", "检查规则.md"),
+  custom: path.join("规则集", "自定义规则.md"),
 };
 
 /** 规则集列表（顺序固定，前端展示用） */
-export const RULESET_NAMES: readonly RulesetName[] = ["render", "planner", "role"];
+export const RULESET_NAMES: readonly RulesetName[] = ["style", "check", "custom"];
 
 // ============================================================================
 // 内部实现
@@ -143,6 +143,8 @@ export async function writeRuleset(
   content: string,
 ): Promise<RulesetContent> {
   const filePath = resolveRulesetPath(novelDir, name);
+  // v3（2026-08-09）：文件位于 规则集/ 子目录，写入前确保目录存在（老项目无此目录）
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   // 🟠-8（2026-08-08）：全量覆盖类也换随机 tmp 名（固定 .tmp 名并发踩踏）
   const tmp = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
   await fs.writeFile(tmp, content, "utf8");

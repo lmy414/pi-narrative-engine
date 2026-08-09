@@ -118,7 +118,7 @@ export interface EmbedderPort {
   embedFact(decl: StateDeclaration): Promise<number[]>;
 }
 
-/** 规则集端口：映射 loadPlannerRuleSet / loadRoleRuleSet / loadRuleSet */
+/** 规则集端口：映射 loadPlannerRuleSet / loadRoleRuleSet / loadStyleRuleSet（v3 D9） */
 export interface RulesetPort {
   loadPlanner(cwd: string): Promise<string>;
   loadRole(cwd: string): Promise<string>;

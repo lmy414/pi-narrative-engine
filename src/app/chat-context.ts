@@ -20,7 +20,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
-import { loadRuleSet } from "@pi/renderer";
+import { loadStyleRuleSet } from "@pi/renderer";
 import { readNovelJson } from "@pi/admin";
 import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
 import { SessionPool, type SessionHandle } from "../chat/session-pool.ts";
@@ -361,7 +361,7 @@ export class ChatContext {
     const [plannerRuleSet, roleRuleSet, renderRuleSet, meta] = await Promise.all([
       loadPlannerRuleSet(cwd),
       loadRoleRuleSet(cwd),
-      loadRuleSet(cwd),
+      loadStyleRuleSet(cwd),
       readNovelJson(cwd),
     ]);
     const ports = assemblePorts({ wg: active.wg, search: active.search, embedder });
