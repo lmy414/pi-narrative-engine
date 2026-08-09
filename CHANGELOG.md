@@ -63,6 +63,32 @@
   （novel-importer/renderer/role-pool/scheduler 公共 API 收敛）、`locationId` 删除（M4a）、
   环境变量速查（主会话 LLM 已走 PI 本体配置，`PI_*_MODEL`/`PI_*_API_KEY` 不再消费）等过时内容。
 
+### 结构 v3 实施（2026-08-10，D10/D11/D12 + D7/D8/D9 联动）
+
+- **项目清单改名小说.json + 兼容旧名**：admin/novel-launcher 双名读取（主名优先、旧名回退、写统一写主名）；
+  模板/脚手架/doctor/registry/路由文案同步；单测覆盖主名/回退/迁移语义（bcd7d22）。
+- **chaptersDir 真实消费**：resolveChapterPath 缺省路径改章节级（`<chaptersDir>/第N章-未命名.md`），
+  消灭旧事件级 `chapters/<storyTime>.md` 双轨；chapter-resolver 加 chaptersDir 参数与 `..` 段逃逸拒绝（c4511a6）。
+- **规则集收回引擎自维护**：D7 planner 检索策略/信息差/数量控制（统一 3-8 条）固化进 buildPlannerSystemPrompt（be7c779）；
+  D8 角色扮演原则/输出纪律/词表固化进 role-pool BUILTIN_ROLE_RULES（orchestrator 子代理与 role_interact 共享，
+  role_rule_set 改返回内置规则）（117ca70）；D9 渲染拆分——`规则集/文风规则.md`（外部）+ `检查规则.md`（checker），
+  格式/禁止/输出契约固化进 RENDERER_SYSTEM_PROMPT，loader 拆 loadStyleRuleSet/loadCheckRuleSet（旧 规则集.md 兼容回退），
+  admin rulesets 映射改 style/check/custom（be8af39）。
+- **规则渐进披露（D11）+ RN1 修复**：渲染器子代理 prompt 注入 `<available_rules>` 清单（名称+位置+简介，不注入全文），
+  新增 rules_read 工具按需读取（枚举参数 + 根目录边界校验）；renderRuleSet 字段废弃兼容（5246e01）。
+- **脚手架 v3 完整化**：createProject 建 正文/规则集/笔记/草稿/设定/大纲/.pi 目录骨架 + 小说.json/规则集三件模板；
+  _gitignore 补 db/sessions/logs/.mimosa；init-novel CLI 对齐并移除 extensions 同步；doctor 结构检查更新（b8cd7a5）。
+- **世界状态导出命令（D12 方案 B）**：`scripts/export-world-state.mjs` 导出实体/关系/声明 JSON 快照
+  （.pi/world-graph-v3/world-state.json 入库存档点；novel 实测 15/28/73）（bc7a96b）。
+- **novel/ 收敛迁移（novel 仓库 47e2ca0）**：ch012 事件文件合并回 第12章-未命名.md（4 锚点按序）；
+  小说.json 改名；规则集迁入文件夹（文风规则.md 承接定制文风 + 参考示例）；新建区域目录；
+  world.db 与 .mimosa 出库、world-state.json 入库、.gitignore 更新；旧 planner/角色规则集删除。
+- **前端适配 + 测试轮**：设置规则集 tab 改文风/检查/自定义、新建文件默认路径消费 chaptersDir、
+  novel.json 文案改小说.json、mock 固件同步 v3；测试轮 8/8 通过（f227d7d，文档
+  `docs/audits/frontend-test-runs/2026-08-10-structure-v3-frontend.md`）。
+- **结构文档 v3 重写**：`docs/novel-project-structure.md` v3（粒度模型/规则集渐进披露/git 管理/兼容矩阵）；
+  api 子文档（renderer/role-pool/scheduler/unified-server）同步；计划文档状态标记实施完成。
+
 ### 修复
 
 - **LLM 调用链补全**（2026-07-31）：`makeRendererLlmCaller` / `makePlannerLlmCaller` 补完 2026-07-29 未完成的迁移

@@ -1,9 +1,9 @@
 # 小说工程结构重新约定（v3）需求记录
 
 > 日期：2026-08-08
-> 状态：📋 **已记录（2026-08-09 用户定案核心决策：D1 粒度=A、项目定位=小说.json、规则集文件夹+渐进式披露；实施未启动）**——详见 §七 用户决策记录
+> 状态：✅ **已实施（2026-08-10）**——D1/D10-D12 全部落地：小说.json 兼容改名、一章一 md、区域目录、规则集文件夹+渐进披露、git 管理规则（方案 B）；novel/ 已收敛迁移。实施详情见 CHANGELOG 与 `docs/novel-project-structure.md`（v3）。遗留：F1（旧项目 rules_read 无旧文件回退，测试轮登记待决策）、O1-O4（观察项，见 `docs/audits/frontend-test-runs/2026-08-10-structure-v3-frontend.md`）
 > 提出人：用户（问题 2/主干结构约定）
-> 相关：`docs/novel-project-structure.md`（现行 v2）、`templates/novel/`、`novel/novel.json`、`src/orchestrator.ts`（resolveChapterPath）、`docs/plans/2026-08-08-live-stage-visibility.md`（问题 1 记录）、`docs/plans/2026-08-08-prompt-research.md`（§九 D7-D9 规则集决策）
+> 相关：`docs/novel-project-structure.md`（现行 v3）、`templates/novel/`、`novel/小说.json`、`src/orchestrator.ts`（resolveChapterPath）、`docs/plans/2026-08-08-live-stage-visibility.md`（问题 1 记录）、`docs/plans/2026-08-08-prompt-research.md`（§九 D7-D9 规则集决策）
 
 ---
 

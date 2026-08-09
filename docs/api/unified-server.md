@@ -59,11 +59,11 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed] [--config-
 | DELETE | `/api/admin/llm/slot/:slot` | 清除 slot 配置（持久化 + store 同步） |
 | PUT | `/api/admin/llm/key` | 写 API Key 到 auth.json（body: `provider`/`apiKey`；响应只回 hasKey） |
 | DELETE | `/api/admin/llm/key/:provider` | 移除 provider 凭据 |
-| GET/PUT | `/api/admin/rulesets[/:name]` | 规则集三件套读写；`POST /api/admin/rulesets/:name/reset` 重置（需活跃项目） |
+| GET/PUT | `/api/admin/rulesets[/:name]` | 规则集读写（v3：`style`=规则集/文风规则.md、`check`=检查规则.md、`custom`=自定义规则.md）；`POST /api/admin/rulesets/:name/reset` 重置（需活跃项目） |
 | GET | `/api/admin/doctor` | 环境自检（Node/原生绑定/templates/向量缓存/项目结构） |
 | GET | `/api/admin/version` | 本地/远程版本对比 |
 | GET | `/api/admin/embedder/status`、`POST /api/admin/embedder/cache/clear`、`POST /api/admin/embedder/warmup` | 向量模型状态/清缓存/预热 |
-| GET/PUT | `/api/admin/novel-json` | novel.json 读写（需活跃项目） |
+| GET/PUT | `/api/admin/novel-json` | 项目清单读写（v3 主名 小说.json，旧版 novel.json 兼容回退；需活跃项目） |
 | GET/PUT | `/api/admin/app-config` | 应用配置读写（`launcher`/`embedder`/`llm`/`scheduler` 已知键；写入剥离废弃键） |
 
 app-config.json 结构（`<configDir>/app-config.json`）：

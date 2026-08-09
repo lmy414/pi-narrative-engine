@@ -34,11 +34,11 @@ export type {
 
 `InteractCommand` 字段：`eventInstruction`（事件指令）/ `storyTime` / `cast`（`CastMember[]`：`characterId` + `staticCard` 静态层 + `dynamicFacts` 动态层）/ `executionHints?`（用户特殊要求，注入 system prompt 末尾）。
 
-`RoleCtx` 字段：`llm: RoleLlmCaller` + `ruleSet`（角色规则集.md 全文，由调用方 `loadRoleRuleSet` 读取后传入）。
+`RoleCtx` 字段：`llm: RoleLlmCaller` + `ruleSet`（外部附加规则集全文，v3 D8 后引擎恒传空串——角色扮演规则已内置）。
 
-## Prompt 组装（2026-07-25 修订后）
+## Prompt 组装（v3 D8 修订后）
 
-- **System**：角色规则集.md + "动态层优先于静态层"冲突提醒 + executionHints（可选）
+- **System**：内置角色扮演规则（`BUILTIN_ROLE_RULES`：扮演原则/输出纪律/state_changes 词表/relation 词表/静态动态层说明，引擎自维护）+ 外部附加规则集（定界标记包裹，兼容保留）+ executionHints（可选）
 - **User**：`[你的 entityId]` + `[本场角色名单]` → 静态卡 JSON → 动态层 → storyTime → 先动者行动 → 事件指令（末尾）
 - **动态层渲染**：`- [属主名] property: value（modality）`；已闭合声明标注 `（fact·旧）`；按检索 label 分组渲染【小标题】
 
@@ -85,4 +85,4 @@ export interface InteractHooks {
 
 ## `loadRoleRuleSet(novelCwd: string): Promise<string>`
 
-读取 `<novelCwd>/角色规则集.md` 全文。文件不存在时返回空字符串（不报错）。不缓存，每次重读。
+v3（2026-08-09，D8）：角色规则集已收回引擎自维护（固化进 `BUILTIN_ROLE_RULES`），本加载器**恒返回空串**（签名保留兼容，chat-context/role-tools 装配面不动）。附加规则集参数在 `buildSystemPrompt` 中兼容保留（空即跳过）。

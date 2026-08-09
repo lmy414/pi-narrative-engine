@@ -123,16 +123,16 @@ interface SchedulerCtx {
     embedFact(decl: StateDeclaration): Promise<number[]>;
   };
   knowledgeMapper?: KnowledgeMapperLlmCaller;  // 可选；未注入时 commit 跳过 4.4 步
-  roleRuleSet: string;                 // 角色规则集.md 全文
-  renderRuleSet: string;               // 渲染规则集.md 全文
-  plannerRuleSet: string;              // planner 规则集.md 全文（约束 planner 检索行为）
-  cwd: string;                         // 章节路径推断和规则集加载
+  roleRuleSet: string;                 // 外部附加角色规则（v3 D8 后恒空串，规则已内置 BUILTIN_ROLE_RULES）
+  renderRuleSet: string;               // 渲染文风规则全文（v3 D11 后废弃：编排器改渐进披露，恒空串）
+  plannerRuleSet: string;              // 外部附加 planner 规则（v3 D7 后恒空串，检索策略已内置 buildPlannerSystemPrompt）
+  cwd: string;                         // 章节路径推断（消费 chaptersDir）和规则集加载
   staticCardLoader: (characterId, storyTime) => Promise<SillyTavernCard>;
   debugBus?: DebugBus;                 // 可选；注入后调度链关键点发射 DebugEvent
 }
 ```
 
-扩展层通过 `src/orchestrator/assembly.ts` + `src/orchestrator/chat-context.ts` 中构建 SchedulerCtx：4 路 LLM caller（planner/role/render/knowledgeMapper）统一从 PI 本体的 `ctx.model + ctx.modelRegistry` 获取（2026-07-29 改造），三份规则集并行加载，默认 staticCardLoader 用 `defaultStaticCardLoader`（Entity+Facts → 酒馆卡重组）。
+扩展层通过 `src/orchestrator/assembly.ts` + `src/orchestrator/chat-context.ts` 中构建 SchedulerCtx：4 路 LLM caller（planner/role/render/knowledgeMapper）统一从 PI 本体的 `ctx.model + ctx.modelRegistry` 获取（2026-07-29 改造），默认 staticCardLoader 用 `defaultStaticCardLoader`（Entity+Facts → 酒馆卡重组）。v3（2026-08-09）后规则集不再以文件加载：planner/角色规则集引擎内置（D7/D8），渲染规则改渐进披露（D11，渲染器子代理经 `rules_read` 按需读取 `规则集/文风规则.md`）。
 
 ## 调度器侧调试埋点（`packages/scheduler/src/debug.ts`）
 

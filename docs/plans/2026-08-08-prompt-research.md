@@ -1,7 +1,7 @@
 # 提示词工程调研报告（编码助手 × 酒馆 × pi SDK）
 
 > 日期：2026-08-09
-> 状态：📋 **调研完成（三线素材已核实），优化方向待用户决策后实施**
+> 状态：✅ **调研完成 + 决策已实施（2026-08-10）**——D7（planner 三块内置）/D8（角色规则集内置）/D9（渲染拆分只留文风外部）已随结构 v3 落地；RN1（renderRuleSet 注入缺口）以渐进披露形态修复（D11：<available_rules> + rules_read）；剩余新机制（few-shot/PHI/SYSTEM.md/基线）留待提示词工程阶段
 > 依据：`docs/plans/2026-08-08-prompt-engineering-audit.md`（问题 4，D1 产出路径）
 > 调研对象：① 编码助手 agent 提示词工程（Claude Code 实测 system prompt / Anthropic 官方方法论 / AGENTS.md·Cursor 规范 / pi SDK 与 HanaAgent 组装实现）② 酒馆 SillyTavern 角色扮演约束机制（官方文档 + 主仓库源码 + 角色卡 V2 规范）③ 本工程主 agent 与四子代提示词现状（代码查证）
 > 关联：phase2 G5（叙事增强）、`hanako-reference.md`（设计参考手册）、结构 v3（D5 联动）
