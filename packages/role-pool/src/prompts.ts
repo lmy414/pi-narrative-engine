@@ -2,7 +2,7 @@
  * prompts.ts — 角色池提示词模板
  *
  * 两部分：
- * - 系统提示词：角色规则集.md + 静态/动态冲突提醒（行为约束，类似 AGENTS.md）
+ * - 系统提示词：内置角色扮演规则（v3 D8 起引擎自维护）+ 用户特殊要求（行为约束）
  * - 用户消息：角色卡（静态层）+ 当前状态（动态层）+ 先动者行动 + 事件指令（末尾，注意力最强）
  *
  * 结构原则（用户反馈）：
@@ -13,21 +13,64 @@
 import type { CastMember, InteractCommand, PriorAction, FactSnapshot } from "./types.ts";
 
 /**
+ * 角色扮演规则（引擎自维护，D8 定案 2026-08-09）
+ *
+ * 原「角色规则集.md」整体收回引擎：扮演原则/输出纪律/词表（state_changes 中文
+ * 属性名、relation_update 关系标签）为引擎行为约束与 world-graph 数据契约，
+ * 不再开放外部编辑。orchestrator 角色子代理与 role_interact 共享本段
+ * （见 src/orchestrator.ts buildRoleSystemPrompt 与 src/chat/role-tools.ts）。
+ */
+export const BUILTIN_ROLE_RULES = `# 角色扮演规则（引擎自维护）
+
+## 扮演原则
+- 用角色的知识、性格、目标驱动行动，不要用作者视角替角色规划
+- 你只能知道动态层里有的信息；动态层没有的，就是不知道
+- 不知道的事，角色会表现出不知道：疑惑、猜测、试探、误解
+- 不要提及"规则""扮演""LLM""系统"等元概念
+
+## 输出纪律
+- action 写可观察的行为：别人能看到、听到的动作和话语
+- thought 写内心活动：其他角色不可见，渲染器会间接呈现
+- state_changes 只写确实发生变化的状态，没变的不写
+- relation_update 只在关系确实变化时填写
+- 不知道怎么办时，符合性格地犹豫、观察、回避也是有效行动
+
+## state_changes 属性名词表（必须用中文）
+state_changes 的 property 字段必须使用以下中文词表，禁止用英文（如 mood/location/name）：
+- character（角色）: 名字/性格/背景/说话风格/目标/能力/外貌/位置/心情/健康/当前行动/职业
+- location（地点）: 名字/描述/类型/天气/时段/氛围
+- item（物品）: 名字/材质/主人/历史/能力/状态/位置/磨损
+- concept（概念）: 名字/规则/范围/元素
+- 跨实体信念: 信念.关于_{对象}.{方面}（如 信念.关于_彩叶.信任）
+- 跨实体假设: 假设.关于_{对象}.{方面}
+示例：{entityId: "ent_char_xxx", property: "心情", value: "愤怒", modality: "fact"}
+
+## relation_update 关系标签词表
+relation_update 的 label 字段使用中文关系标签：
+- 仇敌/朋友/师徒/结义/恋人/上下级/亲属/同盟/敌对/认识/邻居/同事
+- 角色在某地点用 label "located_in"（系统保留关键词，不要翻译）
+
+## 静态层与动态层
+- 静态层（角色卡）是长期不变的基础设定
+- 动态层（当前状态）是最新事实，冲突时以动态层为准
+- 例如静态层写"蓝发"但动态层显示"金发"，则以金发为准`;
+
+/**
  * 构建系统提示词
  *
  * 三部分：
- * 1. 角色规则集.md（行为约束）
- * 2. 静态/动态冲突提醒
+ * 1. 内置角色扮演规则（v3 D8 起引擎自维护，不再依赖外部文件）
+ * 2. 外部附加规则集（兼容保留：D8 后引擎恒传空串，老项目残留文件不再注入）
  * 3. 用户特殊要求（executionHints，可选）
  *
  * 注入位置决策（2026-07-25）：executionHints 放在 system prompt 末尾独立段落，
  * 而非用户消息末尾。理由：
  * - 用户消息末尾是事件指令（注意力驱动行动），executionHints 是约束（不是行动）
- * - system prompt 是行为约束层（与规则集.md 同层），executionHints 是"本次的特殊约束"
+ * - system prompt 是行为约束层（与规则集同层），executionHints 是"本次的特殊约束"
  * - 把约束放 system、把行动放 user，符合 LLM 注意力机制（指令强、约束隐式）
  *
  * @param member 当前角色
- * @param ruleSet 角色规则集.md 全文
+ * @param ruleSet 外部附加规则集全文（兼容保留，空即跳过）
  * @param executionHints 用户特殊要求（可选）
  */
 export function buildSystemPrompt(
@@ -37,7 +80,11 @@ export function buildSystemPrompt(
 ): string {
   const parts: string[] = [];
 
-  // 1. 角色规则集.md（行为约束）
+  // 1. 内置角色扮演规则（v3 D8：扮演原则/输出纪律/词表/静态动态层说明）
+  parts.push(BUILTIN_ROLE_RULES);
+  parts.push("");
+
+  // 2. 外部附加规则集（兼容保留）
   // 🟡（2026-08-08）：定界标记——规则集/角色卡是自由文本，可能含提示词
   // 定界符（如"以下为系统指令"）破坏结构；明确标注内容边界弱化注入面
   if (ruleSet.trim()) {
@@ -46,12 +93,6 @@ export function buildSystemPrompt(
     parts.push("─── 角色规则集结束 ───");
     parts.push("");
   }
-
-  // 2. 静态/动态冲突提醒
-  parts.push("⚠️ 重要规则：当静态层与动态层冲突时，以动态层为准。");
-  parts.push("动态层记录角色当前最新状态，静态层是长期不变的基础信息。");
-  parts.push('例如静态层写"蓝发"但动态层显示"金发"，则以金发为准。');
-  parts.push("");
 
   // 3. 用户特殊要求（可选）
   if (executionHints && executionHints.trim()) {

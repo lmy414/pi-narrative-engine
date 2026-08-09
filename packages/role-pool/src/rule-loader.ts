@@ -1,31 +1,18 @@
 /**
- * rule-loader.ts — 角色规则集.md 加载
+ * rule-loader.ts — 角色规则集加载（已收回，D8 定案 2026-08-09）
  *
- * 角色规则集.md 是角色池的 AGENTS.md：
- * - 纯自由文本 Markdown，原样注入角色池 system prompt 开头
- * - 不预设固定模块名，不按 H2 切分
- * - 每次调用都重读，不缓存（修改即生效）
+ * 历史：角色规则集.md（扮演原则/输出纪律/state_changes 词表/relation 词表/
+ * 静态动态层说明）曾作为外部可编辑文件注入角色池 system prompt 开头。
+ *
+ * v3 定案（prompt-research.md §九 D8）：内容全部为引擎行为约束与
+ * world-graph 数据契约，整体收回引擎自维护——已固化进
+ * `prompts.ts` 的 `BUILTIN_ROLE_RULES` 内置段（orchestrator 角色子代理
+ * 与 role_interact 共享），不再开放外部编辑。文件退位（模板与实盘删除）。
+ *
+ * 本加载器保留函数签名（chat-context / role-tools 装配面不动），恒返回空串——
+ * 附加规则集参数在 buildSystemPrompt 中兼容保留（空即跳过）。
  */
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
-
-const ROLE_RULE_SET_FILENAME = "角色规则集.md";
-
-/**
- * 读取角色规则集.md 全文
- *
- * @param novelCwd novel 工作目录绝对路径
- * @returns 规则集全文；文件不存在时返回空字符串（不报错）
- */
-export async function loadRoleRuleSet(novelCwd: string): Promise<string> {
-  const filePath = path.join(novelCwd, ROLE_RULE_SET_FILENAME);
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch (err: unknown) {
-    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
-      return "";
-    }
-    throw err;
-  }
+export async function loadRoleRuleSet(_novelCwd: string): Promise<string> {
+  return "";
 }

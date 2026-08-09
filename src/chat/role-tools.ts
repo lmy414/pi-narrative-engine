@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import { complete, validateToolCall } from "@earendil-works/pi-ai";
 import type { Model, Tool } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { interact, loadRoleRuleSet } from "@pi/role-pool";
+import { interact, loadRoleRuleSet, _BUILTIN_ROLE_RULES } from "@pi/role-pool";
 import type { RoleAgentOutput, RoleLlmCaller } from "@pi/role-pool";
 import { characterActionSchema } from "../agents/tools.ts";
 import type { LlmConfigStore } from "../orchestrator/llm-config.ts";
@@ -82,6 +82,7 @@ export function createRoleTools(provider: RoleToolsProvider): ToolDefinition[] {
   );
   return [
     defineTool({ name: "role_interact", label: "Role Interact", description: "角色池串行演绎：按 cast 顺序逐个调用角色代理 LLM，后动者可见先动者的公开 action（不含 thought/emotion/state_changes）。返回 RoleAgentOutput[]（8 字段）+ 失败记录。调度器据此提取 state_changes 写扩散、投影为 RoleOutput[] 传渲染器。", promptSnippet: "角色池演出（串行可见行动，返回结构化输出）", parameters: Type.Object({ eventInstruction: Type.String({ description: "事件指令（自然语言）" }), storyTime: Type.String({ description: "故事时间（如 ch-2）" }), cast: Type.Array(Type.Object({ characterId: Type.String({ description: "角色实体 ID" }), staticCard: Type.Record(Type.String(), Type.Unknown(), { description: "静态层：酒馆角色卡 JSON（name/description/personality 等）" }), dynamicFacts: Type.Array(Type.Object({ declarationId: Type.String(), entityId: Type.String(), property: Type.String(), description: Type.String({ description: "状态描述文本（可读长句）" }), modality: Type.Union([Type.Literal("fact"), Type.Literal("belief"), Type.Literal("hypothesis")]), validFrom: Type.String() }), { description: "动态层：角色当前可见的状态声明（调度器通过 world_character_view 预取）" }) }), { description: "演员表，按出场顺序排列" }) }), async execute(_id: string, params: any) { const result = await interact(params as any, { llm: role(), ruleSet: await loadRoleRuleSet(provider.cwd) }); return { content: [{ type: "text", text: result.errors.length ? `角色池演出完成：${result.outputs.length} 成功，${result.errors.length} 失败` : `角色池演出完成：${result.outputs.length} 个角色输出` }], details: result }; } } as any),
-    defineTool({ name: "role_rule_set", label: "Role Rule Set", description: "查看当前角色规则集.md 内容。无需参数。", promptSnippet: "查看角色规则集内容", parameters: Type.Object({}), async execute() { const ruleSet = await loadRoleRuleSet(provider.cwd); return { content: [{ type: "text", text: ruleSet || "（角色规则集.md 不存在或为空）" }], details: { ok: true, length: ruleSet.length, exists: ruleSet.length > 0 } }; } } as any),
+    // v3（2026-08-09，D8）：角色规则集收回引擎自维护——查看工具改为返回内置规则全文
+    defineTool({ name: "role_rule_set", label: "Role Rule Set", description: "查看角色扮演规则（引擎自维护，D8 定案：扮演原则/输出纪律/词表不再外部编辑）。无需参数。", promptSnippet: "查看角色扮演规则（引擎内置）", parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: _BUILTIN_ROLE_RULES }], details: { ok: true, length: _BUILTIN_ROLE_RULES.length, exists: true, source: "engine-builtin" } }; } } as any),
   ];
 }

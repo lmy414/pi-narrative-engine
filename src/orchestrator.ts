@@ -32,6 +32,7 @@ import { collectSubmission } from "./agents/collect.ts";
 import { assertPathInside } from "./path-guard.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
+import { _BUILTIN_ROLE_RULES } from "@pi/role-pool";
 import type { DebugBus, DebugSpan } from "./debug/types.ts";
 import { startSpan, newTraceId } from "./debug/bus.ts";
 // 软隔离导出：_buildPlannerSystemPrompt / _buildPlannerUserMessage（prompts.ts 非跨包稳定 API）
@@ -644,15 +645,27 @@ export class Orchestrator {
     return assertPathInside(this.opts.cwd, p, "章节文件路径");
   }
 
-  /** 角色系统提示词：规则集 + 角色卡 */
+  /**
+   * 角色系统提示词：内置扮演规则 + 附加规则集（兼容） + 角色卡
+   *
+   * v3（2026-08-09，D8）：角色规则集收回引擎自维护——扮演原则/输出纪律/
+   * 词表固化进 @pi/role-pool 的 BUILTIN_ROLE_RULES 内置段（与 role_interact 共享）；
+   * opts.roleRuleSet 参数保留兼容（D8 后引擎恒传空串，非空时仍附加定界段）。
+   */
   private buildRoleSystemPrompt(card: SillyTavernCard, event: StructuredEvent): string {
-    return [
-      this.opts.roleRuleSet,
+    const parts: string[] = [_BUILTIN_ROLE_RULES];
+    if (this.opts.roleRuleSet.trim()) {
+      parts.push("─── 角色规则集开始 ───");
+      parts.push(this.opts.roleRuleSet);
+      parts.push("─── 角色规则集结束 ───");
+    }
+    parts.push(
       `你是角色：${card.name ?? ""}`,
       `角色描述：${card.description ?? ""}`,
       event.executionHints ? `用户特殊要求：${event.executionHints}` : "",
       SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
-    ].filter(Boolean).join("\n\n");
+    );
+    return parts.filter(Boolean).join("\n\n");
   }
 
   /** 角色用户消息：事件指令 + 角色卡 */

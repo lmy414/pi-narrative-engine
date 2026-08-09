@@ -20,16 +20,28 @@ const mockMember: CastMember = {
   dynamicFacts: mockFacts,
 };
 
-test("buildSystemPrompt: 包含规则集全文", () => {
-  const prompt = buildSystemPrompt(mockMember, "# 角色规则集\n- 第一人称思考");
-  assert.ok(prompt.includes("# 角色规则集"));
-  assert.ok(prompt.includes("第一人称思考"));
+// v3（2026-08-09，D8）：角色规则集收回引擎自维护——内置段 + 外部参数兼容
+
+test("buildSystemPrompt: 内置角色扮演规则（D8 引擎自维护）", () => {
+  const prompt = buildSystemPrompt(mockMember, "");
+  assert.ok(prompt.includes("角色扮演规则（引擎自维护）"), "应含内置规则标题");
+  assert.ok(prompt.includes("用角色的知识、性格、目标驱动行动"), "含扮演原则");
+  assert.ok(prompt.includes("state_changes 属性名词表"), "含 state_changes 词表");
+  assert.ok(prompt.includes("relation_update 关系标签词表"), "含 relation 词表");
+  assert.ok(prompt.includes("动态层（当前状态）是最新事实"), "含静态/动态层说明");
+  assert.ok(prompt.includes("以动态层为准"), "含动态优先规则");
 });
 
-test("buildSystemPrompt: 包含静态/动态冲突提醒", () => {
+test("buildSystemPrompt: 外部规则集非空时定界附加（参数兼容）", () => {
+  const prompt = buildSystemPrompt(mockMember, "# 角色规则集\n- 第一人称思考");
+  assert.ok(prompt.includes("─── 角色规则集开始 ───"), "应含定界起始标记");
+  assert.ok(prompt.includes("第一人称思考"), "附加内容原文出现");
+  assert.ok(prompt.includes("─── 角色规则集结束 ───"), "应含定界结束标记");
+});
+
+test("buildSystemPrompt: 外部规则集为空时不输出定界段", () => {
   const prompt = buildSystemPrompt(mockMember, "");
-  assert.ok(prompt.includes("动态层"), "应包含动态层提醒");
-  assert.ok(prompt.includes("以动态层为准"), "应包含动态优先规则");
+  assert.ok(!prompt.includes("角色规则集开始"), "空规则集不应有定界段");
 });
 
 test("buildSystemPrompt: 规则集为空时不报错", () => {

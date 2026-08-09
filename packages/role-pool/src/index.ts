@@ -59,4 +59,5 @@ export type { RelationUpdate as _RelationUpdate } from "./transforms.ts";
 export {
   buildSystemPrompt as _buildSystemPrompt,
   buildUserMessage as _buildUserMessage,
+  BUILTIN_ROLE_RULES as _BUILTIN_ROLE_RULES,
 } from "./prompts.ts";
