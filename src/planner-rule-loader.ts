@@ -1,36 +1,18 @@
 // src/planner-rule-loader.ts
 /**
- * planner-rule-loader.ts — planner 规则集.md 加载
+ * planner-rule-loader.ts — planner 规则集加载（已收回，D7 定案 2026-08-09）
  *
- * planner 规则集.md 是调度器内嵌 planner LLM 的 AGENTS.md：
- * - 纯自由文本 Markdown，原样注入 planner LLM system prompt 开头
- * - 不预设固定模块名
- * - 每次调用都重读，不缓存（修改即生效）
+ * 历史：planner 规则集.md（检索策略/信息差原则/数量控制）曾作为外部可编辑文件
+ * 注入 planner LLM system prompt 开头。
  *
- * 与 role-pool/renderer 的 rule-loader 模式一致：
- * - 文件名：planner 规则集.md
- * - 不存在时返回空字符串（不报错）
+ * v3 定案（prompt-research.md §九 D7）：三块内容描述的是引擎行为而非作品内容，
+ * 收回引擎自维护（已固化进 @pi/scheduler buildPlannerSystemPrompt 内置段），
+ * 不再开放外部编辑。文件退位（模板与实盘删除）。
+ *
+ * 本加载器保留函数签名（chat-context 装配面不动），恒返回空串——
+ * 附加规则集参数在 buildPlannerSystemPrompt 中兼容保留（空即跳过）。
  */
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
-
-const PLANNER_RULE_SET_FILENAME = "planner 规则集.md";
-
-/**
- * 读取 planner 规则集.md 全文
- *
- * @param novelCwd novel 工作目录绝对路径
- * @returns 规则集全文；文件不存在时返回空字符串（不报错）
- */
-export async function loadPlannerRuleSet(novelCwd: string): Promise<string> {
-  const filePath = path.join(novelCwd, PLANNER_RULE_SET_FILENAME);
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch (err: unknown) {
-    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
-      return "";
-    }
-    throw err;
-  }
+export async function loadPlannerRuleSet(_novelCwd: string): Promise<string> {
+  return "";
 }

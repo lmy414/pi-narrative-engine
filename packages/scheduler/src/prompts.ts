@@ -16,12 +16,16 @@ import type { StructuredEvent } from "./types.ts";
 /**
  * 构建 planner LLM 的 system prompt
  *
- * 包含三部分：
- * 1. planner 规则集.md 全文（约束 planner LLM 的检索行为）
+ * 包含四部分：
+ * 1. 检索策略 + 信息差原则 + 数量控制（v3 起引擎自维护，D7 定案——
+ *    原「planner 规则集.md」的检索策略/信息差/数量控制三块收回引擎，
+ *    不再开放外部编辑）
  * 2. 检索能力清单（让 LLM 知道有哪些 retrieval type 可用）
- * 3. 任务说明（输出格式约束）
+ * 3. property 中文词表（检索参考，与 world-graph Fact 表的中文属性名契约）
+ * 4. 任务说明（输出格式约束）
  *
- * @param plannerRuleSet planner 规则集.md 全文
+ * @param plannerRuleSet 附加规则集全文（兼容保留：空串即跳过；
+ *   D7 后引擎恒传空，老项目残留文件不再注入）
  * @param _event 事件参数（保留，便于后续按事件类型差异化 prompt）
  * @returns system prompt 字符串
  */
@@ -29,10 +33,17 @@ export function buildPlannerSystemPrompt(
   plannerRuleSet: string,
   _event: StructuredEvent,
 ): string {
-  return `# 调度器 planner 规则集
+  const external = plannerRuleSet.trim()
+    ? `\n# 项目检索规则（附加）\n\n${plannerRuleSet}\n`
+    : "";
+  return `# 调度器 planner 检索策略（引擎自维护）
 
-${plannerRuleSet}
-
+- 参与角色自身的可见状态：character_view（兜底已由代码保证，可补充 modalityFilter）
+- 事件涉及的具体事物（物品/地点/概念）：search_hybrid 查 Fact
+- 角色之间的关系：relations 查对应实体
+- 历史背景、很久以前的事件：search_text 按关键词查
+- 需要完整了解某实体（含不可见属性）时：entity_snapshot（慎用，它不过可见性）
+${external}
 # 你可调用的检索能力
 
 - character_view：查某角色可见的状态声明（信息差已过滤，Genette 内聚焦）
@@ -63,6 +74,32 @@ modify/insert 锚定历史事件时，若要"查改写前的世界状态"，调�
 search_* 暂不支持（store.search 是 SDK 透传，无事务时间视图），传入会被
 console.warn 警告并降级为不过滤。
 
+# 检索数量控制（用户钦定：3-8 条宁精勿滥）
+
+- 单事件检索项 3-8 条，宁精勿滥
+- 每个参与角色至少 1 条 character_view（调度器会兜底补全，但你应主动覆盖）
+- 每条检索项写清 label（用途说明），便于排查
+- 硬上限 30 条（防上下文爆炸）
+
+# 信息差原则（assignTo）
+
+- A 角色不应看到 B 角色的内心独白（除非 B 公开表达过）
+- 秘密、阴谋、他人内心，只 assignTo 知情者
+- 涉及地点时检索地点快照，按"谁在场"分配
+- 涉及物品时检索物品快照
+- 历史事件回溯时用 search_text 检索过往剧情
+- 拿不准时宁少勿多：信息少了角色会谨慎试探，信息多了会元游戏（全知）
+
+# property 中文词表（检索时参考，引擎自维护）
+
+世界图的 Fact 表用中文属性名。search_text / search_hybrid 的 query 应使用中文关键词匹配以下词表：
+
+- character（角色）: 名字/性格/背景/说话风格/目标/能力/外貌/位置/心情/健康/当前行动/职业
+- location（地点）: 名字/描述/类型/天气/时段/氛围
+- item（物品）: 名字/材质/主人/历史/能力/状态/位置/磨损
+- concept（概念）: 名字/规则/范围/元素
+- 跨实体：信念.关于_{对象}.{方面} / 假设.关于_{对象}.{方面}
+
 # 你的任务
 
 基于事件指令 + 参与角色 + 执行建议，推导本次叙事需要检索什么信息，
@@ -71,19 +108,6 @@ console.warn 警告并降级为不过滤。
 必须调用 retrieval_plan 工具输出结构化检索计划。
 每个 RetrievalItem 必须含 type / params / assignTo / label 四字段。
 assignTo 只能是参与角色 ID 之一。
-
-# 检索数量建议
-
-- 单事件检索项 5-15 条
-- 每个参与角色至少 1 条 character_view（调度器会兜底补全，但你应主动覆盖）
-- 不要超过 30 条（避免上下文爆炸）
-
-# 信息差原则
-
-- A 角色不应看到 B 角色的内心独白（除非 B 公开表达过）
-- 涉及地点时检索地点快照，按"谁在场"分配
-- 历史事件回溯时用 search_text 检索过往剧情
-- 涉及物品时检索物品快照
 `;
 }
 
