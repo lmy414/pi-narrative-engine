@@ -20,7 +20,6 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
-import { loadStyleRuleSet } from "@pi/renderer";
 import { readNovelJson } from "@pi/admin";
 import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
 import { SessionPool, type SessionHandle } from "../chat/session-pool.ts";
@@ -358,10 +357,9 @@ export class ChatContext {
       return service;
     }
 
-    const [plannerRuleSet, roleRuleSet, renderRuleSet, meta] = await Promise.all([
+    const [plannerRuleSet, roleRuleSet, meta] = await Promise.all([
       loadPlannerRuleSet(cwd),
       loadRoleRuleSet(cwd),
-      loadStyleRuleSet(cwd),
       readNovelJson(cwd),
     ]);
     const ports = assemblePorts({ wg: active.wg, search: active.search, embedder });
@@ -372,7 +370,9 @@ export class ChatContext {
       chaptersDir: meta.data?.chaptersDir ?? "正文",
       plannerRuleSet,
       roleRuleSet,
-      renderRuleSet,
+      // v3（2026-08-09，D11）：渲染规则集改渐进披露（<available_rules> + rules_read），
+      // 不再全文注入（renderRuleSet 字段废弃兼容）
+      renderRuleSet: "",
       staticCardLoader: DEFAULT_STATIC_CARD_LOADER,
       ports,
       debugBus: projectDebugBus,

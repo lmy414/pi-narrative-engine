@@ -28,6 +28,7 @@ import { createReasoningAgent } from "./agents/reasoning-agent.ts";
 import { createRendererAgent } from "./agents/renderer-agent.ts";
 import { createReasoningTools, createPlannerTools, createRoleLimitedTools } from "./agents/world-tools.ts";
 import { createRendererTools } from "./agents/chapter-tools.ts";
+import { createRulesReadTool, formatRulesManifest } from "./agents/rules-tools.ts";
 import { collectSubmission } from "./agents/collect.ts";
 import { assertPathInside } from "./path-guard.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
@@ -192,6 +193,11 @@ export interface OrchestratorOptions {
   chaptersDir?: string;
   plannerRuleSet: string;
   roleRuleSet: string;
+  /**
+   * 渲染规则集全文（已废弃，D11 渐进披露替代，2026-08-09）：
+   * runRenderer 不再全文注入——<available_rules> 清单入 prompt，
+   * 全文经 rules_read 按需读取。字段保留兼容（引擎恒传空串）。
+   */
   renderRuleSet: string;
   /** 角色卡加载器（阶段 1 简单实现，阶段 2 接 staticCardLoader） */
   staticCardLoader: (characterId: string) => Promise<SillyTavernCard>;
@@ -600,11 +606,14 @@ export class Orchestrator {
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
     const tools = createRendererTools(this.opts.ports, this.opts.cwd);
+    // v3（2026-08-09，D11）：规则渐进披露（RN1 缺口修复）——渲染规则集不再全文注入，
+    // <available_rules> 清单（名称+位置+简介）入 system prompt，全文经 rules_read 按需读取
+    const rulesManifest = await formatRulesManifest(this.opts.cwd);
     const chapterPath = this.resolveChapterPath(event);
     const renderer = createRendererAgent(
       model,
       apiKey,
-      RENDERER_SYSTEM_PROMPT,
+      `${RENDERER_SYSTEM_PROMPT}\n\n${rulesManifest}`,
       [
         {
           role: "user",
@@ -612,7 +621,7 @@ export class Orchestrator {
           timestamp: Date.now(),
         },
       ],
-      tools,
+      [...tools, createRulesReadTool(this.opts.cwd)],
     );
     // BUG-028：整体超时兜底（300s），超时后 abort 子代理并抛错
     const result = await promptAndCollectWithTimeout<{ render: RenderOutput }>(
