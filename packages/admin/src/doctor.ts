@@ -217,9 +217,10 @@ export async function _checkNovelStructure(novelDir: string): Promise<DoctorChec
   const items: Array<{ rel: string; alt?: string; desc: string }> = [
     // v3（2026-08-09）：小说.json 为主名，旧版 novel.json 兼容通过
     { rel: "小说.json", alt: "novel.json", desc: "项目清单（旧版为 novel.json）" },
-    { rel: "规则集.md", desc: "渲染规则集" },
-    { rel: "planner 规则集.md", desc: "planner 规则集" },
-    { rel: "角色规则集.md", desc: "角色规则集" },
+    // v3（D11）：规则集迁入 规则集/ 文件夹（文风外部可编辑，检查/自定义预留）
+    { rel: join("规则集", "文风规则.md"), desc: "文风规则（外部可编辑）" },
+    { rel: join("规则集", "检查规则.md"), desc: "检查规则（checker 用）" },
+    { rel: join("规则集", "自定义规则.md"), desc: "自定义规则（预留）" },
     { rel: "正文", desc: "章节目录" },
     {
       rel: join(".pi", "world-graph-v3", "world.db"),

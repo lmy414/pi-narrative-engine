@@ -59,20 +59,21 @@ test("_resolveScript 不同脚本名都能解析", async () => {
   assert.equal(dirA, dirB);
 });
 
-/** 造最小模板目录（六件套，含变量占位） */
+/** 造最小模板目录（v3 六件套：小说.json + 规则集三件 + gitignore + README，含变量占位） */
 async function makeTemplates(root: string): Promise<string> {
   const dir = join(root, "templates");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "小说.json"), JSON.stringify({ name: "{{name}}", createdAt: "{{date}}" }), "utf8");
-  await writeFile(join(dir, "规则集.md"), "# 规则 {{name}}\n", "utf8");
-  await writeFile(join(dir, "planner 规则集.md"), "# planner\n", "utf8");
-  await writeFile(join(dir, "角色规则集.md"), "# 角色\n", "utf8");
+  await mkdir(join(dir, "规则集"), { recursive: true });
+  await writeFile(join(dir, "规则集", "文风规则.md"), "# 文风 {{name}}\n", "utf8");
+  await writeFile(join(dir, "规则集", "检查规则.md"), "# 检查\n", "utf8");
+  await writeFile(join(dir, "规则集", "自定义规则.md"), "# 自定义\n", "utf8");
   await writeFile(join(dir, "_gitignore"), ".env\n", "utf8");
   await writeFile(join(dir, "README.md"), "# {{name}}\n", "utf8");
   return dir;
 }
 
-test("createProject: 内联创建目录骨架与模板六件套（变量替换）", async () => {
+test("createProject: 内联创建 v3 目录骨架与模板六件套（变量替换）", async () => {
   const proj = await import("../src/project.ts");
   const root = await mkdtemp(join(tmpdir(), "novel-launcher-"));
   try {
@@ -82,11 +83,15 @@ test("createProject: 内联创建目录骨架与模板六件套（变量替换�
     assert.equal(result.dir, resolve(dir));
     const { existsSync } = await import("node:fs");
     const { readFile } = await import("node:fs/promises");
-    // 目录骨架
+    // 目录骨架（v3：正文/ 规则集/ 内容区域 + 运行时数据）
     assert.ok(existsSync(join(dir, "正文", ".gitkeep")));
+    assert.ok(existsSync(join(dir, "规则集", ".gitkeep")));
+    for (const area of ["笔记", "草稿", "设定", "大纲"]) {
+      assert.ok(existsSync(join(dir, area, ".gitkeep")), `缺少内容区域 ${area}/`);
+    }
     assert.ok(existsSync(join(dir, ".pi", "world-graph-v3", ".gitkeep")));
     // 模板六件套
-    for (const f of ["小说.json", "规则集.md", "planner 规则集.md", "角色规则集.md", ".gitignore", "README.md"]) {
+    for (const f of ["小说.json", "规则集/文风规则.md", "规则集/检查规则.md", "规则集/自定义规则.md", ".gitignore", "README.md"]) {
       assert.ok(existsSync(join(dir, f)), `缺少 ${f}`);
     }
     // 变量替换
@@ -94,8 +99,9 @@ test("createProject: 内联创建目录骨架与模板六件套（变量替换�
     assert.equal(novelJson.name, "新项目");
     assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(novelJson.createdAt));
     assert.ok((await readFile(join(dir, "README.md"), "utf8")).includes("新项目"));
+    assert.ok((await readFile(join(dir, "规则集", "文风规则.md"), "utf8")).includes("新项目"), "规则模板变量替换");
     // 不再同步项目级扩展
-    assert.ok(!existsSync(join(dir, ".pi", "extensions", "narrative-engine")));
+    assert.ok(!existsSync(join(dir, ".pi", "extensions")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

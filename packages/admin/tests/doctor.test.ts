@@ -84,11 +84,12 @@ test("_checkEmbedderEnv: 本地缓存命中 pass", async () => {
 test("_checkNovelStructure: 完整工程结构", async () => {
   const dir = await mkdtemp(join(tmpdir(), "admin-doctor-"));
   try {
-    // 创建完整工程结构
+    // 创建完整工程结构（v3：小说.json + 规则集/ 三件）
     await writeFile(join(dir, "小说.json"), "{}", "utf8");
-    await writeFile(join(dir, "规则集.md"), "render", "utf8");
-    await writeFile(join(dir, "planner 规则集.md"), "planner", "utf8");
-    await writeFile(join(dir, "角色规则集.md"), "role", "utf8");
+    await mkdir(join(dir, "规则集"), { recursive: true });
+    await writeFile(join(dir, "规则集", "文风规则.md"), "style", "utf8");
+    await writeFile(join(dir, "规则集", "检查规则.md"), "check", "utf8");
+    await writeFile(join(dir, "规则集", "自定义规则.md"), "custom", "utf8");
     await mkdir(join(dir, "正文"), { recursive: true });
     await mkdir(join(dir, ".pi", "world-graph-v3"), { recursive: true });
     await writeFile(join(dir, ".pi", "world-graph-v3", "world.db"), "fake", "utf8");

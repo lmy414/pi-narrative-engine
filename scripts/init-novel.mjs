@@ -1,26 +1,22 @@
 #!/usr/bin/env node
 /**
- * init-novel.mjs — 初始化一个小说工程
+ * init-novel.mjs — 初始化一个小说工程（CLI 脚手架，Web UI 创建等价）
  *
  * 用法：
- *   node scripts/init-novel.mjs <目标目录> [--name <项目名>] [--force] [--skip-extension]
+ *   node scripts/init-novel.mjs <目标目录> [--name <项目名>] [--force]
  *
- * 做什么（结构定义详见 docs/novel-project-structure.md）：
- *   1. 创建目录骨架：正文/、.pi/extensions/、.pi/world-graph-v3/
- *   2. 复制模板：novel.json（项目清单）、规则集三件套、.gitignore、README.md
- *   3. 缺省同步引擎扩展到 <目录>/.pi/extensions/narrative-engine（--skip-extension 跳过）
+ * 做什么（结构定义详见 docs/novel-project-structure.md，v3 2026-08-09）：
+ *   1. 创建目录骨架：正文/、规则集/、笔记/ 草稿/ 设定/ 大纲/、.pi/world-graph-v3/
+ *   2. 复制模板：小说.json（项目清单）、规则集三件（文风/检查/自定义）、.gitignore、README.md
  *
  * 幂等：已存在的文件不覆盖（除非 --force）。重复运行安全。
- *
- * 初始化后还需手动一步（原生模块编译，可能耗时数分钟）：
- *   cd <目录>/.pi/extensions/narrative-engine && npm install
+ * 扩展机制已废弃（pure-SDK 独立应用），不再同步任何扩展。
  */
 
-import { cp, mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -31,12 +27,11 @@ const templatesDir = resolve(repoRoot, "templates", "novel");
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-	const args = { name: null, force: false, skipExtension: false, target: null };
+	const args = { name: null, force: false, target: null };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--name" && argv[i + 1]) args.name = argv[++i];
 		else if (a === "--force") args.force = true;
-		else if (a === "--skip-extension") args.skipExtension = true;
 		else if (!a.startsWith("--") && !args.target) args.target = a;
 	}
 	return args;
@@ -89,7 +84,7 @@ async function ensureGitkeep(dir) {
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	if (!args.target) {
-		console.error("用法: node scripts/init-novel.mjs <目标目录> [--name <项目名>] [--force] [--skip-extension]");
+		console.error("用法: node scripts/init-novel.mjs <目标目录> [--name <项目名>] [--force]");
 		process.exit(1);
 	}
 
@@ -111,47 +106,33 @@ async function main() {
 		process.exit(1);
 	}
 
-	// 1. 目录骨架
+	// 1. 目录骨架（v3：正文/ 规则集/ 内容区域 + 运行时数据）
 	console.log("[init] 创建目录骨架…");
 	await ensureGitkeep(join(targetDir, "正文"));
-	await ensureGitkeep(join(targetDir, ".pi", "extensions"));
+	await ensureGitkeep(join(targetDir, "规则集"));
+	for (const area of ["笔记", "草稿", "设定", "大纲"]) {
+		await ensureGitkeep(join(targetDir, area));
+	}
 	await ensureGitkeep(join(targetDir, ".pi", "world-graph-v3"));
 
-	// 2. 模板文件
+	// 2. 模板文件（v3：小说.json + 规则集三件 + .gitignore + README）
 	console.log("[init] 复制模板文件…");
-	await copyTemplate("novel.json", join(targetDir, "novel.json"), vars, args.force);
-	await copyTemplate("规则集.md", join(targetDir, "规则集.md"), vars, args.force);
-	await copyTemplate("planner 规则集.md", join(targetDir, "planner 规则集.md"), vars, args.force);
-	await copyTemplate("角色规则集.md", join(targetDir, "角色规则集.md"), vars, args.force);
+	await copyTemplate("小说.json", join(targetDir, "小说.json"), vars, args.force);
+	await copyTemplate(join("规则集", "文风规则.md"), join(targetDir, "规则集", "文风规则.md"), vars, args.force);
+	await copyTemplate(join("规则集", "检查规则.md"), join(targetDir, "规则集", "检查规则.md"), vars, args.force);
+	await copyTemplate(join("规则集", "自定义规则.md"), join(targetDir, "规则集", "自定义规则.md"), vars, args.force);
 	await copyTemplate("_gitignore", join(targetDir, ".gitignore"), vars, args.force);
 	await copyTemplate("README.md", join(targetDir, "README.md"), vars, args.force);
 
-	// 3. 同步引擎扩展（缺省执行）
-	if (!args.skipExtension) {
-		console.log("[init] 同步引擎扩展…");
-		const extTarget = join(targetDir, ".pi", "extensions", "narrative-engine");
-		const r = spawnSync(
-			process.execPath,
-			[resolve(repoRoot, "scripts", "sync.mjs"), "--target", extTarget],
-			{ stdio: "inherit" },
-		);
-		if (r.status !== 0) {
-			console.warn("[init] ⚠️ 扩展同步失败（可稍后手动执行 npm run sync --target <dir>）");
-		}
-	}
-
-	// 4. 下一步指引
+	// 3. 下一步指引
 	console.log(`
 [init] ✅ 初始化完成。
 
 下一步：
-  1. 安装扩展依赖（含原生模块编译，可能需数分钟）：
-     cd "${join(targetDir, ".pi", "extensions", "narrative-engine")}" && npm install
+  1. 启动服务（pure-SDK 独立应用，无需扩展安装）：
+     cd ${resolve(repoRoot)} && node scripts/app-server.mjs --project "${targetDir}"
 
-  2. 启动创作：
-     cd "${targetDir}" && pi
-
-  3. 然后直接口述剧情即可。也可以先用 import_novel 导入已有小说。
+  2. 浏览器访问 http://127.0.0.1:7421，激活本项目后直接口述剧情。
 `);
 }
 

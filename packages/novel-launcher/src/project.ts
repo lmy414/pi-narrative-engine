@@ -39,15 +39,21 @@ export function _resolveScript(name: string): string {
   return join(REPO_ROOT, "scripts", name);
 }
 
-/** 模板文件清单（源名 → 目标名；{{name}}/{{date}} 变量替换） */
+/**
+ * 模板文件清单（源名 → 目标名；{{name}}/{{date}} 变量替换）
+ * v3（2026-08-09，D10/D11）：小说.json 主名 + 规则集/ 三件（文风/检查/自定义）
+ */
 const TEMPLATE_FILES: Array<[string, string]> = [
   ["小说.json", "小说.json"],
-  ["规则集.md", "规则集.md"],
-  ["planner 规则集.md", "planner 规则集.md"],
-  ["角色规则集.md", "角色规则集.md"],
-  ["_gitignore", ".gitignore"],
   ["README.md", "README.md"],
+  ["_gitignore", ".gitignore"],
+  [join("规则集", "文风规则.md"), join("规则集", "文风规则.md")],
+  [join("规则集", "检查规则.md"), join("规则集", "检查规则.md")],
+  [join("规则集", "自定义规则.md"), join("规则集", "自定义规则.md")],
 ];
+
+/** v3 内容区域目录（用户和代理都可编辑；随项目创建空目录 + .gitkeep） */
+const CONTENT_AREAS = ["笔记", "草稿", "设定", "大纲"];
 
 /** 复制模板并变量替换；已存在且未 force 时跳过 */
 async function _copyTemplate(
@@ -77,8 +83,9 @@ async function _ensureGitkeep(dir: string): Promise<void> {
 /**
  * 新建小说项目（内联实现，幂等）
  *
- * 创建：正文/、.pi/world-graph-v3/ 目录骨架 + 模板六件套
- * （novel.json / 规则集三件套 / .gitignore / README.md）。
+ * v3（2026-08-09，D10/D11）：创建目录骨架
+ * 正文/、规则集/、笔记/ 草稿/ 设定/ 大纲/、.pi/world-graph-v3/
+ * + 模板六件套（小说.json / 规则集三件 / .gitignore / README.md）。
  *
  * 不再同步项目级扩展：应用化后扩展为全局目录（§4.2），
  * CreateOptions.skipExtension 仅为兼容保留、行为上恒为跳过。
@@ -98,7 +105,12 @@ export async function createProject(
   const name = options?.name ?? basename(dir);
   const vars = { name, date: new Date().toISOString().slice(0, 10) };
 
+  // v3 目录骨架：正文（章节文件）+ 规则集（规则文件夹）+ 内容区域 + 运行时数据
   await _ensureGitkeep(join(dir, "正文"));
+  await _ensureGitkeep(join(dir, "规则集"));
+  for (const area of CONTENT_AREAS) {
+    await _ensureGitkeep(join(dir, area));
+  }
   await _ensureGitkeep(join(dir, ".pi", "world-graph-v3"));
   for (const [src, dest] of TEMPLATE_FILES) {
     await _copyTemplate(templatesDir, src, join(dir, dest), vars, options?.force ?? false);

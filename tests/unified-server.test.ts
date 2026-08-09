@@ -230,7 +230,7 @@ before(async () => {
   // 应用配置目录（避免写入真实 %APPDATA%）
   appConfigDir = join(root, "appconfig");
 
-  // 模板固件（createProject 内联实现需要；v3 主名为小说.json）
+  // 模板固件（createProject 内联实现需要；v3 结构：小说.json + 规则集/ 三件）
   const tplDir = join(root, "templates");
   mkdirSync(tplDir, { recursive: true });
   writeFileSync(
@@ -238,9 +238,10 @@ before(async () => {
     JSON.stringify({ name: "{{name}}", engine: "narrative-engine", engineVersion: "0.1.0", worldGraphDir: ".pi/world-graph-v3", chaptersDir: "正文", storyTimeFormat: "ch{NNN}.ev{NNN}", createdAt: "{{date}}" }),
     "utf8",
   );
-  writeFileSync(join(tplDir, "规则集.md"), "# 规则\n", "utf8");
-  writeFileSync(join(tplDir, "planner 规则集.md"), "# planner\n", "utf8");
-  writeFileSync(join(tplDir, "角色规则集.md"), "# 角色\n", "utf8");
+  mkdirSync(join(tplDir, "规则集"), { recursive: true });
+  writeFileSync(join(tplDir, "规则集", "文风规则.md"), "# 文风\n", "utf8");
+  writeFileSync(join(tplDir, "规则集", "检查规则.md"), "# 检查\n", "utf8");
+  writeFileSync(join(tplDir, "规则集", "自定义规则.md"), "# 自定义\n", "utf8");
   writeFileSync(join(tplDir, "_gitignore"), ".env\n", "utf8");
   writeFileSync(join(tplDir, "README.md"), "# {{name}}\n", "utf8");
 

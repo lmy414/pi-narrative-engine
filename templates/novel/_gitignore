@@ -1,24 +1,27 @@
 # 依赖
 node_modules/
 
-# 引擎扩展运行时（由 narrative-engine 仓库 npm run sync 同步，不纳入版本控制）
-.pi/extensions/*
-!.pi/extensions/.gitkeep
-
-# SQLite 瞬态文件（每次会话重建）
-*.db-shm
-*.db-wal
-
-# 调度器 plan 缓存（临时态，TTL 1h）
-.pi/scheduler-plans/
-
-# 扩展专属配置（含 HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL，由 @pi/admin 管理）
-# 不存 API Key（API Key 由 PI 本体的 auth.json / 环境变量管）
-.env
-
 # 日志
 *.log
 
 # 系统
 .DS_Store
 Thumbs.db
+
+# SQLite 数据库（v3 D12：二进制无法 diff/merge，不入库；
+# 剧情可追溯靠 events.jsonl + world-state.json 快照）
+*.db
+*.db-shm
+*.db-wal
+
+# 运行时数据（不入库）
+.pi/scheduler-plans/
+.pi/sessions/
+.pi/logs/
+
+# 工具痕迹
+.mimosa/
+
+# 扩展专属配置（含 HF_ENDPOINT / PI_DEBUG / PI_EMBEDDER_MODEL，由 @pi/admin 管理）
+# 不存 API Key（API Key 由 auth.json / LlmConfigStore 管）
+.env
