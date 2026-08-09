@@ -21,6 +21,7 @@ import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { SillyTavernCard } from "@pi/scheduler";
 import { loadRoleRuleSet } from "@pi/role-pool";
 import { loadRuleSet } from "@pi/renderer";
+import { readNovelJson } from "@pi/admin";
 import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
 import { SessionPool, type SessionHandle } from "../chat/session-pool.ts";
 import { createSchedulerTools } from "../chat/scheduler-tools.ts";
@@ -357,15 +358,18 @@ export class ChatContext {
       return service;
     }
 
-    const [plannerRuleSet, roleRuleSet, renderRuleSet] = await Promise.all([
+    const [plannerRuleSet, roleRuleSet, renderRuleSet, meta] = await Promise.all([
       loadPlannerRuleSet(cwd),
       loadRoleRuleSet(cwd),
       loadRuleSet(cwd),
+      readNovelJson(cwd),
     ]);
     const ports = assemblePorts({ wg: active.wg, search: active.search, embedder });
     const orchestrator = new Orchestrator({
       llmStore: this.opts.llmStore,
       cwd,
+      // v3（2026-08-09）：chaptersDir 真实消费——resolveChapterPath 缺省路径按此解析
+      chaptersDir: meta.data?.chaptersDir ?? "正文",
       plannerRuleSet,
       roleRuleSet,
       renderRuleSet,

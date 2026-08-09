@@ -35,7 +35,7 @@ import type { RoleAgentOutput } from "@pi/role-pool";
 import type { DebugBus, DebugSpan } from "./debug/types.ts";
 import { startSpan, newTraceId } from "./debug/bus.ts";
 // 软隔离导出：_buildPlannerSystemPrompt / _buildPlannerUserMessage（prompts.ts 非跨包稳定 API）
-import { _buildPlannerSystemPrompt, _buildPlannerUserMessage } from "@pi/scheduler";
+import { _buildPlannerSystemPrompt, _buildPlannerUserMessage, _resolveChapterPath } from "@pi/scheduler";
 
 /**
  * BUG-028 修复：子代理 prompt + 产出收集的整体超时兜底
@@ -183,6 +183,12 @@ export interface OrchestratorOptions {
    */
   llmStore: LlmConfigStore;
   cwd: string;
+  /**
+   * 章节目录（相对项目根，来自 novel.json chaptersDir；缺省 "正文"）。
+   * v3（2026-08-09）：resolveChapterPath 缺省路径消费此字段，
+   * 消灭旧事件级缺省 `chapters/<storyTime>.md`（双轨路径）。
+   */
+  chaptersDir?: string;
   plannerRuleSet: string;
   roleRuleSet: string;
   renderRuleSet: string;
@@ -625,9 +631,16 @@ export class Orchestrator {
    *
    * 安全（2026-08-03 代码审计 🔴-5）：任何输入路径必须落在项目根内，
    * 拒绝 `../` 越界（绝对路径也校验，防 LLM 被诱导读/写项目外文件）。
+   *
+   * v3（2026-08-09）：粒度 A 一章一文件——event.chapterPath 缺失时缺省路径
+   * 从旧事件级 `chapters/<storyTime>.md` 改为章节级 `<chaptersDir>/第<N>章-未命名.md`
+   * （消费 novel.json chaptersDir，经 @pi/scheduler resolveChapterPath 解析）。
    */
   private resolveChapterPath(event: StructuredEvent): string {
-    const p = event.chapterPath ?? `chapters/${event.storyTime}.md`;
+    if (event.chapterPath) {
+      return assertPathInside(this.opts.cwd, event.chapterPath, "章节文件路径");
+    }
+    const p = _resolveChapterPath(this.opts.cwd, event.storyTime, this.opts.chaptersDir ?? "正文");
     return assertPathInside(this.opts.cwd, p, "章节文件路径");
   }
 

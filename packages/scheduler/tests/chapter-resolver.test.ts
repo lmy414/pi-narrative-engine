@@ -57,3 +57,20 @@ test("resolveChapterPath: 上限边界 ch999 通过", () => {
   const p = resolveChapterPath("D:/novel", "ch999.ev999");
   assert.equal(p, path.join("D:/novel", "正文", "第999章-未命名.md"));
 });
+
+// v3（2026-08-09）：chaptersDir 参数消费（novel.json chaptersDir 真实生效）
+
+test("resolveChapterPath: 自定义 chaptersDir 生效", () => {
+  const p = resolveChapterPath("D:/novel", "ch009.ev003", "章节");
+  assert.equal(p, path.join("D:/novel", "章节", "第9章-未命名.md"));
+});
+
+test("resolveChapterPath: chaptersDir 默认缺省仍为正文", () => {
+  const p = resolveChapterPath("D:/novel", "ch002.ev001", undefined);
+  assert.equal(p, path.join("D:/novel", "正文", "第2章-未命名.md"));
+});
+
+test("resolveChapterPath: chaptersDir 含 .. 段拒绝（防路径逃逸）", () => {
+  assert.throws(() => resolveChapterPath("D:/novel", "ch001.ev001", "../evil"), /非法章节目录/);
+  assert.throws(() => resolveChapterPath("D:/novel", "ch001.ev001", "正文/../../evil"), /非法章节目录/);
+});
