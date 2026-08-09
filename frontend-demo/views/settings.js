@@ -10,7 +10,7 @@
  *   向量模型（状态卡、Warmup、清缓存、改模型）；
  *   应用偏好（主题卡 light/dark/system、字号 slider、自动保存开关+间隔、默认扫描根目录）；
  *   关于（版本、Doctor 自检）；规则集（Tab render/role/planner、恢复模板、保存、字数）；
- *   项目信息（novel.json：名称/章节目录/故事时间格式）；环境变量（HF_ENDPOINT/PI_DEBUG/PI_EMBEDDER_MODEL））
+ *   项目信息（小说.json：名称/章节目录/故事时间格式）；环境变量（HF_ENDPOINT/PI_DEBUG/PI_EMBEDDER_MODEL））
  *
  * 覆盖约定（模式同 views/graph.js / views/events.js / views/files.js）：
  *   - ViewRender.settings / ViewAfterRender.settings（views.js 中旧 ViewRender.settings 赋值会被本文件后加载覆盖）
@@ -60,10 +60,12 @@ const SET_SLOT_META = {
 };
 const SET_SLOT_ORDER = ['default', 'planner', 'role', 'reasoning', 'renderer'];
 
+// v3（2026-08-09，D9/D11）：规则集迁入 规则集/ 文件夹——文风/检查/自定义 三件
+// （planner/角色规则集已收回引擎自维护，不再以文件存在）
 const SET_RULESET_TABS = [
-  { id: 'render',  label: '渲染', file: 'render.md' },
-  { id: 'role',    label: '角色', file: 'role.md' },
-  { id: 'planner', label: '规划', file: 'planner.md' },
+  { id: 'style',  label: '文风', file: '规则集/文风规则.md' },
+  { id: 'check',  label: '检查', file: '规则集/检查规则.md' },
+  { id: 'custom', label: '自定义', file: '规则集/自定义规则.md' },
 ];
 
 // ==================== 状态访问器（命名空间 + 平面双写） ====================
@@ -140,7 +142,7 @@ async function settingsLoad() {
 
   // 本地 UI 状态惰性初始化
   if (settingsState('setActivePanel', null) === null) setSettingsState('setActivePanel', 'models');
-  if (settingsState('setRulesetTab', null) === null) setSettingsState('setRulesetTab', 'render');
+  if (settingsState('setRulesetTab', null) === null) setSettingsState('setRulesetTab', 'style');
   if (settingsState('setAutosave', null) === null) setSettingsState('setAutosave', appConfig.autosave !== false);
 
   // 应用级数据：embedder 快，等它；version/doctor 慢（git），后台拉取不阻塞首屏
@@ -1081,14 +1083,14 @@ async function settingsRunDoctor() {
 function settingsPanelRulesets() {
   if (!App.activeProject) return settingsNeedProjectHtml('规则集');
   const rulesets = settingsState('setRulesets', {}) || {};
-  const tab = settingsState('setRulesetTab', 'render');
+  const tab = settingsState('setRulesetTab', 'style');
   const meta = SET_RULESET_TABS.find((t) => t.id === tab) || SET_RULESET_TABS[0];
   const content = rulesets[tab] || '';
   const count = settingsCountWords(content);
   return `
     <div>
       <h1 class="set-page-title">规则集</h1>
-      <p class="set-page-desc">管理各模块的系统提示与推理规则</p>
+      <p class="set-page-desc">管理规则集文件夹（规则集/）：文风规则（渲染器读取）/ 检查规则（render_check 用）/ 自定义规则（预留）</p>
 
       <div class="set-rules-tabs">
         ${SET_RULESET_TABS.map((t) => `<div class="set-rules-tab ${t.id === tab ? 'set-rules-tab-active' : ''}" onclick="settingsSwitchRuleset(${settingsJs(t.id)})">${escapeHtml(t.label)}</div>`).join('')}
@@ -1163,10 +1165,10 @@ function settingsPanelProjectInfo() {
   return `
     <div>
       <h1 class="set-page-title">项目信息</h1>
-      <p class="set-page-desc">当前项目的基础信息配置（novel.json）</p>
+      <p class="set-page-desc">当前项目的基础信息配置（小说.json）</p>
 
       <div class="set-card">
-        <div class="set-card-header"><div class="set-card-title">${icon('file-text', 'w-4 h-4')} novel.json</div></div>
+        <div class="set-card-header"><div class="set-card-title">${icon('file-text', 'w-4 h-4')} 小说.json</div></div>
         <div class="set-card-body">
           <div class="set-field">
             <label>项目名称</label>
@@ -1209,7 +1211,7 @@ async function settingsSaveNovelJson() {
   } catch (e) { handleApiError(e); return; }
   const novel = settingsState('setNovelJson', {}) || {};
   setSettingsState('setNovelJson', { ...novel, ...patch });
-  toast('novel.json 已保存', 'success');
+  toast('小说.json 已保存', 'success');
   renderView();
 }
 

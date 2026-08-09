@@ -196,15 +196,19 @@ const MOCK_FILES = [
     { type: 'file', name: 'ch003.md', path: '正文/ch003.md', mtime: '2026-07-17T15:00:00Z', content: '# 第三章 星图\n\n破碎星图在灯光下泛着幽蓝的光泽。' },
     { type: 'file', name: 'ch006.md', path: '正文/ch006.md', mtime: '2026-08-02T03:15:00Z', content: '# 第六章 星门遗迹\n\n迷雾星云深处，远古星门的轮廓逐渐清晰。' }
   ]},
+  { type: 'dir', name: '规则集', path: '规则集', children: [
+    { type: 'file', name: '文风规则.md', path: '规则集/文风规则.md', mtime: '2026-07-15T09:00:00Z', content: '# 文风规则\n\n1. 保持第三人称 Limited 视角\n2. 对话自然，避免解释性台词\n3. 每章结尾留悬念钩子' },
+    { type: 'file', name: '检查规则.md', path: '规则集/检查规则.md', mtime: '2026-07-15T09:00:00Z', content: '# 检查规则\n\n- 不出现解释性台词\n- 不重复同一形容词' },
+    { type: 'file', name: '自定义规则.md', path: '规则集/自定义规则.md', mtime: '2026-07-15T09:00:00Z', content: '# 自定义规则\n\n（预留）' }
+  ]},
+  { type: 'dir', name: '大纲', path: '大纲', children: [] },
+  { type: 'dir', name: '设定', path: '设定', children: [] },
   { type: 'dir', name: '.pi', path: '.pi', children: [
     { type: 'dir', name: 'world-graph-v3', path: '.pi/world-graph-v3', children: [
-      { type: 'file', name: 'world.db', path: '.pi/world-graph-v3/world.db', mtime: '2026-08-02T03:15:00Z', content: '// 世界图数据库二进制文件' }
+      { type: 'file', name: 'world-state.json', path: '.pi/world-graph-v3/world-state.json', mtime: '2026-08-02T03:15:00Z', content: '{ "meta": { "storyTime": "ch006.ev001" }, "entities": [] }' }
     ]}
   ]},
-  { type: 'file', name: 'novel.json', path: 'novel.json', mtime: '2026-07-15T09:00:00Z', content: '{\n  "name": "星辰之海",\n  "chaptersDir": "正文",\n  "storyTimeFormat": "ch<NNN>.ev<NNN>"\n}' },
-  { type: 'file', name: '规则集.md', path: '规则集.md', mtime: '2026-07-15T09:00:00Z', content: '# 渲染规则集\n\n1. 保持第三人称 Limited 视角\n2. 对话自然，避免解释性台词\n3. 每章结尾留悬念钩子' },
-  { type: 'file', name: '角色规则集.md', path: '角色规则集.md', mtime: '2026-07-15T09:00:00Z', content: '# 角色规则集\n\n- 林远航：坚定但内心孤独\n- 艾莉亚：神秘、善于观察\n- 老陈：睿智、有牺牲精神' },
-  { type: 'file', name: 'planner 规则集.md', path: 'planner 规则集.md', mtime: '2026-07-15T09:00:00Z', content: '# 规划规则集\n\n- 每个事件只聚焦一个核心冲突\n- 保持角色动机一致性\n- 事件之间形成因果链' }
+  { type: 'file', name: '小说.json', path: '小说.json', mtime: '2026-07-15T09:00:00Z', content: '{\n  "name": "星辰之海",\n  "chaptersDir": "正文",\n  "storyTimeFormat": "ch<NNN>.ev<NNN>"\n}' }
 ];
 
 const MOCK_LLM_STATUS = {
@@ -225,10 +229,11 @@ const MOCK_APP_CONFIG = {
   autosaveInterval: 30
 };
 
+// v3（2026-08-09，D9/D11）：规则集三件（文风/检查/自定义，规则集/ 文件夹）
 const MOCK_RULESETS = {
-  render: '# 渲染规则集\n\n1. 保持第三人称 Limited 视角\n2. 对话自然，避免解释性台词\n3. 每章结尾留悬念钩子',
-  role: '# 角色规则集\n\n- 林远航：坚定但内心孤独\n- 艾莉亚：神秘、善于观察\n- 老陈：睿智、有牺牲精神',
-  planner: '# 规划规则集\n\n- 每个事件只聚焦一个核心冲突\n- 保持角色动机一致性\n- 事件之间形成因果链'
+  style: '# 文风规则\n\n1. 保持第三人称 Limited 视角\n2. 对话自然，避免解释性台词\n3. 每章结尾留悬念钩子',
+  check: '# 检查规则\n\n- 不出现解释性台词\n- 不重复同一形容词',
+  custom: '# 自定义规则\n\n（预留：用户/代理可写）'
 };
 
 const MOCK_NOVEL_JSON = {

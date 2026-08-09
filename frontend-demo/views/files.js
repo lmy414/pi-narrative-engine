@@ -192,7 +192,7 @@ function flSidebarHtml() {
           ${ApiRuntime.isMock ? `<button class="fl-new-btn" title="新建文件夹" onclick="flOpenCreate('folder', null)">${icon('folder-plus', 'w-4 h-4')}</button>` : ''}
         </span>
       </div>
-      <div class="fl-sidebar-hint">章节目录：${escapeHtml(flState('flChaptersDir', '正文'))}（来自 novel.json）</div>
+      <div class="fl-sidebar-hint">章节目录：${escapeHtml(flState('flChaptersDir', '正文'))}（来自小说.json）</div>
       <div class="fl-tree">${flTreeHtml(flState('flTree', []), 0)}</div>
     </aside>`;
 }
@@ -702,9 +702,11 @@ function flIsDirPath(path) {
 // ---------- 新建 / 重命名 / 删除（modal 闭环） ----------
 
 function flOpenCreate(kind, parentPath) {
+  // v3（2026-08-09）：新建默认路径消费 novel.json chaptersDir（不再硬编码 正文/）
+  const chaptersDir = flState('flChaptersDir', '正文') || '正文';
   const defaultPath = kind === 'file'
-    ? (parentPath ? parentPath + '/新章节.md' : '正文/新章节.md')
-    : (parentPath ? parentPath + '/新文件夹' : '正文/新文件夹');
+    ? (parentPath ? parentPath + '/新章节.md' : chaptersDir + '/新章节.md')
+    : (parentPath ? parentPath + '/新文件夹' : chaptersDir + '/新文件夹');
   const title = kind === 'file' ? '新建文件' : '新建文件夹';
   const hint = kind === 'file' ? '仅支持 .md 文件' : '目录名';
   openModal(title,

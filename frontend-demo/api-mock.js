@@ -759,7 +759,7 @@ const ApiMock = {
     await delay();
     const err = requireActiveProject();
     if (err) return err;
-    return ok({ path: 'novel.json', exists: true, data: { ...novelJson } });
+    return ok({ path: '小说.json', exists: true, data: { ...novelJson } });
   },
 
   async setNovelJson(data) {
