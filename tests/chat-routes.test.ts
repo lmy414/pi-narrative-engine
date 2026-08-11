@@ -26,6 +26,8 @@ import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
 import type { OrchestratorService } from "../src/orchestrator/service.ts";
 import type { Embedder } from "../src/embedder.ts";
 import type { WorldGraph } from "underworld-graph";
+import { WorldGraphDataAccess } from "../src/data/world-graph-data-access.ts";
+import { createWorldGraphAdapter } from "../src/ports/adapters.ts";
 import type { Search } from "../src/search.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { SessionPool, type SessionHandle, type SessionStatus } from "../src/chat/session-pool.ts";
@@ -258,7 +260,7 @@ test("ChatContext.ensureHost：A→B→A 重建 host 并隔离项目 provider/st
         relationCalls.push({ project, storyTime });
       },
     } as WorldGraph;
-    return [dir, { dir, meta: { name: project }, wg, search: { project } as unknown as Search, forceFulltext: false } as ProjectHandle];
+    return [dir, { dir, meta: { name: project }, wg, search: { project } as unknown as Search, forceFulltext: false, dataAccess: WorldGraphDataAccess.create(createWorldGraphAdapter(wg)) } as ProjectHandle];
   }));
   let active = handles.get("/project-a")!;
   const registry = { getActive: () => active };
@@ -294,7 +296,7 @@ test("ChatContext.ensureHost：A→B→A 重建 host 并隔离项目 provider/st
     const hostA1 = await context.ensureHost();
     assert.equal(hostOptions[0]?.runtimeApiKey?.apiKey, "configured-key");
     const eventA = hostOptions[0]!.customTools.find(tool => tool.name === "world_event_apply")!;
-    await eventA.execute("event-a", { event: { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+    await eventA.execute("event-a", { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" }, undefined, undefined, {} as never);
 
     active = handles.get("/project-b")!;
     const hostB = await context.ensureHost();
@@ -302,7 +304,7 @@ test("ChatContext.ensureHost：A→B→A 重建 host 并隔离项目 provider/st
     const relationB = hostOptions[1]!.customTools.find(tool => tool.name === "world_relation_add")!;
     await assert.rejects(() => relationB.execute("relation-b", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never), /storyTime required/);
     const eventB = hostOptions[1]!.customTools.find(tool => tool.name === "world_event_apply")!;
-    await eventB.execute("event-b", { event: { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" } }, undefined, undefined, {} as never);
+    await eventB.execute("event-b", { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" }, undefined, undefined, {} as never);
 
     active = handles.get("/project-a")!;
     const hostA2 = await context.ensureHost();
@@ -754,7 +756,7 @@ test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项�
     assert.equal(hostOptions[0]?.runtimeApiKey?.apiKey, "configured-key");
     assert.equal(hostOptions[0]?.cwd, projA);
     const eventA = hostOptions[0]!.customTools.find(tool => tool.name === "world_event_apply")!;
-    await eventA.execute("event-a", { event: { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+    await eventA.execute("event-a", { eventId: "a1", type: "change", storyTime: "ch001.ev001", entityId: "e1" }, undefined, undefined, {} as never);
     storyTimeLog.push("A:ch001.ev001");
 
     // 切换到项目 B，设置不同 storyTime
@@ -765,7 +767,7 @@ test("项目隔离：真实 ProjectRegistry + ChatContext，storyTime 不跨项�
     const relationB = hostOptions[1]!.customTools.find(tool => tool.name === "world_relation_add")!;
     await assert.rejects(() => relationB.execute("rel-b", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, {} as never), /storyTime required/);
     const eventB = hostOptions[1]!.customTools.find(tool => tool.name === "world_event_apply")!;
-    await eventB.execute("event-b", { event: { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" } }, undefined, undefined, {} as never);
+    await eventB.execute("event-b", { eventId: "b1", type: "change", storyTime: "ch009.ev003", entityId: "e1" }, undefined, undefined, {} as never);
     storyTimeLog.push("B:ch009.ev003");
 
     // 切回项目 A，验证 storyTime 恢复为 ch001.ev001

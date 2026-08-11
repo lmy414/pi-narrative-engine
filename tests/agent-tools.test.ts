@@ -19,7 +19,10 @@ import {
   createRelationAddTool,
   createLimitedEntityGetTool,
   createLimitedQueryTool,
+  type WorldToolDeps,
 } from "../src/agents/world-tools.ts";
+import { WorldGraphDataAccess } from "../src/data/world-graph-data-access.ts";
+import type { WorldGraphPort } from "../src/ports/types.ts";
 import {
   createChapterReadTool,
   createChapterWriteTool,
@@ -28,6 +31,7 @@ import { characterActionSchema, retrievalPlanSchema } from "../src/agents/tools.
 
 interface MockPorts {
   ports: OrchestratorPorts;
+  deps: WorldToolDeps;
   calls: Record<string, unknown[]>;
   /** 受控返回值（测试可预置） */
   set: {
@@ -39,7 +43,7 @@ interface MockPorts {
   };
 }
 
-/** 构造 mock ports：各方法记录调用参数，返回值受控（执行时读 set） */
+/** 构造 mock deps：DataAccess 包装 mock port，各方法记录调用参数，返回值受控（执行时读 set） */
 test("retrievalPlanSchema：合法值通过且缺少必填字段失败", () => {
   const valid = {
     items: [{
@@ -110,22 +114,27 @@ function makeMockPorts(): MockPorts {
     search: search as never,
     renderer: renderer as never,
   } as OrchestratorPorts;
-  return { ports, calls, set };
+  const dataAccess = WorldGraphDataAccess.create(worldGraph as unknown as WorldGraphPort);
+  const deps: WorldToolDeps = {
+    dataAccess,
+    search: search as never,
+  };
+  return { ports, deps, calls, set };
 }
 
 test("world_entity_get：storyTime 缺省取最新时间点", async () => {
   const m = makeMockPorts();
   m.set.snapshot = { entityId: "ent_a", type: "character", properties: [] };
-  const tool = createEntityGetTool(m.ports);
+  const tool = createEntityGetTool(m.deps);
   const result = await tool.execute("1", { entityId: "ent_a" });
   assert.deepEqual(m.calls.listStoryTimes, []);
-  assert.deepEqual(m.calls.getEntityAt, ["ent_a", "ch001.ev001"]);
+  assert.deepEqual(m.calls.getEntityAt, ["ent_a", "ch001.ev001", { recordedAsOf: undefined }]);
   assert.equal(result.details.snapshot.entityId, "ent_a");
 });
 
 test("world_event_apply：processEvent 收到正确事件（source=engine）", async () => {
   const m = makeMockPorts();
-  const tool = createEventApplyTool(m.ports);
+  const tool = createEventApplyTool(m.deps);
   await tool.execute("1", {
     eventId: "evt_x",
     type: "change",
@@ -140,15 +149,15 @@ test("world_event_apply：processEvent 收到正确事件（source=engine）", a
   assert.equal((evt.newFacts as unknown[]).length, 1);
 });
 
-test("world_visibility_set：setVisibility 收到正确 opts", async () => {
+test("world_visibility_set：setVisibility 收到正确 opts（storyTime→validFrom，isExplicit 缺省 true）", async () => {
   const m = makeMockPorts();
-  const tool = createVisibilitySetTool(m.ports);
+  const tool = createVisibilitySetTool(m.deps);
   await tool.execute("1", {
     characterId: "char_a",
     declarationId: "decl-1",
     confidence: 0.9,
     source: "experienced",
-    validFrom: "ch001.ev001",
+    storyTime: "ch001.ev001",
   });
   const [charId, declId, opts] = m.calls.setVisibility as [string, string, Record<string, unknown>];
   assert.equal(charId, "char_a");
@@ -156,12 +165,13 @@ test("world_visibility_set：setVisibility 收到正确 opts", async () => {
   assert.equal(opts.state, "known");
   assert.equal(opts.confidence, 0.9);
   assert.equal(opts.source, "experienced");
+  assert.equal(opts.validFrom, "ch001.ev001");
   assert.equal(opts.isExplicit, true);
 });
 
 test("world_relation_add：addRelation 收到 source/target/label/storyTime", async () => {
   const m = makeMockPorts();
-  const tool = createRelationAddTool(m.ports);
+  const tool = createRelationAddTool(m.deps);
   await tool.execute("1", {
     sourceId: "char_a",
     targetId: "char_b",
@@ -182,7 +192,7 @@ test("entity_get_limited：properties 按角色可见声明过滤", async () => 
     ],
   };
   m.set.view = [{ declarationId: "decl-1" }];
-  const tool = createLimitedEntityGetTool(m.ports, "char_a");
+  const tool = createLimitedEntityGetTool(m.deps, "char_a");
   const result = await tool.execute("1", { entityId: "ent_a", storyTime: "ch001.ev001" });
   const snap = result.details.snapshot as { properties: unknown[] };
   assert.equal(snap.properties.length, 1);
@@ -196,7 +206,7 @@ test("query_limited：检索结果按可见声明交集过滤", async () => {
     { entityId: "ent_b", score: 0.8, snapshot: { entityId: "ent_b", properties: [{ declarationId: "decl-9" }] } },
   ];
   m.set.view = [{ declarationId: "decl-1" }];
-  const tool = createLimitedQueryTool(m.ports, "char_a");
+  const tool = createLimitedQueryTool(m.deps, "char_a");
   const result = await tool.execute("1", { query: "林冲", storyTime: "ch001.ev001" });
   const filtered = result.details.results as { entityId: string }[];
   assert.equal(filtered.length, 1);

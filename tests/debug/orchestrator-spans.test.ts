@@ -38,6 +38,7 @@ function makeOrchestrator(debugBus: DebugBus | null): Orchestrator {
     renderRuleSet: "",
     staticCardLoader: async (id: string) => ({ name: id, description: "" }),
     ports: {} as never,
+    dataAccess: {} as never,
     debugBus,
   });
 }

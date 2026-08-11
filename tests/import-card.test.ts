@@ -121,14 +121,14 @@ test("parseCardFile: 不支持格式抛错", async () => {
 test("importCardToWorldGraph: birth + 字段 Facts + 自产自知可见性", async () => {
   const events: any[] = [];
   const visibilities: any[] = [];
-  const wg = {
+  const dataAccess = {
     processEvent: async (e: any) => { events.push(e); },
     setVisibility: async (cid: string, did: string, opts: any) => {
       visibilities.push({ cid, did, opts });
     },
   } as any;
 
-  const result = await importCardToWorldGraph(wg, {
+  const result = await importCardToWorldGraph(dataAccess, {
     name: "辉夜",
     description: "金发少女",
     personality: "冷淡",
@@ -151,11 +151,11 @@ test("importCardToWorldGraph: birth + 字段 Facts + 自产自知可见性", asy
 
 test("importCardToWorldGraph: 卡无 name 时兜底 entityId", async () => {
   const events: any[] = [];
-  const wg = {
+  const dataAccess = {
     processEvent: async (e: any) => { events.push(e); },
     setVisibility: async () => {},
   } as any;
-  const result = await importCardToWorldGraph(wg, { name: "", description: "无名氏" } as any, "ch-1", "ent_char_noname");
+  const result = await importCardToWorldGraph(dataAccess, { name: "", description: "无名氏" } as any, "ch-1", "ent_char_noname");
   const nameFact = events[0].newFacts.find((f: any) => f.property === "名字");
   assert.equal(nameFact.description, "ent_char_noname");
   assert.ok(result.factCount >= 1);

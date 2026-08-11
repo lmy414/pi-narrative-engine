@@ -1,5 +1,9 @@
 /**
- * tools.test.ts — 12 个 world_* 工具背后的 API 逻辑集成测试
+ * tools.test.ts — 主会话 world_* 工具背后的 API 逻辑集成测试
+ *
+ * 2026-08-11 迁移：chat/world-tools.ts 已删除，并入统一实现
+ * （src/agents/world-tools.ts）。主会话经 createMainSessionTools + wrapper
+ * （agent-tool-adapter.ts）消费同一套 AgentTool。
  *
  * 由于 PI ExtensionAPI 难以 mock，本测试直接调用 WorldGraph / Search / Embedder
  * 的 API 验证工具背后的逻辑（不经过 pi.registerTool）。
@@ -19,23 +23,51 @@ import { Search } from "../src/search.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
-import { createWorldTools } from "../src/chat/world-tools.ts";
+import { createWorldGraphAdapter } from "../src/ports/adapters.ts";
+import { WorldGraphDataAccess } from "../src/data/world-graph-data-access.ts";
+import {
+  createMainSessionTools,
+  type WorldToolDeps,
+} from "../src/agents/world-tools.ts";
+import { agentToolToToolDefinition } from "../src/chat/agent-tool-adapter.ts";
+import type { SearchPort } from "../src/ports/types.ts";
 
-test("createWorldTools：注册 18 个唯一工具且全部提供 promptSnippet", () => {
-  const provider = {
-    wg: {} as WorldGraph,
-    search: {} as Search,
-    cwd: "test",
-    currentStoryTime: null,
-    setCurrentStoryTime() {},
+/** deps 装配（主会话语义：resolveStoryTime 读 currentStoryTime 空则取最新；onStoryTime 写会话态） */
+function buildDeps(opts?: {
+  wg?: WorldGraph;
+  search?: Search;
+  currentStoryTime?: string | null;
+  onStoryTime?: (storyTime: string) => void;
+}): { deps: WorldToolDeps; current: { value: string | null } } {
+  const wg = opts?.wg ?? ({} as WorldGraph);
+  const search = (opts?.search ?? { search: async () => [] }) as unknown as Search;
+  const dataAccess = WorldGraphDataAccess.create(createWorldGraphAdapter(wg));
+  const current = { value: opts?.currentStoryTime ?? null };
+  const deps: WorldToolDeps = {
+    dataAccess,
+    search: search as unknown as SearchPort,
+    resolveStoryTime: async () => {
+      if (current.value) return current.value;
+      const times = await dataAccess.listStoryTimes();
+      if (times.length === 0) throw new Error("世界图为空：尚无任何 storyTime");
+      return [...times].sort().at(-1)!;
+    },
+    onStoryTime: opts?.onStoryTime
+      ? opts.onStoryTime
+      : (s: string) => { current.value = s; },
   };
-  const tools = createWorldTools(provider);
+  return { deps, current };
+}
+
+test("createMainSessionTools：注册 18 个唯一工具且 wrapper 全部提供 promptSnippet", () => {
+  const { deps } = buildDeps();
+  const tools = createMainSessionTools(deps).map(agentToolToToolDefinition);
   assert.equal(tools.length, 18);
   assert.equal(new Set(tools.map(t => t.name)).size, 18);
   assert.ok(tools.every(t => t.promptSnippet));
 });
 
-test("createWorldTools：18 个工具均可执行并返回 content/details envelope", async () => {
+test("createMainSessionTools：18 个工具均可执行并返回 content/details envelope", async () => {
   const wg = {
     listStoryTimes: async () => ["ch001.ev001"],
     getAllEntities: async () => [],
@@ -52,18 +84,13 @@ test("createWorldTools：18 个工具均可执行并返回 content/details envel
     getRelationHistory: async () => [],
     processEvent: async () => {},
     traceCauses: async () => [],
+    getAllRelationsAt: async () => [],
     getCharacterView: async () => [],
     setVisibility: async () => {},
     closeVisibility: async () => {},
     inferVisibility: async () => {},
   } as unknown as WorldGraph;
-  const provider = {
-    wg,
-    search: { search: async () => [] } as unknown as Search,
-    cwd: "test",
-    currentStoryTime: "ch001.ev001",
-    setCurrentStoryTime() {},
-  };
+  const { deps } = buildDeps({ wg, currentStoryTime: "ch001.ev001" });
   const params: Record<string, Record<string, unknown>> = {
     world_status: {},
     world_entity_create: { entityId: "e1", type: "character", storyTime: "ch001.ev001" },
@@ -75,18 +102,18 @@ test("createWorldTools：18 个工具均可执行并返回 content/details envel
     world_relation_close: { sourceId: "e1", targetId: "e2", label: "knows" },
     world_relations: { entityId: "e1" },
     world_relation_history: { entityId: "e1" },
-    world_event_apply: { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } },
+    world_event_apply: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" },
     world_event_chain: { eventId: "evt-1" },
     world_character_view: { characterId: "e1" },
-    world_visibility_set: { characterId: "e1", declarationId: "d1", confidence: 1, source: "seen", isExplicit: true },
+    world_visibility_set: { characterId: "e1", declarationId: "d1", confidence: 1, source: "witnessed" },
     world_visibility_close: { characterId: "e1", declarationId: "d1" },
     world_visibility_infer: {},
     world_query: { query: "林冲" },
     world_story_times: {},
   };
   const executed: string[] = [];
-  for (const tool of createWorldTools(provider)) {
-    const result = await tool.execute(tool.name, params[tool.name]!, undefined, undefined, {} as never);
+  for (const tool of createMainSessionTools(deps)) {
+    const result = await tool.execute(tool.name, params[tool.name]!, undefined, undefined);
     assert.ok(Array.isArray(result.content), `${tool.name} 应返回 content`);
     assert.ok("details" in result, `${tool.name} 应返回 details`);
     executed.push(tool.name);
@@ -94,20 +121,36 @@ test("createWorldTools：18 个工具均可执行并返回 content/details envel
   assert.equal(executed.length, 18);
 });
 
-test("world_event_apply：更新 storyTime 且不写 memory 文件", async () => {
+test("world_event_apply：更新 storyTime（onStoryTime 副作用）且不写 memory 文件", async () => {
   const current = { value: null as string | null };
   const calls: unknown[] = [];
-  const provider = {
-    wg: { processEvent: async (event: unknown) => calls.push(event) } as WorldGraph,
-    search: {} as Search,
-    cwd: mkdtempSync(join(tmpdir(), "world-tools-memory-")),
+  const wg = { processEvent: async (event: unknown) => calls.push(event) } as WorldGraph;
+  const { deps } = buildDeps({
+    wg,
     currentStoryTime: null,
-    setCurrentStoryTime(value: string) { current.value = value; },
-  };
-  const tool = createWorldTools(provider).find(t => t.name === "world_event_apply")!;
-  await tool.execute("event-1", { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, {} as never);
+    onStoryTime(value: string) { current.value = value; },
+  });
+  const tool = createMainSessionTools(deps).find(t => t.name === "world_event_apply")!;
+  await tool.execute("event-1", {
+    eventId: "evt-1",
+    type: "change",
+    storyTime: "ch001.ev001",
+    entityId: "e1",
+  });
   assert.equal(current.value, "ch001.ev001");
   assert.equal(calls.length, 1);
+});
+
+test("world_entity_create：storyTime 缺省时 resolveStoryTime 注入会话态生效", async () => {
+  let bornStoryTime: string | undefined;
+  const wg = {
+    birthEntity: async (_id: string, _t: string, _p: unknown, st: string) => { bornStoryTime = st; },
+  } as unknown as WorldGraph;
+  const { deps } = buildDeps({ wg, currentStoryTime: "ch001.ev002" });
+  // entity_create 的 storyTime 为必填，此处验证 resolveStoryTime 作为写侧兜底不干扰显式值
+  const createTool = createMainSessionTools(deps).find(t => t.name === "world_entity_create")!;
+  await createTool.execute("1", { entityId: "e1", type: "character", storyTime: "ch001.ev002" });
+  assert.equal(bornStoryTime, "ch001.ev002");
 });
 
 async function setup() {
@@ -300,13 +343,14 @@ test("world_visibility_set 逻辑: setVisibility 后 getCharacterView 返回", a
   wg.close();
 });
 
-test("world_visibility_infer 逻辑: inferVisibility 不抛错", async () => {
+test("world_visibility_infer 逻辑: 经统一工具走 dataAccess.inferVisibilityAt 不抛错", async () => {
   const { wg } = await setup();
   await wg.birthEntity("macbeth", "character", { name: "Macbeth" }, "act1-scene1");
   await wg.birthEntity("inverness", "location", { name: "Inverness" }, "act1-scene1");
   await wg.addRelation("macbeth", "inverness", "located_in", "act1-scene1");
-  // inferVisibility 应能执行（不验证结果质量）
-  await wg.inferVisibility("act1-scene1");
+  const { deps } = buildDeps({ wg, currentStoryTime: "act1-scene1" });
+  const tool = createMainSessionTools(deps).find(t => t.name === "world_visibility_infer")!;
+  await tool.execute("1", {});
   wg.close();
 });
 
@@ -320,7 +364,10 @@ test("world_query 逻辑: search 返回 EntitySearchResult", { skip: !!process.e
   const { wg, embedder, search } = await setup();
   await wg.birthEntity("macbeth", "character", { name: "Macbeth" }, "act1-scene1");
   await wg.reembedAll(embedder);
-  const results = await search.search("Macbeth", { topK: 5, storyTime: "act1-scene1" });
+  const { deps } = buildDeps({ wg, search, currentStoryTime: "act1-scene1" });
+  const tool = createMainSessionTools(deps).find(t => t.name === "world_query")!;
+  const result = await tool.execute("1", { query: "Macbeth" });
+  const results = result.details.results as { entityId: string }[];
   assert.ok(results.length > 0, "应命中 Macbeth");
   assert.equal(results[0].entityId, "macbeth");
   wg.close();

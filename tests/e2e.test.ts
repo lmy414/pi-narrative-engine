@@ -11,7 +11,7 @@ import { createImportTools } from "../src/chat/import-tools.ts";
 test("createImportTools：注册 2 个唯一工具且全部提供 promptSnippet", () => {
   const tools = createImportTools({
     cwd: process.cwd(),
-    wg: {} as WorldGraph,
+    dataAccess: {} as any,
     embedder: {} as Embedder,
     currentStoryTime: "ch001.ev001",
     setCurrentStoryTime() {},
@@ -25,15 +25,15 @@ test("createImportTools：2 个工具均可执行并保持项目状态", async (
   const cardPath = join(dir, "card.json");
   writeFileSync(cardPath, JSON.stringify({ name: "林冲", description: "豹子头" }), "utf8");
   const storyTimes: string[] = [];
-  const wg = {
+  const dataAccess = {
     listStoryTimes: async () => ["ch003.ev007"],
     processEvent: async () => {},
     setVisibility: async () => {},
-  } as unknown as WorldGraph;
+  } as any;
   const pipelineCalls: unknown[] = [];
   const tools = createImportTools({
     cwd: dir,
-    wg,
+    dataAccess,
     embedder: {} as Embedder,
     currentStoryTime: "ch001.ev001",
     setCurrentStoryTime(value) { storyTimes.push(value); },

@@ -19,7 +19,6 @@ import {
 import type { OrchestratorService } from "../src/orchestrator/service.ts";
 import { assembleChatTools, createProjectStoryTimeStore } from "../src/app/chat-context.ts";
 import { LlmConfigStore } from "../src/orchestrator/llm-config.ts";
-import type { WorldGraph } from "underworld-graph";
 import type { Search } from "../src/search.ts";
 import type { Embedder } from "../src/embedder.ts";
 
@@ -69,7 +68,7 @@ function textOf(result: { content: { type: string; text?: string }[] }): string 
 test("assembleChatTools：装配 31 个唯一工具且全部提供 promptSnippet", () => {
   const tools = assembleChatTools({
     service: makeStubService().service,
-    wg: {} as WorldGraph,
+    dataAccess: {} as any,
     search: {} as Search,
     cwd: process.cwd(),
     embedder: {} as Embedder,
@@ -86,10 +85,10 @@ test("assembleChatTools：world 工具共享最新 storyTime", async () => {
   let relationStoryTime: string | null = null;
   const tools = assembleChatTools({
     service: makeStubService().service,
-    wg: {
+    dataAccess: {
       processEvent: async () => {},
       addRelation: async (_source: string, _target: string, _label: string, storyTime: string) => { relationStoryTime = storyTime; },
-    } as WorldGraph,
+    } as any,
     search: {} as Search,
     cwd: process.cwd(),
     embedder: {} as Embedder,
@@ -97,7 +96,7 @@ test("assembleChatTools：world 工具共享最新 storyTime", async () => {
     currentStoryTime: null,
     setCurrentStoryTime() {},
   });
-  await tools.find(t => t.name === "world_event_apply")!.execute("event", { event: { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" } }, undefined, undefined, CTX);
+  await tools.find(t => t.name === "world_event_apply")!.execute("event", { eventId: "evt-1", type: "change", storyTime: "ch001.ev001", entityId: "e1" }, undefined, undefined, CTX);
   await tools.find(t => t.name === "world_relation_add")!.execute("relation", { sourceId: "e1", targetId: "e2", label: "knows" }, undefined, undefined, CTX);
   assert.equal(relationStoryTime, "ch001.ev001");
 });

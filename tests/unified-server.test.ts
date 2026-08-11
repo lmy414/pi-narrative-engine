@@ -474,7 +474,7 @@ test("闭环: create → activate(空库自动初始化) → status/graph 可用
 
   // 写入事件后立即可读
   const ev = await sendJson("POST", "/events", {
-    eventId: "evt-loop-1",
+    eventId: "evt_loop_1",
     type: "birth",
     storyTime: "ch001.ev001",
     entityId: "e-loop",
@@ -1219,7 +1219,7 @@ test("GET /api.js 走静态服务而非 API 路由（回归：/api 前缀误判�
 
 test("POST /api/events 应用 change，强制 source=user，旧声明闭合", async () => {
   const r = await sendJson("POST", "/events", {
-    eventId: "evt-user-edit",
+    eventId: "evt_user_edit",
     type: "change",
     storyTime: "t3",
     entityId: "viz1",
@@ -1229,7 +1229,7 @@ test("POST /api/events 应用 change，强制 source=user，旧声明闭合", as
   });
   assert.equal(r.status, 200);
   assert.equal(r.ok, true);
-  assert.equal(r.data.eventId, "evt-user-edit");
+  assert.equal(r.data.eventId, "evt_user_edit");
 
   // 新值生效
   const snap = await api("/entities/viz1?storyTime=t3");
@@ -1247,7 +1247,7 @@ test("POST /api/events 应用 change，强制 source=user，旧声明闭合", as
   const lines = readFileSync(join(projB, ".pi", "world-graph-v3", "events.jsonl"), "utf-8").trim().split("\n");
   const logged = lines
     .map((l) => JSON.parse(l))
-    .find((e: any) => e.eventId === "evt-user-edit");
+    .find((e: any) => e.eventId === "evt_user_edit");
   assert.ok(logged, "事件应已写入 events.jsonl");
   assert.equal(logged.source, "user", "source 应被强制覆盖为 user");
 });
@@ -1344,7 +1344,7 @@ test("POST /api/visibility storyTime=null → 400 MISSING_FIELD（BUG-035 前端
 });
 
 test("POST /api/entities/:id/summary 更新摘要", async () => {
-  const r = await sendJson("POST", "/entities/viz2/summary", { summary: "主要场景" });
+  const r = await sendJson("POST", "/entities/viz2/summary", { entityId: "viz2", summary: "主要场景" });
   assert.equal(r.ok, true);
   const snap = await api("/entities/viz2?storyTime=t3");
   assert.equal(snap.data.summary, "主要场景");
@@ -1362,12 +1362,41 @@ test("POST /api/events 非法 body → 400 VALIDATION_ERROR", async () => {
   assert.equal(r.ok, false);
   assert.equal(r.error?.code, "VALIDATION_ERROR");
 });
+
+// 2026-08-11 审查 P1-2：校验失败消息须带字段级详情（此前固定文案无法定位）
+test("POST /api/events 非法 body → 错误消息含字段路径详情", async () => {
+  const r = await sendJson("POST", "/events", {
+    eventId: "evt-bad",
+    type: "change",
+    storyTime: "t3",
+    entityId: "viz1",
+    newFacts: [{ entityId: "viz1", property: "x", description: "1", modality: "not-a-modality" }],
+  });
+  assert.equal(r.status, 400);
+  assert.equal(r.error?.code, "VALIDATION_ERROR");
+  assert.ok(
+    r.error?.message.includes("/newFacts/0/modality"),
+    `错误消息应含字段路径 /newFacts/0/modality，实际：${r.error?.message}`,
+  );
+});
+
+// 2026-08-11 审查 P1-1：summary 端点 body.entityId 必须与路径一致（此前以 body 为准静默覆盖）
+test("POST /api/entities/:id/summary 路径与 body.entityId 不一致 → 400", async () => {
+  const r = await sendJson("POST", "/entities/viz2/summary", { entityId: "viz1", summary: "张冠李戴" });
+  assert.equal(r.status, 400);
+  assert.equal(r.ok, false);
+  assert.equal(r.error?.code, "VALIDATION_ERROR");
+  assert.ok(r.error?.message.includes("不一致"), `错误消息应说明不一致，实际：${r.error?.message}`);
+  // 未写库：viz1/viz2 摘要均未被该请求污染
+  const snap2 = await api("/entities/viz2?storyTime=t3");
+  assert.equal(snap2.data.summary, "主要场景");
+});
 // ============ B5：事件溯源便捷端点（props/close/kill） ============
 
 test("entities/:id/props：属性编辑（旧声明闭合 + 新声明生效）；404/400", async () => {
   // 造临时实体（t6 诞生，不影响既有 viz1/viz2 断言）
   await sendJson("POST", "/events", {
-    eventId: "evt-b5-birth",
+    eventId: "evt_b5_birth",
     type: "birth",
     storyTime: "t6",
     entityId: "e-b5",
