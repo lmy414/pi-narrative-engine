@@ -69,7 +69,6 @@ export function createWorldGraphAdapter(wg: WorldGraph): WorldGraphPort {
       wg.setVisibility(characterId, declarationId, opts),
     closeVisibility: (characterId, declarationId, storyTime) =>
       wg.closeVisibility(characterId, declarationId, storyTime),
-    inferVisibility: (storyTime) => wg.inferVisibility(storyTime),
     updateFactEmbedding: (declarationId, vec) => wg.updateFactEmbedding(declarationId, vec),
   };
 }

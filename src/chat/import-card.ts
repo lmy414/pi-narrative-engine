@@ -19,7 +19,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { WorldGraph } from "underworld-graph";
+import type { WorldGraphDataAccess } from "../data/world-graph-data-access.ts";
 import { assertPathInside } from "../path-guard.ts";
 
 /** 导入时写入世界图的卡字段（与 static-card-loader KNOWN_FIELDS 对齐 + 扩展） */
@@ -171,13 +171,13 @@ export interface ImportCardResult {
 /**
  * 把角色卡导入世界图（birth 事件 + 卡字段 Facts + 自产自知可见性）
  *
- * @param wg 世界图实例
+ * @param dataAccess 统一世界图数据管道
  * @param card 解析后的卡数据
  * @param storyTime 诞生时刻
  * @param entityId 可选指定 entityId（缺省 ent_char_<hash8>）
  */
 export async function importCardToWorldGraph(
-  wg: WorldGraph,
+  dataAccess: WorldGraphDataAccess,
   card: ParsedCard,
   storyTime: string,
   entityId?: string,
@@ -199,7 +199,7 @@ export async function importCardToWorldGraph(
   }
 
   // birth 事件（summary = description，静态卡重组时映射回 card.description）
-  await wg.processEvent({
+  await dataAccess.processEvent({
     eventId,
     type: "birth",
     storyTime,
@@ -214,7 +214,7 @@ export async function importCardToWorldGraph(
   for (const fact of newFacts) {
     const declarationId = `decl-${eid}-${fact.property}-${storyTime}`;
     try {
-      await wg.setVisibility(eid, declarationId, {
+      await dataAccess.setVisibility(eid, declarationId, {
         state: "known",
         confidence: 1,
         source: "experienced",

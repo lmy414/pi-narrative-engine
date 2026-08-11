@@ -148,7 +148,6 @@ export interface WorldGraphPort {
     },
   ): Promise<void>;
   closeVisibility(characterId: string, declarationId: string, storyTime: string): Promise<void>;
-  inferVisibility(storyTime: string): Promise<void>;
   /** 更新 Fact 向量（无向量引擎时由适配器容错） */
   updateFactEmbedding(declarationId: string, vec: number[]): Promise<void>;
 }

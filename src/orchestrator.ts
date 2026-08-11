@@ -26,7 +26,8 @@ import { createPlannerAgent } from "./agents/planner-agent.ts";
 import { createRoleAgent } from "./agents/role-agent.ts";
 import { createReasoningAgent } from "./agents/reasoning-agent.ts";
 import { createRendererAgent } from "./agents/renderer-agent.ts";
-import { createReasoningTools, createPlannerTools, createRoleLimitedTools } from "./agents/world-tools.ts";
+import { createReasoningTools, createPlannerTools, createRoleLimitedTools, type WorldToolDeps } from "./agents/world-tools.ts";
+import type { WorldGraphDataAccess } from "./data/world-graph-data-access.ts";
 import { createRendererTools } from "./agents/chapter-tools.ts";
 import { createRulesReadTool, formatRulesManifest } from "./agents/rules-tools.ts";
 import { collectSubmission } from "./agents/collect.ts";
@@ -203,6 +204,8 @@ export interface OrchestratorOptions {
   staticCardLoader: (characterId: string) => Promise<SillyTavernCard>;
   /** 数据层 Ports（阶段 A 注入：子代理工具经此读写世界图/章节） */
   ports: OrchestratorPorts;
+  /** 统一世界图数据管道（由上游从 ProjectHandle 传入，不自建）；子代理工具经此读写 */
+  dataAccess: WorldGraphDataAccess;
   /** 调试总线（四阶段 span 埋点；null/缺省为零开销 no-op） */
   debugBus?: DebugBus | null;
 }
@@ -237,6 +240,14 @@ export class Orchestrator {
     this.opts = opts;
   }
 
+  /** 子代理工具依赖：统一数据管道 + 检索；storyTime 缺省走世界图最新时间点（保持现状语义） */
+  private buildDeps(): WorldToolDeps {
+    return {
+      dataAccess: this.opts.dataAccess,
+      search: this.opts.ports.search,
+    };
+  }
+
   /** 运行一次事件编排（plan 或 yolo） */
   async run(event: StructuredEvent): Promise<OrchestratorResult> {    // 调试埋点：root span "orchestrator" + 四阶段子 span（无 bus 时零开销 no-op）
     const bus = this.opts.debugBus ?? null;
@@ -264,7 +275,7 @@ export class Orchestrator {
           plannerKey,
           _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
           [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
-          createPlannerTools(this.opts.ports),
+          createPlannerTools(this.buildDeps()),
         );
         // 🔴-B（2026-08-08）：planner 接入整体超时（此前裸 await prompt 永久挂起时
         // 阻塞 EventQueue 单消费者 → 编排器死锁；collect 的 180s 只 reject 产出不取消 prompt）
@@ -334,7 +345,7 @@ export class Orchestrator {
             roleKey,
             roleSystemPrompt,
             userMessages,
-            createRoleLimitedTools(this.opts.ports, characterId),
+            createRoleLimitedTools(this.buildDeps(), characterId),
           );
           // 🔴-B（2026-08-08）：role 接入整体超时——超时抛错落入 per-role catch
           // 记入 errors 不阻断流程（与「单角色失败不阻断」语义一致）；LLM 无响应
@@ -572,7 +583,7 @@ export class Orchestrator {
     outputs: RoleAgentOutput[],
     sink: string[],
   ): Promise<DiffusionOutput> {
-    const tools = createReasoningTools(this.opts.ports, sink);
+    const tools = createReasoningTools(this.buildDeps(), sink);
     const reasoning = createReasoningAgent(
       model,
       apiKey,

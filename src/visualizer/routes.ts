@@ -12,14 +12,23 @@
  * forceFulltext=true（Search.fulltext 不依赖 embedder，见 src/search.ts）。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { WorldGraph } from "underworld-graph";
 import type { EventRecordInput } from "underworld-graph";
+import { Check, Errors, type XSchema } from "typebox/schema";
 import type { Search } from "../search.ts";
 import type { DebugBus } from "../debug/types.ts";
+import type { WorldGraphDataAccess } from "../data/world-graph-data-access.ts";
+import {
+  worldEventApplyParams,
+  worldEntityUpdateSummaryParams,
+  worldRelationAddParams,
+  worldRelationCloseParams,
+  worldVisibilitySetParams,
+  worldVisibilityCloseParams,
+} from "../agents/world-tools.ts";
 import { handleDebugStream, handleDebugEvents, handleDebugClear } from "../debug/sse.ts";
 
 export interface VisualizerContext {
-  wg: WorldGraph;
+  dataAccess: WorldGraphDataAccess;
   search: Search | null;
   /** standalone 无 embedder 时为 true：/api/search 强制 fulltext */
   forceFulltext: boolean;
@@ -66,9 +75,27 @@ function requireStoryTime(url: URL): string {
 }
 
 /** 最新 storyTime（空图回退 "Infinity"）——0.2.0 D5 起 updateEntitySummary 需要 storyTime */
-async function latestStoryTime(wg: WorldGraph): Promise<string> {
-  const times = await wg.listStoryTimes();
+async function latestStoryTime(dataAccess: WorldGraphDataAccess): Promise<string> {
+  const times = await dataAccess.listStoryTimes();
   return times.length > 0 ? times[times.length - 1]! : "Infinity";
+}
+
+/**
+ * 共享 schema 校验失败时抛出的 400 VALIDATION_ERROR。调用方用内联 `if (!Check(schema, body)) throw validationError(errorDetails(schema, body));`
+ * 以让 TS 收窄 body 到 schema 的 Static 类型（复用 T3 world-tools 导出的 schema，校验规则与 LLM 工具层一份不漂移）。
+ * detail：字段级错误详情（2026-08-11 审查 P1-2 修复——此前固定文案不指明哪个字段、什么原因）。
+ */
+function validationError(detail?: string): Error & { httpCode: number; code: string } {
+  const err = new Error(detail ? `请求体校验失败：${detail}` : "请求体校验失败") as Error & { httpCode: number; code: string };
+  err.httpCode = 400;
+  err.code = "VALIDATION_ERROR";
+  return err;
+}
+
+/** 取字段级校验错误详情（"instancePath: message"，多个以；连接）。仅在 Check 失败后调用（失败路径多跑一遍 Errors 无妨） */
+function errorDetails(schema: XSchema, body: unknown): string {
+  const [, errors] = Errors(schema, body);
+  return errors.map((e) => `${e.instancePath || "/"}: ${e.message}`).join("；") || "未知校验错误";
 }
 
 /** 请求体字段校验 */
@@ -102,7 +129,7 @@ export async function handleApi(
   url: URL,
   body: unknown,
 ): Promise<void> {
-  const { wg, search } = ctx;
+  const { dataAccess, search } = ctx;
   const method = req.method ?? "GET";
   // 去掉 /api 前缀后的路径段
   // 🟡（2026-08-08）：畸形 % 编码（如 /%）安全解码返回原样——路由不匹配走 404，
@@ -148,7 +175,7 @@ export async function handleApi(
     if (method === "GET") {
       await handleGet(ctx, res, url, segments);
     } else if (method === "POST") {
-      await handlePost(wg, res, segments, body);
+      await handlePost(dataAccess, res, segments, body);
     } else if (method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -178,15 +205,15 @@ async function handleGet(
   url: URL,
   segments: string[],
 ): Promise<void> {
-  const { wg, search } = ctx;
+  const { dataAccess, search } = ctx;
   const [head, id, sub] = segments;
 
   // GET /api/status
   if (head === "status" && segments.length === 1) {
-    const storyTimes = await wg.listStoryTimes();
+    const storyTimes = await dataAccess.listStoryTimes();
     const latest = storyTimes[storyTimes.length - 1];
-    const entities = latest ? await wg.getAllEntities(latest) : [];
-    const events = await wg.getAllEvents();
+    const entities = latest ? await dataAccess.getAllEntities(latest) : [];
+    const events = await dataAccess.getAllEvents();
     ok(res, { entityCount: entities.length, eventCount: events.length, storyTimes });
     return;
   }
@@ -194,11 +221,11 @@ async function handleGet(
   // GET /api/graph?storyTime=&includeClosed=
   if (head === "graph" && segments.length === 1) {
     const storyTime = requireStoryTime(url);
-    const entities = await wg.getAllEntities(storyTime);
+    const entities = await dataAccess.getAllEntities(storyTime);
     const includeClosed = url.searchParams.get("includeClosed") === "1";
     const relations = includeClosed
-      ? await wg.getRelationHistory()
-      : await wg.getAllRelationsAt(storyTime);
+      ? await dataAccess.getRelationHistory()
+      : await dataAccess.getAllRelationsAt(storyTime);
     ok(res, { entities, relations });
     return;
   }
@@ -206,14 +233,14 @@ async function handleGet(
   // GET /api/entities/:id?storyTime=  /  GET /api/entities/:id/history
   if (head === "entities" && id) {
     if (sub === "history") {
-      const history = await wg.getEntityHistory(id);
-      const relations = await wg.getRelationHistory(id);
+      const history = await dataAccess.getEntityHistory(id);
+      const relations = await dataAccess.getRelationHistory(id);
       // BUG-016：world-graph 的 getEntityHistory 不返回 events 字段，
       // 前端详情抽屉事件 tab 永远显示「暂无事件」。补一层关联查询：
       // 实体参与的事件 = 事件主角 entityId === id ，或 newFacts 中含该实体
       let events: unknown[] = [];
       try {
-        const allEvents = await wg.getAllEvents();
+        const allEvents = await dataAccess.getAllEvents();
         events = allEvents.filter((ev: { entityId: string; newFacts?: Array<{ entityId: string }> }) =>
           ev.entityId === id ||
           (ev.newFacts && ev.newFacts.some((f) => f.entityId === id)),
@@ -226,7 +253,7 @@ async function handleGet(
     }
     if (!sub) {
       const storyTime = requireStoryTime(url);
-      const snap = await wg.getEntityAt(id, storyTime);
+      const snap = await dataAccess.getEntityAt(id, storyTime);
       if (!snap) {
         fail(res, 404, "ENTITY_NOT_FOUND", `实体 ${id} 在 ${storyTime} 不存在`);
         return;
@@ -239,7 +266,7 @@ async function handleGet(
   // GET /api/declarations/:declId/visibility?storyTime=
   if (head === "declarations" && id && sub === "visibility") {
     const storyTime = url.searchParams.get("storyTime") ?? undefined;
-    const list = await wg.getVisibilityForDeclaration(id, storyTime);
+    const list = await dataAccess.getVisibilityForDeclaration(id, storyTime);
     ok(res, { declarationId: id, visibility: list });
     return;
   }
@@ -274,13 +301,13 @@ async function handleGet(
   // GET /api/events  /  GET /api/events/:id/chain
   if (head === "events") {
     if (id && sub === "chain") {
-      const chain = await wg.traceCauses(id);
+      const chain = await dataAccess.traceCauses(id);
       // 0.2.0 D7：traceCauses 对不存在的 eventId 返回 null → 空数组（前端契约不变）
       ok(res, { events: chain ?? [] });
       return;
     }
     if (segments.length === 1) {
-      const events = await wg.getAllEvents();
+      const events = await dataAccess.getAllEvents();
       ok(res, { events });
       return;
     }
@@ -294,7 +321,7 @@ async function handleGet(
       return;
     }
     const storyTime = requireStoryTime(url);
-    const view = await wg.getCharacterView(characterId, storyTime);
+    const view = await dataAccess.getCharacterView(characterId, storyTime);
     ok(res, { view });
     return;
   }
@@ -303,39 +330,46 @@ async function handleGet(
 }
 
 async function handlePost(
-  wg: WorldGraph,
+  dataAccess: WorldGraphDataAccess,
   res: ServerResponse,
   segments: string[],
   body: unknown,
 ): Promise<void> {
   const [head, id, sub] = segments;
 
-  // POST /api/events — body 为 EventRecordInput，强制 source: "user"
+  // POST /api/events — body 为共享 schema worldEventApplyParams，强制 source: "user"
   if (head === "events" && segments.length === 1) {
     const obj = requireFields(body, ["eventId", "type", "storyTime", "entityId"]);
-    const input = { ...obj, source: "user" } as unknown as EventRecordInput;
-    await wg.processEvent(input);
+    if (!Check(worldEventApplyParams, obj)) throw validationError(errorDetails(worldEventApplyParams, obj));
+    await dataAccess.processEvent({ ...obj, source: "user" } as EventRecordInput);
     ok(res, { eventId: obj.eventId });
     return;
   }
 
-  // POST /api/entities/:id/summary — body { summary, storyTime? }
+  // POST /api/entities/:id/summary — body { entityId, summary, storyTime? }
+  // （entityId 与路径一致，共享 schema worldEntityUpdateSummaryParams 要求 body 携带）
   if (head === "entities" && id && sub === "summary") {
-    const obj = requireFields(body, ["summary"]);
+    const obj = requireFields(body, ["entityId", "summary"]);
+    if (!Check(worldEntityUpdateSummaryParams, obj)) throw validationError(errorDetails(worldEntityUpdateSummaryParams, obj));
+    // 2026-08-11 审查 P1-1 修复：body.entityId 必须与路径一致（此前以 body 为准静默覆盖路径 id）
+    if (obj.entityId !== id) throw validationError(`路径实体 ${id} 与 body.entityId ${obj.entityId} 不一致`);
     // 0.2.0 D5：updateEntitySummary 需要 storyTime（摘要变更写 change 事件可回溯）；
     // body 缺省时取最新 storyTime
-    const storyTime = obj.storyTime ? String(obj.storyTime) : await latestStoryTime(wg);
-    await wg.updateEntitySummary(id, String(obj.summary), storyTime);
-    ok(res, { entityId: id, storyTime });
+    const storyTime = obj.storyTime ?? await latestStoryTime(dataAccess);
+    await dataAccess.updateEntitySummary(obj.entityId, obj.summary, storyTime);
+    ok(res, { entityId: obj.entityId, storyTime });
     return;
   }
 
   // POST /api/relations — body { sourceId, targetId, label, storyTime, description? }
   if (head === "relations" && segments.length === 1) {
     const obj = requireFields(body, ["sourceId", "targetId", "label", "storyTime"]);
-    await wg.addRelation(
-      String(obj.sourceId), String(obj.targetId), String(obj.label), String(obj.storyTime),
-      obj.description ? { description: String(obj.description) } : undefined,
+    if (!Check(worldRelationAddParams, obj)) throw validationError(errorDetails(worldRelationAddParams, obj));
+    // storyTime 在 body 必填（requireFields 保证运行时非空），TS 侧因 schema 可选需回退
+    const storyTime = obj.storyTime ?? await latestStoryTime(dataAccess);
+    await dataAccess.addRelation(
+      obj.sourceId, obj.targetId, obj.label, storyTime,
+      obj.description ? { description: obj.description } : undefined,
     );
     ok(res, { sourceId: obj.sourceId, targetId: obj.targetId, label: obj.label });
     return;
@@ -344,9 +378,9 @@ async function handlePost(
   // POST /api/relations/close — body { sourceId, targetId, label, storyTime }
   if (head === "relations" && id === "close") {
     const obj = requireFields(body, ["sourceId", "targetId", "label", "storyTime"]);
-    await wg.closeRelation(
-      String(obj.sourceId), String(obj.targetId), String(obj.label), String(obj.storyTime),
-    );
+    if (!Check(worldRelationCloseParams, obj)) throw validationError(errorDetails(worldRelationCloseParams, obj));
+    const storyTime = obj.storyTime ?? await latestStoryTime(dataAccess);
+    await dataAccess.closeRelation(obj.sourceId, obj.targetId, obj.label, storyTime);
     ok(res, { sourceId: obj.sourceId, targetId: obj.targetId, label: obj.label });
     return;
   }
@@ -354,19 +388,15 @@ async function handlePost(
   // POST /api/visibility — body { characterId, declarationId, confidence, source, storyTime }
   if (head === "visibility" && segments.length === 1) {
     const obj = requireFields(body, ["characterId", "declarationId", "confidence", "source", "storyTime"]);
-    // 🟡 审计修正：source 运行时校验（对齐 modality 端点 400 先例）——
-    // 编译期断言不构成「非法值拒绝」，内核 setVisibility 无运行时校验
-    const source = String(obj.source);
-    if (source !== "experienced" && source !== "informed" && source !== "witnessed") {
-      const err = new Error(`source 必须是 experienced|informed|witnessed（收到 ${JSON.stringify(source)}）`) as Error & { code?: string };
-      err.code = "INVALID_BODY";
-      throw err;
-    }
-    await wg.setVisibility(String(obj.characterId), String(obj.declarationId), {
+    // 🟡 审计修正：source/confidence 运行时校验由共享 schema worldVisibilitySetParams 承担
+    // （VISIBILITY_SOURCE 枚举 + confidence 0..1），不再手写 if 拒绝
+    if (!Check(worldVisibilitySetParams, obj)) throw validationError(errorDetails(worldVisibilitySetParams, obj));
+    const storyTime = obj.storyTime ?? await latestStoryTime(dataAccess);
+    await dataAccess.setVisibility(obj.characterId, obj.declarationId, {
       state: "known",
-      confidence: Number(obj.confidence),
-      source: source as "experienced" | "informed" | "witnessed",
-      validFrom: String(obj.storyTime),
+      confidence: obj.confidence,
+      source: obj.source,
+      validFrom: storyTime,
       isExplicit: true,
     });
     ok(res, { characterId: obj.characterId, declarationId: obj.declarationId });
@@ -376,7 +406,9 @@ async function handlePost(
   // POST /api/visibility/close — body { characterId, declarationId, storyTime }
   if (head === "visibility" && id === "close") {
     const obj = requireFields(body, ["characterId", "declarationId", "storyTime"]);
-    await wg.closeVisibility(String(obj.characterId), String(obj.declarationId), String(obj.storyTime));
+    if (!Check(worldVisibilityCloseParams, obj)) throw validationError(errorDetails(worldVisibilityCloseParams, obj));
+    const storyTime = obj.storyTime ?? await latestStoryTime(dataAccess);
+    await dataAccess.closeVisibility(obj.characterId, obj.declarationId, storyTime);
     ok(res, { characterId: obj.characterId, declarationId: obj.declarationId });
     return;
   }
@@ -396,7 +428,7 @@ async function handlePost(
       fail(res, 400, "INVALID_BODY", `modality 只能是 fact|belief|hypothesis（收到 ${modality}）`);
       return;
     }
-    const snapshot = await wg.getEntityAt(id, storyTime);
+    const snapshot = await dataAccess.getEntityAt(id, storyTime);
     if (!snapshot) {
       fail(res, 404, "ENTITY_NOT_FOUND", `实体不存在（或在该时刻未诞生）: ${id}`);
       return;
@@ -404,7 +436,7 @@ async function handlePost(
     // 当前未闭合声明（有则随 change 事件闭合）
     const current = snapshot.properties.find((p) => p.property === property);
     const eventId = genEventId();
-    await wg.processEvent({
+    await dataAccess.processEvent({
       eventId,
       type: "change",
       storyTime,
@@ -415,7 +447,7 @@ async function handlePost(
       newFacts: [{ entityId: id, property, description: String(obj.description), modality: modality as "fact" | "belief" | "hypothesis" }],
     } as EventRecordInput);
     // 取新声明 ID（processEvent 不返回，按 validFrom 回查）
-    const after = await wg.getEntityAt(id, storyTime);
+    const after = await dataAccess.getEntityAt(id, storyTime);
     const created = after?.properties.find((p) => p.property === property);
     ok(res, {
       entityId: id,
@@ -433,7 +465,7 @@ async function handlePost(
     const entityId = String(obj.entityId);
     const storyTime = String(obj.storyTime);
     // 读当前声明状态（历史含已闭合），判断存在性与是否已闭合
-    const history = await wg.getEntityHistory(entityId);
+    const history = await dataAccess.getEntityHistory(entityId);
     const decl = history.facts.find((f) => f.declarationId === declarationId);
     if (!decl) {
       fail(res, 404, "DECLARATION_NOT_FOUND", `声明不存在: ${declarationId}（entityId=${entityId}）`);
@@ -443,7 +475,7 @@ async function handlePost(
       fail(res, 409, "DECLARATION_CLOSED", `声明已闭合（validTo=${decl.validTo}）: ${declarationId}`);
       return;
     }
-    await wg.processEvent({
+    await dataAccess.processEvent({
       eventId: genEventId(),
       type: "change",
       storyTime,
@@ -459,13 +491,13 @@ async function handlePost(
   if (head === "entities" && id && sub === "kill") {
     const obj = requireFields(body, ["storyTime"]);
     const storyTime = String(obj.storyTime);
-    const snapshot = await wg.getEntityAt(id, storyTime);
+    const snapshot = await dataAccess.getEntityAt(id, storyTime);
     if (!snapshot) {
       fail(res, 404, "ENTITY_NOT_FOUND", `实体不存在（或在该时刻未诞生/已退场）: ${id}`);
       return;
     }
     // 优先 processEvent type="death"（走事件日志，因果可回溯），而非直调 killEntity
-    await wg.processEvent({
+    await dataAccess.processEvent({
       eventId: genEventId(),
       type: "death",
       storyTime,

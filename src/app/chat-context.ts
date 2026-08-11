@@ -24,7 +24,8 @@ import { readNovelJson } from "@pi/admin";
 import { MainSessionHost, type MainSessionHostOptions } from "../chat/main-session.ts";
 import { SessionPool, type SessionHandle } from "../chat/session-pool.ts";
 import { createSchedulerTools } from "../chat/scheduler-tools.ts";
-import { createWorldTools } from "../chat/world-tools.ts";
+import { createMainSessionTools } from "../agents/world-tools.ts";
+import { agentToolToToolDefinition } from "../chat/agent-tool-adapter.ts";
 import { createRenderTools } from "../chat/render-tools.ts";
 import { createRoleTools } from "../chat/role-tools.ts";
 import { createImportTools } from "../chat/import-tools.ts";
@@ -41,7 +42,7 @@ import { ProjectRegistry, type ProjectHandle } from "./project-registry.ts";
 /** ChatContext 统一错误（routes 层按 code 映射 HTTP 状态） */
 export function assembleChatTools(deps: {
   service: OrchestratorService;
-  wg: ProjectHandle["wg"];
+  dataAccess: ProjectHandle["dataAccess"];
   search: ProjectHandle["search"];
   cwd: string;
   embedder: Embedder;
@@ -51,7 +52,7 @@ export function assembleChatTools(deps: {
 }) {
   let currentStoryTime = deps.currentStoryTime;
   const projectDeps = {
-    wg: deps.wg,
+    dataAccess: deps.dataAccess,
     search: deps.search,
     cwd: deps.cwd,
     embedder: deps.embedder,
@@ -61,9 +62,21 @@ export function assembleChatTools(deps: {
       deps.setCurrentStoryTime(storyTime);
     },
   };
+  // 主会话世界图工具：统一世界工具集经 agent-tool-adapter 转 ToolDefinition；
+  // storyTime 缺省读会话态（未设置时抛 storyTime required，对齐现主会话语义；
+  // world_status 内部 try/catch 会兜底实时取最新），写操作成功后回写会话态
+  const worldToolDeps = {
+    dataAccess: deps.dataAccess,
+    search: deps.search,
+    resolveStoryTime: async () => {
+      if (projectDeps.currentStoryTime) return projectDeps.currentStoryTime;
+      throw new Error("storyTime required (call world_event_apply first or pass storyTime explicitly)");
+    },
+    onStoryTime: (storyTime: string) => projectDeps.setCurrentStoryTime(storyTime),
+  };
   return [
     ...createSchedulerTools(() => deps.service),
-    ...createWorldTools(projectDeps),
+    ...createMainSessionTools(worldToolDeps).map(agentToolToToolDefinition),
     ...createRenderTools(deps),
     ...createRoleTools(deps),
     ...createImportTools(projectDeps),
@@ -321,7 +334,7 @@ export class ChatContext {
       sessionDir: join(cwd, ".pi", "sessions"),
       customTools: assembleChatTools({
         service: this.requireService(cwd),
-        wg: active.wg,
+        dataAccess: active.dataAccess,
         search: active.search,
         cwd,
         embedder: this.opts.embedder!,
@@ -366,6 +379,7 @@ export class ChatContext {
     const orchestrator = new Orchestrator({
       llmStore: this.opts.llmStore,
       cwd,
+      dataAccess: active.dataAccess,
       // v3（2026-08-09）：chaptersDir 真实消费——resolveChapterPath 缺省路径按此解析
       chaptersDir: meta.data?.chaptersDir ?? "正文",
       plannerRuleSet,

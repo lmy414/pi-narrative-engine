@@ -20,6 +20,8 @@ import { getProjectMeta } from "@pi/novel-launcher";
 import type { NovelProjectMeta } from "@pi/novel-launcher";
 import { Search } from "../search.ts";
 import type { Embedder } from "../embedder.ts";
+import { WorldGraphDataAccess } from "../data/world-graph-data-access.ts";
+import { createWorldGraphAdapter } from "../ports/adapters.ts";
 
 /** 已打开项目的句柄 */
 export interface ProjectHandle {
@@ -31,6 +33,8 @@ export interface ProjectHandle {
   wg: WorldGraph;
   /** 检索实例（无 embedder 时 fulltext 仍可用） */
   search: Search;
+  /** 统一世界图数据管道（主会话/编排器/可视化路由共用，唯一数据入口） */
+  dataAccess: WorldGraphDataAccess;
   /** 无 embedder 时为 true（/api/search 强制 fulltext） */
   forceFulltext: boolean;
 }
@@ -137,6 +141,7 @@ export class ProjectRegistry {
       meta,
       wg,
       search: new Search(wg, this.embedder as Embedder),
+      dataAccess: WorldGraphDataAccess.create(createWorldGraphAdapter(wg)),
       forceFulltext: this.embedder === null,
     };
     this.handles.set(abs, handle);

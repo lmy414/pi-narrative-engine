@@ -294,7 +294,7 @@ export function startUnifiedServer(opts: UnifiedServerOptions): Promise<UnifiedS
           return;
         }
         const vizCtx: VisualizerContext = {
-          wg: active.wg,
+          dataAccess: active.dataAccess,
           search: active.search,
           forceFulltext: active.forceFulltext,
           debugBus: opts.debugBus ?? null,
