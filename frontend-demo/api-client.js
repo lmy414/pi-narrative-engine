@@ -173,7 +173,7 @@
     search: function (q, storyTime, type) { return get('/search', { q: q, storyTime: storyTime, type: type }, normalizeSearch); },
     getEntity: function (id, storyTime) { return get('/entities/' + part(id), { storyTime: storyTime }, normalizeEntity); },
     getEntityHistory: function (id) { return get('/entities/' + part(id) + '/history', undefined, normalizeHistory); },
-    updateSummary: function (id, summary) { return post('/entities/' + part(id) + '/summary', { summary: summary }); },
+    updateSummary: function (id, summary) { return post('/entities/' + part(id) + '/summary', { entityId: id, summary: summary }); },
     addProperty: function (id, property, description, storyTime, modality) { return post('/entities/' + part(id) + '/props', { property: property, description: description, storyTime: storyTime, modality: modality === undefined ? 'fact' : modality }); },
     closeDeclaration: function (declarationId, entityId, storyTime) { return post('/declarations/close', { declarationId: declarationId, entityId: entityId, storyTime: storyTime }); },
     addRelation: function (sourceId, targetId, label, storyTime, description) { return post('/relations', { sourceId: sourceId, targetId: targetId, label: label, storyTime: storyTime, ...(description ? { description: description } : {}) }); },

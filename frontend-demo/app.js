@@ -561,7 +561,7 @@ function stepStoryTime(delta) {
 function openQuickEvent() {
   openModal('快速记事件',
     `<div class="space-y-3">
-      <div><label class="text-sm text-muted">事件 ID</label><input id="qe-id" class="input" value="evt-${Date.now()}"></div>
+      <div><label class="text-sm text-muted">事件 ID</label><input id="qe-id" class="input" value="evt_${Date.now()}"></div>
       <div><label class="text-sm text-muted">类型</label><select id="qe-type" class="select" onchange="onQuickEventTypeChange()"><option value="birth">birth</option><option value="change">change</option><option value="death">death</option></select></div>
       <div id="qe-etype-row"><label class="text-sm text-muted">实体类型</label><select id="qe-etype" class="select"><option value="character">character（角色）</option><option value="location">location（地点）</option><option value="item">item（物品）</option><option value="concept">concept（概念）</option></select></div>
       <div><label class="text-sm text-muted">实体名称</label><input id="qe-name" class="input" placeholder="如：艾莉亚（birth 事件填写）" spellcheck="false"></div>
