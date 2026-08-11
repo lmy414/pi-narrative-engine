@@ -21,6 +21,7 @@ import type {
   EventRecord,
   EventRecordInput,
   StateDeclaration,
+  _VisibilityDeclaration as VisibilityDeclaration,
 } from "underworld-graph";
 import type { EntitySearchResult } from "../search.ts";
 import type { InteractCommand, InteractResult, RoleLlmCaller } from "@pi/role-pool";
@@ -37,6 +38,8 @@ export interface RelationSnapshot {
   sourceId: string;
   targetId: string;
   label: string;
+  /** 关系描述文本（仓库 getAllRelationsAt 返回含 description 的超集，可选兼容） */
+  description?: string;
   validFrom: string;
   validTo: string;
 }
@@ -64,10 +67,62 @@ export interface WorldGraphPort {
   ): Promise<RelationSnapshot[]>;
   getAllDeclarationsAt(storyTime: string): Promise<StateDeclaration[]>;
   listStoryTimes(): Promise<string[]>;
+  /** 读取某时间点全部关系（含 located_in 等）。返回对齐仓库实际结构（含 description） */
+  getAllRelationsAt(
+    storyTime: string,
+    opts?: { recordedAsOf?: string },
+  ): Promise<RelationSnapshot[]>;
+  /** 读取某声明的可见性记录。storyTime 缺省 = 全历史（含已闭合，幂等/撤销回填判定用） */
+  getVisibilityForDeclaration(
+    declarationId: string,
+    storyTime?: string,
+    opts?: { recordedAsOf?: string },
+  ): Promise<VisibilityDeclaration[]>;
+  getAllEntities(
+    storyTime: string,
+    opts?: { recordedAsOf?: string },
+  ): Promise<EntitySnapshot[]>;
+  getAllEvents(): Promise<EventRecord[]>;
+  recordedNow(): Promise<string | undefined>;
+  /** 单个实体全部版本 + 全部 Fact（含历史），按 validFrom 升序。返回结构对齐仓库 getEntityHistory */
+  getEntityHistory(
+    entityId: string,
+    opts?: { recordedAsOf?: string },
+  ): Promise<{
+    entities: Array<{
+      entityId: string;
+      type: EntityType;
+      name: string;
+      aliases: string[];
+      summary: string;
+      validFrom: string;
+      validTo: string;
+    }>;
+    facts: Array<
+      StateDeclaration & {
+        /** 写入时间（事务时间轴墙钟，SDK meta.createdAt）；旧数据可能缺失 */
+        createdAt?: string;
+        /** 最后修改时间（如闭合 validTo 的时刻，SDK meta.updatedAt） */
+        updatedAt?: string;
+      }
+    >;
+  }>;
+  getRelationHistory(
+    entityId?: string,
+    opts?: { recordedAsOf?: string },
+  ): Promise<RelationSnapshot[]>;
   // 0.2.0 D7：traceCauses 对不存在的 eventId 返回 null（不再静默截断）
   traceCauses(eventId: string): Promise<EventRecord[] | null>;
   // 写入
   processEvent(event: EventRecordInput): Promise<void>;
+  birthEntity(
+    entityId: string,
+    type: EntityType,
+    initialProps: Record<string, string>,
+    storyTime: string,
+  ): Promise<void>;
+  killEntity(entityId: string, storyTime: string): Promise<void>;
+  updateEntitySummary(entityId: string, summary: string, storyTime: string): Promise<void>;
   addRelation(
     sourceId: string,
     targetId: string,

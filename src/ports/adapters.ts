@@ -46,8 +46,21 @@ export function createWorldGraphAdapter(wg: WorldGraph): WorldGraphPort {
     getRelations: (entityId, storyTime, opts) => wg.getRelations(entityId, storyTime, opts),
     getAllDeclarationsAt: (storyTime) => wg.getAllDeclarationsAt(storyTime),
     listStoryTimes: () => wg.listStoryTimes(),
+    getAllRelationsAt: (storyTime, opts) => wg.getAllRelationsAt(storyTime, opts),
+    getVisibilityForDeclaration: (declarationId, storyTime, opts) =>
+      wg.getVisibilityForDeclaration(declarationId, storyTime, opts),
+    getAllEntities: (storyTime, opts) => wg.getAllEntities(storyTime, opts),
+    getAllEvents: () => wg.getAllEvents(),
+    recordedNow: () => wg.recordedNow(),
+    getEntityHistory: (entityId, opts) => wg.getEntityHistory(entityId, opts),
+    getRelationHistory: (entityId, opts) => wg.getRelationHistory(entityId, opts),
     traceCauses: (eventId) => wg.traceCauses(eventId),
     processEvent: (event) => wg.processEvent(event),
+    birthEntity: (entityId, type, initialProps, storyTime) =>
+      wg.birthEntity(entityId, type, initialProps, storyTime),
+    killEntity: (entityId, storyTime) => wg.killEntity(entityId, storyTime),
+    updateEntitySummary: (entityId, summary, storyTime) =>
+      wg.updateEntitySummary(entityId, summary, storyTime),
     addRelation: (sourceId, targetId, label, storyTime, opts) =>
       wg.addRelation(sourceId, targetId, label, storyTime, opts),
     closeRelation: (sourceId, targetId, label, storyTime) =>

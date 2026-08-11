@@ -34,6 +34,12 @@ function makeMockWg() {
       if (name === "getAllDeclarationsAt") return Promise.resolve([]);
       if (name === "listStoryTimes") return Promise.resolve(["ch001.ev001"]);
       if (name === "getAllEvents") return Promise.resolve([]);
+      if (name === "getAllRelationsAt") return Promise.resolve([]);
+      if (name === "getVisibilityForDeclaration") return Promise.resolve([]);
+      if (name === "getAllEntities") return Promise.resolve([]);
+      if (name === "recordedNow") return Promise.resolve("r1");
+      if (name === "getEntityHistory") return Promise.resolve({ entities: [], facts: [] });
+      if (name === "getRelationHistory") return Promise.resolve([]);
       return Promise.resolve();
     };
   }
@@ -43,11 +49,20 @@ function makeMockWg() {
     getRelations: track("getRelations"),
     getAllDeclarationsAt: track("getAllDeclarationsAt"),
     listStoryTimes: track("listStoryTimes"),
+    getAllRelationsAt: track("getAllRelationsAt"),
+    getVisibilityForDeclaration: track("getVisibilityForDeclaration"),
+    getAllEntities: track("getAllEntities"),
+    getAllEvents: track("getAllEvents"),
+    recordedNow: track("recordedNow"),
+    getEntityHistory: track("getEntityHistory"),
+    getRelationHistory: track("getRelationHistory"),
     processEvent: track("processEvent"),
+    birthEntity: track("birthEntity"),
+    killEntity: track("killEntity"),
+    updateEntitySummary: track("updateEntitySummary"),
     addRelation: track("addRelation"),
     setVisibility: track("setVisibility"),
     updateFactEmbedding: track("updateFactEmbedding"),
-    getAllEvents: track("getAllEvents"),
   };
   return { wg, calls };
 }
@@ -78,8 +93,38 @@ test("WorldGraphPort 适配器：方法透传 + 参数保留", async () => {
   const times = await port.listStoryTimes();
   assert.deepEqual(times, ["ch001.ev001"]);
 
+  await port.getAllRelationsAt("ch001.ev001", { recordedAsOf: "r1" });
+  assert.deepEqual(calls.getAllRelationsAt, ["ch001.ev001", { recordedAsOf: "r1" }]);
+
+  await port.getVisibilityForDeclaration("decl-1", undefined, { recordedAsOf: "r1" });
+  assert.deepEqual(calls.getVisibilityForDeclaration, ["decl-1", undefined, { recordedAsOf: "r1" }]);
+
+  await port.getAllEntities("ch001.ev001", { recordedAsOf: "r1" });
+  assert.deepEqual(calls.getAllEntities, ["ch001.ev001", { recordedAsOf: "r1" }]);
+
+  await port.getAllEvents();
+  assert.deepEqual(calls.getAllEvents, []);
+
+  const now = await port.recordedNow();
+  assert.equal(now, "r1");
+
+  await port.getEntityHistory("ent_a", { recordedAsOf: "r1" });
+  assert.deepEqual(calls.getEntityHistory, ["ent_a", { recordedAsOf: "r1" }]);
+
+  await port.getRelationHistory(undefined, { recordedAsOf: "r1" });
+  assert.deepEqual(calls.getRelationHistory, [undefined, { recordedAsOf: "r1" }]);
+
   await port.processEvent({ eventId: "evt_x", type: "change", storyTime: "ch001.ev001", entityId: "ent_a" });
   assert.equal(calls.processEvent[0].eventId, "evt_x");
+
+  await port.birthEntity("ent_a", "character", { name: "林冲" }, "ch001.ev001");
+  assert.deepEqual(calls.birthEntity, ["ent_a", "character", { name: "林冲" }, "ch001.ev001"]);
+
+  await port.killEntity("ent_a", "ch001.ev001");
+  assert.deepEqual(calls.killEntity, ["ent_a", "ch001.ev001"]);
+
+  await port.updateEntitySummary("ent_a", "新摘要", "ch001.ev001");
+  assert.deepEqual(calls.updateEntitySummary, ["ent_a", "新摘要", "ch001.ev001"]);
 
   await port.addRelation("char_a", "char_b", "friend", "ch001.ev001");
   assert.deepEqual(calls.addRelation, ["char_a", "char_b", "friend", "ch001.ev001", undefined]);
