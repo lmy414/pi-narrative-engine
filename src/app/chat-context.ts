@@ -30,6 +30,7 @@ import { createRenderTools } from "../chat/render-tools.ts";
 import { createRoleTools } from "../chat/role-tools.ts";
 import { createImportTools } from "../chat/import-tools.ts";
 import { LlmConfigStore, loadLlmConfigFromEnv } from "../orchestrator/llm-config.ts";
+import { LlmConfigStoreRuntime } from "../agents/agent-runtime.ts";
 import { createDebugJsonlSink, createProjectDebugBus } from "../debug/bus.ts";
 import type { DebugBus, DebugEventSink, DrainableDebugBus } from "../debug/types.ts";
 import { Orchestrator } from "../orchestrator.ts";
@@ -376,8 +377,10 @@ export class ChatContext {
       readNovelJson(cwd),
     ]);
     const ports = assemblePorts({ wg: active.wg, search: active.search, embedder });
+    const agentRuntime = new LlmConfigStoreRuntime(this.opts.llmStore);
     const orchestrator = new Orchestrator({
-      llmStore: this.opts.llmStore,
+      agentRuntime,
+      agentDir: join(this.opts.configDir, "pi-agent"),
       cwd,
       dataAccess: active.dataAccess,
       // v3（2026-08-09）：chaptersDir 真实消费——resolveChapterPath 缺省路径按此解析

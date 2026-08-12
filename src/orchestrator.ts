@@ -18,79 +18,27 @@
  */
 
 import type { StructuredEvent } from "@pi/scheduler";
-import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
-import type { LlmConfigStore } from "./orchestrator/llm-config.ts";
 import type { OrchestratorPorts } from "./orchestrator/assembly.ts";
-import { createPlannerAgent } from "./agents/planner-agent.ts";
-import { createRoleAgent } from "./agents/role-agent.ts";
-import { createReasoningAgent } from "./agents/reasoning-agent.ts";
-import { createRendererAgent } from "./agents/renderer-agent.ts";
-import { createReasoningTools, createPlannerTools, createRoleLimitedTools, type WorldToolDeps } from "./agents/world-tools.ts";
+import { PlannerAgent } from "./agents/planner-agent.ts";
+import { RoleAgent } from "./agents/role-agent.ts";
+import { ReasoningAgent } from "./agents/reasoning-agent.ts";
+import { RendererAgent } from "./agents/renderer-agent.ts";
+import type { WorldToolDeps } from "./agents/world-tools.ts";
 import type { WorldGraphDataAccess } from "./data/world-graph-data-access.ts";
-import { createRendererTools } from "./agents/chapter-tools.ts";
-import { createRulesReadTool, formatRulesManifest } from "./agents/rules-tools.ts";
-import { collectSubmission } from "./agents/collect.ts";
 import { assertPathInside } from "./path-guard.ts";
 import type { RetrievalPlan, SillyTavernCard } from "@pi/scheduler";
 import type { RoleAgentOutput } from "@pi/role-pool";
-import { _BUILTIN_ROLE_RULES } from "@pi/role-pool";
 import type { DebugBus, DebugSpan } from "./debug/types.ts";
 import { startSpan, newTraceId } from "./debug/bus.ts";
-// 软隔离导出：_buildPlannerSystemPrompt / _buildPlannerUserMessage（prompts.ts 非跨包稳定 API）
-import { _buildPlannerSystemPrompt, _buildPlannerUserMessage, _resolveChapterPath } from "@pi/scheduler";
+// 软隔离导出：_resolveChapterPath（prompts.ts / chapter-resolver.ts 非跨包稳定 API）
+import { _resolveChapterPath } from "@pi/scheduler";
+import type { AgentRuntime } from "./agents/agent-runtime.ts";
 
 /**
- * BUG-028 修复：子代理 prompt + 产出收集的整体超时兜底
- *
- * 问题：`await agent.prompt("")` 若 LLM 偶发无响应则永不 resolve；
- * collect.ts 的产出超时只 reject 产出 promise、不取消 prompt，
- * 导致 commit worker 永久 running、plan 永久 committing、无 error。
- *
- * 修复：Promise.race 整体超时，超时后 agent.abort() 中断子代理并抛错，
- * 让 runCommitPipeline catch → plan 转 error（可重试/丢弃），不再永久卡死。
- *
- * 🔴-B（2026-08-08）：planner/role 前半链路同样复用本函数——此前两处
- * 裸 `await agent.prompt("")`，LLM 无响应时编排器整体死锁（与 BUG-028
- * 修复前行为一致）。
- *
- * @param agent 子代理实例（pi Agent 暴露 abort() 能力）
- * @param toolName 产出提交工具名（透传 collectSubmission）
- * @param timeoutMs 整体超时（默认 300s；正常 commit 链路 60~70s，留足余量）
- * @param label 超时错误信息中的代理标签
+ * 子代理运行统一经 AgentRuntime.driveToReply（含整体超时兜底，见 agent-runtime.ts）：
+ * 超时后中断子代理并抛错，让 runCommitPipeline catch → plan 转 error（可重试/丢弃），
+ * 不再永久卡死。原 promptAndCollectWithTimeout（BUG-028 修复）已并入 driveToReply。
  */
-export async function promptAndCollectWithTimeout<T>(
-  agent: Agent,
-  toolName: string,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  const collected = collectSubmission<T>(agent, toolName);
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const result = await Promise.race<T>([
-      (async () => {
-        await agent.prompt("");
-        return await collected.promise;
-      })(),
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          // 中断子代理执行循环，释放底层 LLM 连接
-          try {
-            agent.abort();
-          } catch {
-            /* abort 失败不阻塞超时抛错 */
-          }
-          reject(new Error(`${label} 整体超时（${timeoutMs}ms，已中断子代理）`));
-        }, timeoutMs);
-      }),
-    ]);
-    return result;
-  } finally {
-    if (timer) clearTimeout(timer);
-    collected.dispose();
-  }
-}
 
 /** 角色可见性分配（planner 产出 → 编排器注入角色上下文） */
 export interface VisibilityAssignment {
@@ -180,11 +128,12 @@ export interface OrchestratorResult {
 /** 编排器构造选项 */
 export interface OrchestratorOptions {
   /**
-   * 独立 LLM 配置中心：planner/role/reasoning/renderer 各 slot 经 API 注入
-   * 各自的 provider/model/apiKey（用户可独立设置"角色扮演用什么模型、
-   * 调度器用什么模型"）；未配置的 slot 回退 default → env 兜底。
+   * 统一代理运行时：planner/role/reasoning/renderer 各 slot 经 resolveModel/resolveApiKey
+   * 解析模型与 Key；createSession/driveToReply 创建并驱动一次性子代理会话。
    */
-  llmStore: LlmConfigStore;
+  agentRuntime: AgentRuntime;
+  /** 应用级配置目录（%APPDATA%/narrative-engine；子代理 session 创建需要） */
+  agentDir: string;
   cwd: string;
   /**
    * 章节目录（相对项目根，来自 novel.json chaptersDir；缺省 "正文"）。
@@ -209,22 +158,6 @@ export interface OrchestratorOptions {
   /** 调试总线（四阶段 span 埋点；null/缺省为零开销 no-op） */
   debugBus?: DebugBus | null;
 }
-
-/** 子代理结束约定：结论必须且只能通过产出工具一次提交，不得同一轮并行调用其他工具 */
-const SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX =
-  "\n\n⚠️ 重要约束：你的最终结论必须且只能通过产出提交工具一次提交。不要在同一轮调用其他工具。";
-
-/** 可见推理代理系统提示词（阶段 A：自主查写世界图，再提交摘要） */
-const REASONING_SYSTEM_PROMPT =
-  "你是叙事引擎的状态扩散推理代理。消费所有角色产出，用世界图工具查询现状，" +
-  "裁决哪些状态变化应写入世界图，并用写工具（world_event_apply / world_visibility_set / " +
-  "world_relation_add 等）实际写入。最后必须且只能通过 diffusion_result 一次提交写入摘要（含 appliedEventIds）。";
-
-/** 渲染器代理系统提示词（阶段 A：自主读写章节） */
-const RENDERER_SYSTEM_PROMPT =
-  "你是叙事引擎的渲染代理。消费角色产出与扩散结果，先用 chapter_read 读取章节衔接上下文，" +
-  "生成正文后用 chapter_write 按事件意图（add/modify/insert）写入章节文件，" +
-  "最后必须且只能通过 render_result 一次提交正文。";
 
 /**
  * 编排器（阶段 A：数据层闭环）
@@ -268,23 +201,17 @@ export class Orchestrator {
       const plannerStartedAt = Date.now();
       let plannerResult: { plan: RetrievalPlan };
       try {
-        const plannerModel = this.opts.llmStore.getModel("planner");
-        const plannerKey = this.opts.llmStore.getApiKey("planner");
-        const planner = createPlannerAgent(
-          plannerModel,
-          plannerKey,
-          _buildPlannerSystemPrompt(this.opts.plannerRuleSet, event) + SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
-          [{ role: "user", content: _buildPlannerUserMessage(event), timestamp: Date.now() }],
-          createPlannerTools(this.buildDeps()),
+        const plannerModel = this.opts.agentRuntime.resolveModel("planner");
+        const planner = new PlannerAgent(
+          this.opts.agentRuntime,
+          { cwd: this.opts.cwd, agentDir: this.opts.agentDir },
+          this.buildDeps(),
         );
-        // 🔴-B（2026-08-08）：planner 接入整体超时（此前裸 await prompt 永久挂起时
-        // 阻塞 EventQueue 单消费者 → 编排器死锁；collect 的 180s 只 reject 产出不取消 prompt）
-        plannerResult = await promptAndCollectWithTimeout<{ plan: RetrievalPlan }>(
-          planner,
-          "retrieval_plan",
-          300_000,
-          "planner 子代理",
-        );
+        // 超时兜底已由 AgentRuntime.driveToReply 内置（默认 300s，超时中断子代理）
+        plannerResult = await planner.run({
+          event,
+          ruleSet: this.opts.plannerRuleSet,
+        }, { timeoutMs: 300_000 });
         plannerSpan.end({
           provider: plannerModel.provider,
           model: plannerModel.id,
@@ -315,48 +242,27 @@ export class Orchestrator {
       }, rootSpan.eventId);
       const roleStartedAt = Date.now();
       try {
-        const roleModel = this.opts.llmStore.getModel("role");
-        const roleKey = this.opts.llmStore.getApiKey("role");
+        const roleModel = this.opts.agentRuntime.resolveModel("role");
         for (const characterId of event.characterIds) {
           const card = await this.opts.staticCardLoader(characterId);
-          const roleSystemPrompt = this.buildRoleSystemPrompt(card, event);
-          const userMessages: AgentMessage[] = [
-            {
-              role: "user",
-              content: this.buildRoleUserMessage(characterId, card, event),
-              timestamp: Date.now(),
-            },
-          ];
-          // M-Qual-5：前序角色产出合并为单条 user message（此前每条 prior 各一条
-          // user 消息，连续多条 user 消息可能被 LLM 误解为多轮对话）
-          if (priorOutputs.length > 0) {
-            userMessages.push({
-              role: "user",
-              content: priorOutputs
-                .map((prior) => `【前序角色 ${prior.actor} 的行动】${prior.action}`)
-                .join("\n\n"),
-              timestamp: Date.now(),
-            });
-          }
+          const priorOutputsForAgent = [...priorOutputs];
 
           // 角色代理：注入受限世界图工具（characterId 绑定，自主查可见状态）
-          const roleAgent = createRoleAgent(
-            roleModel,
-            roleKey,
-            roleSystemPrompt,
-            userMessages,
-            createRoleLimitedTools(this.buildDeps(), characterId),
+          const roleAgent = new RoleAgent(
+            this.opts.agentRuntime,
+            { cwd: this.opts.cwd, agentDir: this.opts.agentDir },
+            this.buildDeps(),
           );
-          // 🔴-B（2026-08-08）：role 接入整体超时——超时抛错落入 per-role catch
-          // 记入 errors 不阻断流程（与「单角色失败不阻断」语义一致）；LLM 无响应
-          // 不再无限阻塞整条串行角色链
+          // 超时兜底已由 AgentRuntime.driveToReply 内置；超时抛错落入 per-role catch
+          // 记入 errors 不阻断流程（与「单角色失败不阻断」语义一致）
           try {
-            const roleOut = await promptAndCollectWithTimeout<{ action: RoleAgentOutput }>(
-              roleAgent,
-              "character_action",
-              300_000,
-              `role 子代理 (${characterId})`,
-            );
+            const roleOut = await roleAgent.run({
+              characterId,
+              card,
+              event,
+              priorOutputs: priorOutputsForAgent,
+              ruleSet: this.opts.roleRuleSet,
+            }, { timeoutMs: 300_000 });
             outputs.push(roleOut.action);
             priorOutputs.push(roleOut.action);
             cast.push({
@@ -486,10 +392,8 @@ export class Orchestrator {
       const reasoningSpan = startSpan(bus, "reasoner", traceId, { slot: "reasoning" }, parentId);
       let diffusion: DiffusionOutput;
       try {
-        const reasoningModel = this.opts.llmStore.getModel("reasoning");
+        const reasoningModel = this.opts.agentRuntime.resolveModel("reasoning");
         diffusion = await this.runReasoning(
-          reasoningModel,
-          this.opts.llmStore.getApiKey("reasoning"),
           event,
           outputs,
           appliedSink,
@@ -520,10 +424,8 @@ export class Orchestrator {
       const rendererSpan = startSpan(bus, "renderer", traceId, { slot: "renderer" }, parentId);
       let render: RenderOutput;
       try {
-        const rendererModel = this.opts.llmStore.getModel("renderer");
+        const rendererModel = this.opts.agentRuntime.resolveModel("renderer");
         render = await this.runRenderer(
-          rendererModel,
-          this.opts.llmStore.getApiKey("renderer"),
           event,
           eventId,
           outputs,
@@ -577,69 +479,37 @@ export class Orchestrator {
 
   /** 可见推理子代理（阶段 A：注入世界图工具，自主写世界图）；sink 记录实际写入的事件 ID */
   private async runReasoning(
-    model: Model<any>,
-    apiKey: string,
     event: StructuredEvent,
     outputs: RoleAgentOutput[],
     sink: string[],
   ): Promise<DiffusionOutput> {
-    const tools = createReasoningTools(this.buildDeps(), sink);
-    const reasoning = createReasoningAgent(
-      model,
-      apiKey,
-      REASONING_SYSTEM_PROMPT,
-      [
-        {
-          role: "user",
-          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n角色产出：\n${JSON.stringify(outputs, null, 2)}`,
-          timestamp: Date.now(),
-        },
-      ],
-      tools,
+    const reasoning = new ReasoningAgent(
+      this.opts.agentRuntime,
+      { cwd: this.opts.cwd, agentDir: this.opts.agentDir },
+      this.buildDeps(),
     );
-    // BUG-028：整体超时兜底（300s），超时后 abort 子代理并抛错
-    const result = await promptAndCollectWithTimeout<{ diffusion: DiffusionOutput }>(
-      reasoning,
-      "diffusion_result",
-      300_000,
-      "reasoning 子代理",
-    );
+    // 超时兜底已由 AgentRuntime.driveToReply 内置（300s，超时中断子代理）
+    const result = await reasoning.run({ event, outputs, sink }, { timeoutMs: 300_000 });
     return result.diffusion;
   }
 
   /** 渲染器子代理（阶段 A：注入章节工具，自主写章节） */
   private async runRenderer(
-    model: Model<any>,
-    apiKey: string,
     event: StructuredEvent,
     eventId: string,
     outputs: RoleAgentOutput[],
     diffusion: DiffusionOutput,
   ): Promise<RenderOutput> {
-    const tools = createRendererTools(this.opts.ports, this.opts.cwd);
-    // v3（2026-08-09，D11）：规则渐进披露（RN1 缺口修复）——渲染规则集不再全文注入，
-    // <available_rules> 清单（名称+位置+简介）入 system prompt，全文经 rules_read 按需读取
-    const rulesManifest = await formatRulesManifest(this.opts.cwd);
     const chapterPath = this.resolveChapterPath(event);
-    const renderer = createRendererAgent(
-      model,
-      apiKey,
-      `${RENDERER_SYSTEM_PROMPT}\n\n${rulesManifest}`,
-      [
-        {
-          role: "user",
-          content: `事件：${event.instruction}\n故事时间：${event.storyTime}\n章节路径：${chapterPath}\n事件意图：${event.intent ?? "add"}${event.targetEventId ? `\n目标锚点：${event.targetEventId}` : ""}\n你的渲染锚点 ID：${eventId}\n角色产出：\n${JSON.stringify(outputs, null, 2)}\n扩散结果：\n${JSON.stringify(diffusion, null, 2)}`,
-          timestamp: Date.now(),
-        },
-      ],
-      [...tools, createRulesReadTool(this.opts.cwd)],
+    const renderer = new RendererAgent(
+      this.opts.agentRuntime,
+      { cwd: this.opts.cwd, agentDir: this.opts.agentDir },
+      this.opts.ports,
     );
-    // BUG-028：整体超时兜底（300s），超时后 abort 子代理并抛错
-    const result = await promptAndCollectWithTimeout<{ render: RenderOutput }>(
-      renderer,
-      "render_result",
-      300_000,
-      "renderer 子代理",
+    // 超时兜底已由 AgentRuntime.driveToReply 内置（300s，超时中断子代理）
+    const result = await renderer.run(
+      { event, eventId, outputs, diffusion, chapterPath },
+      { timeoutMs: 300_000 },
     );
     return result.render;
   }
@@ -663,42 +533,5 @@ export class Orchestrator {
     }
     const p = _resolveChapterPath(this.opts.cwd, event.storyTime, this.opts.chaptersDir ?? "正文");
     return assertPathInside(this.opts.cwd, p, "章节文件路径");
-  }
-
-  /**
-   * 角色系统提示词：内置扮演规则 + 附加规则集（兼容） + 角色卡
-   *
-   * v3（2026-08-09，D8）：角色规则集收回引擎自维护——扮演原则/输出纪律/
-   * 词表固化进 @pi/role-pool 的 BUILTIN_ROLE_RULES 内置段（与 role_interact 共享）；
-   * opts.roleRuleSet 参数保留兼容（D8 后引擎恒传空串，非空时仍附加定界段）。
-   */
-  private buildRoleSystemPrompt(card: SillyTavernCard, event: StructuredEvent): string {
-    const parts: string[] = [_BUILTIN_ROLE_RULES];
-    if (this.opts.roleRuleSet.trim()) {
-      parts.push("─── 角色规则集开始 ───");
-      parts.push(this.opts.roleRuleSet);
-      parts.push("─── 角色规则集结束 ───");
-    }
-    parts.push(
-      `你是角色：${card.name ?? ""}`,
-      `角色描述：${card.description ?? ""}`,
-      event.executionHints ? `用户特殊要求：${event.executionHints}` : "",
-      SUBMIT_ONLY_SYSTEM_PROMPT_SUFFIX,
-    );
-    return parts.filter(Boolean).join("\n\n");
-  }
-
-  /** 角色用户消息：事件指令 + 角色卡 */
-  private buildRoleUserMessage(
-    characterId: string,
-    card: SillyTavernCard,
-    event: StructuredEvent,
-  ): string {
-    return [
-      `事件指令：${event.instruction}`,
-      `故事时间：${event.storyTime}`,
-      `你的 entityId：${characterId}`,
-      card.scenario ? `当前场景：${card.scenario}` : "",
-    ].filter(Boolean).join("\n");
   }
 }

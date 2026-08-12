@@ -116,6 +116,11 @@ export const renderResultSchema = Type.Object({
   ok: Type.Optional(Type.Boolean({ description: "章节写入是否成功（chapter_write 返回 ok）" })),
 });
 
+/**
+ * @deprecated 2026-08-12 统一代理抽象：子代理产出改为指令收尾（AgentRuntime.driveToReply
+ * + extractFencedJson），不再用 terminate 提交工具。schema（retrievalPlanSchema）保留，
+ * 供子代理 extractOutput 做类型校验。
+ */
 /** planner 子代理：提交检索计划（AgentTool 包装，无 ctx，闭包注入） */
 export function createRetrievalPlanTool(): AgentTool {
   return {
@@ -135,6 +140,7 @@ export function createRetrievalPlanTool(): AgentTool {
   };
 }
 
+/** @deprecated 2026-08-12 统一代理抽象：产出改指令收尾，不再用 terminate 工具。schema 保留供 extractOutput 校验。 */
 /** 角色代理：提交角色行为（AgentTool 包装） */
 export function createCharacterActionTool(): AgentTool {
   return {
@@ -153,6 +159,7 @@ export function createCharacterActionTool(): AgentTool {
   };
 }
 
+/** @deprecated 2026-08-12 统一代理抽象：产出改指令收尾，不再用 terminate 工具。schema 保留供 extractOutput 校验。 */
 /** 可见推理代理：提交扩散结果（change 事件 + visibilityChanges） */
 export function createDiffusionResultTool(): AgentTool {
   return {
@@ -171,6 +178,7 @@ export function createDiffusionResultTool(): AgentTool {
   };
 }
 
+/** @deprecated 2026-08-12 统一代理抽象：产出改指令收尾，不再用 terminate 工具。schema 保留供 extractOutput 校验。 */
 /** 渲染器代理：提交渲染结果（正文文本） */
 export function createRenderResultTool(): AgentTool {
   return {

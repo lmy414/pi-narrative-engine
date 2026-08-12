@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import type { StructuredEvent } from "@pi/scheduler";
 import { Orchestrator } from "../../src/orchestrator.ts";
 import { LlmConfigStore } from "../../src/orchestrator/llm-config.ts";
+import { LlmConfigStoreRuntime } from "../../src/agents/agent-runtime.ts";
 import { createDebugBus } from "../../src/debug/bus.ts";
 import type { DebugBus } from "../../src/debug/types.ts";
 
@@ -25,13 +26,14 @@ const EVENT: StructuredEvent = {
 
 function makeOrchestrator(debugBus: DebugBus | null): Orchestrator {
   const llmStore = new LlmConfigStore();
-  // planner slot 指向不存在的模型 → getModel("planner") 在 span 内确定性抛错
+  // planner slot 指向不存在的模型 → resolveModel("planner") 在 span 内确定性抛错
   llmStore.setConfig("planner", {
     model: { provider: "deepseek", name: "no-such-model-xyz" },
     apiKey: "sk-fake",
   });
   return new Orchestrator({
-    llmStore,
+    agentRuntime: new LlmConfigStoreRuntime(llmStore),
+    agentDir: process.cwd(),
     cwd: process.cwd(),
     plannerRuleSet: "",
     roleRuleSet: "",

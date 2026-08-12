@@ -28,6 +28,8 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { ModelResolver } from "../agents/agent-runtime.ts";
+import type { LlmSlot } from "../orchestrator/llm-config.ts";
 
 export interface MainSessionHostOptions {
   /** 应用自有配置目录（含 auth.json / SYSTEM.md 兜底；不污染 ~/.pi/agent） */
@@ -56,7 +58,7 @@ export interface MainSessionHostOptions {
  * - session：当前会话（prompt / subscribe / systemPrompt / isStreaming）
  * - dispose()：释放 runtime（项目切换时调用方 dispose 后以新 cwd 重建）
  */
-export class MainSessionHost {
+export class MainSessionHost implements ModelResolver {
   private runtime!: Awaited<ReturnType<typeof createAgentSessionRuntime>>;
   private readonly opts: MainSessionHostOptions;
   /** 最近一次创建的 services（热应用模型配置用；与 runtime 同生命周期） */
@@ -64,6 +66,20 @@ export class MainSessionHost {
 
   constructor(opts: MainSessionHostOptions) {
     this.opts = opts;
+  }
+
+  /** 按 slot 解析模型（主会话恒用 default 语义：返回当前会话模型或构造注入的 opts.model） */
+  resolveModel(_slot: LlmSlot): Model<any> {
+    const model = this.runtime?.session.model ?? this.opts.model;
+    if (!model) {
+      throw new Error("主会话模型未解析（start() 未完成或未注入 opts.model）");
+    }
+    return model;
+  }
+
+  /** 按 slot 解析 API Key（主会话 Key 已在 start() 时经 setRuntimeApiKey 注入 authStorage） */
+  resolveApiKey(_slot: LlmSlot): string {
+    return this.opts.runtimeApiKey?.apiKey ?? "";
   }
 
   /** 创建服务 + 工厂 + runtime（PI 本体 main.ts 三层结构） */

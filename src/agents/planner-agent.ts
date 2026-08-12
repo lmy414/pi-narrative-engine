@@ -1,46 +1,76 @@
 // src/agents/planner-agent.ts
 /**
- * planner-agent.ts — planner 子代理工厂
+ * planner-agent.ts — PlannerAgent 子代理类
  *
- * 依据：docs/plans/2026-07-31-subagent-orchestrator-design.md §3.2
+ * 依据：docs/plans/2026-08-12-unified-agent-abstraction-execution.md 任务 2.1
  *
  * 职责：查 world-graph 了解现状 → 决定检索策略 + 可见性分配 + 执行模式建议。
- * 本阶段（用户澄清：不接触世界图业务）：上下文经 systemPrompt/messages 注入，
- * 不注入 world_* 工具；子代理通过 `retrieval_plan` 产出提交工具返回结构化检索计划。
+ * 迁移自原 createPlannerAgent 工厂（pi-agent-core Agent + terminate 工具），
+ * 改为继承 BaseAgent（唯一底层 AgentSession）+ 指令收尾产出。
  *
- * 构造只依赖 AgentRuntime（解耦边界），不依赖 ExtensionContext。
+ * 产出契约：reply.text 应为 fenced JSON，顶层含 `plan` 字段（RetrievalPlan）。
  */
 
-import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
-import { streamSimple } from "@earendil-works/pi-ai";
-import type { Model } from "@earendil-works/pi-ai";
-import { createRetrievalPlanTool } from "./tools.ts";
+import { _buildPlannerSystemPrompt, _buildPlannerUserMessage } from "@pi/scheduler";
+import type { RetrievalPlan, StructuredEvent } from "@pi/scheduler";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { BaseAgent, OUTPUT_DISCIPLINE_SUFFIX } from "./base-agent.ts";
+import type { AgentReply, AgentRuntime } from "./agent-runtime.ts";
+import { extractFencedJson, AgentOutputParseError, toToolDefinition } from "./agent-runtime.ts";
+import { createPlannerTools, type WorldToolDeps } from "./world-tools.ts";
+import type { LlmSlot } from "../orchestrator/llm-config.ts";
 
-/**
- * 创建 planner 子代理
- *
- * @param model pi-ai Model（LlmConfigStore.getModel 产出）
- * @param apiKey 模型 API Key（LlmConfigStore.getApiKey 产出）
- * @param systemPrompt planner 系统提示词（含规则集 + 事件指令）
- * @param messages 初始消息（事件上下文）
- * @param extraTools 额外注入的世界图只读工具（阶段 A：自主查世界图了解现状）
- */
-export function createPlannerAgent(
-  model: Model<any>,
-  apiKey: string,
-  systemPrompt: string,
-  messages: AgentMessage[],
-  extraTools: AgentTool[] = [],
-): Agent {
-  return new Agent({
-    initialState: {
-      systemPrompt,
-      model,
-      tools: [createRetrievalPlanTool(), ...extraTools],
-      messages,
-    },
-    streamFn: streamSimple,
-    getApiKey: async () => apiKey,
-  });
+/** planner 输入 */
+export interface PlannerInput {
+  event: StructuredEvent;
+  /** planner 规则集全文（兼容保留；D7 后引擎恒传空串） */
+  ruleSet: string;
+}
+
+/** planner 产出（顶层含 plan 字段，与 orchestrator 消费一致） */
+export interface PlannerOutput {
+  plan: RetrievalPlan;
+}
+
+/** planner 子代理（一次性，forSubagent 轻量 prompt） */
+export class PlannerAgent extends BaseAgent<PlannerInput, PlannerOutput> {
+  private readonly deps: WorldToolDeps;
+
+  constructor(runtime: AgentRuntime, opts: { cwd: string; agentDir: string }, deps: WorldToolDeps) {
+    super(runtime, opts);
+    this.deps = deps;
+  }
+
+  protected getSlot(): LlmSlot {
+    return "planner";
+  }
+
+  protected buildSystemPrompt(input: PlannerInput): string {
+    return _buildPlannerSystemPrompt(input.ruleSet, input.event) + OUTPUT_DISCIPLINE_SUFFIX + `
+注入格式说明：你的最终结论应为如下 fenced JSON（plan 字段为检索计划，items 为检索项数组）：
+\`\`\`json
+{ "plan": { "items": [ { "type": "character_view", "params": { "entityId": "e_lin" }, "assignTo": ["e_lin"], "label": "林冲当前状态" } ] } }
+\`\`\`
+`;
+  }
+
+  protected buildUserPrompt(input: PlannerInput): string {
+    return _buildPlannerUserMessage(input.event);
+  }
+
+  protected buildTools(): ToolDefinition[] {
+    return createPlannerTools(this.deps).map(toToolDefinition);
+  }
+
+  protected extractOutput(reply: AgentReply): PlannerOutput {
+    const raw = extractFencedJson(reply.text);
+    const plan = (raw as { plan?: unknown })?.plan;
+    if (!plan || typeof plan !== "object" || !Array.isArray((plan as { items?: unknown })?.items)) {
+      throw new AgentOutputParseError(
+        "planner 产出缺少 plan 字段或 items 非数组",
+        JSON.stringify(raw).slice(0, 500),
+      );
+    }
+    return { plan: plan as RetrievalPlan };
+  }
 }
