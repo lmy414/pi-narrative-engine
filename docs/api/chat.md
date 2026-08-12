@@ -4,7 +4,7 @@
 
 ## 设计要点
 
-- **主会话宿主**（`src/chat/main-session.ts`）：PI 本体同构三层结构（`createAgentSessionServices` → 工厂闭包 → `createAgentSessionRuntime`），最简提示词经 `.pi/SYSTEM.md` 自动发现（`DefaultResourceLoader`），代码不硬编码。模型配置与子代理同源（`LlmConfigStore`，env 兜底：`NE_LLM_PROVIDER` / `NE_LLM_MODEL` / `NE_LLM_API_KEY`，或 provider 标准 env）。
+- **主会话宿主**（`src/chat/main-session.ts`）：PI SDK 三层结构（`createAgentSessionServices` → 工厂闭包 → runtime），最简提示词经 `.pi/SYSTEM.md` 自动发现（`DefaultResourceLoader`）。2026-08-12 统一代理抽象后 `MainSessionHost implements ModelResolver`（`resolveModel`/`resolveApiKey`），模型配置与子代理同源（`LlmConfigStore`，env 兜底：`NE_LLM_PROVIDER` / `NE_LLM_MODEL` / `NE_LLM_API_KEY`，或 provider 标准 env）。
 - **运行时上下文**（`src/app/chat-context.ts`）：`ChatContext` 懒启动主会话（绑定当前活跃项目），项目切换时 dispose + 重建；按项目缓存 `OrchestratorService`。
 - **工具**（`src/chat/scheduler-tools.ts`）：主会话经 `customTools` 注册 4 个编排器工具（`scheduler_dispatch` / `scheduler_commit` / `scheduler_discard` / `scheduler_queue_status`），与 MCP 版语义对齐。
 - **路由优先级**：`handleExtApi`（files/projects/admin）→ `handleChatApi`（/api/chat/*）→ 世界图路由。未装配 `ChatContext` 时 /api/chat/* 返回 503 `CHAT_UNAVAILABLE`。
@@ -75,7 +75,31 @@ SSE 事件流。客户端先开此连接，再 POST message 即可收到增量�
     - `provider?: string` — 仅 assistant 消息；LLM provider
     - `model?: string` — 仅 assistant 消息；LLM 模型名
     - `usage?: UsageSummary` — 仅 assistant 消息且原始消息含 usage 时存在；含 `inputTokens` / `outputTokens` / `cacheReadTokens` / `cacheWriteTokens`
-- 失败：`409 NO_ACTIVE_PROJECT` / `404 SESSION_NOT_FOUND`（会话不存在）
+- 失败：`409 NO_ACTIVE_PROJECT`（未激活项目）
+
+### POST /api/chat/sessions
+
+新建空会话（`live` 标记转移到新会话，旧活跃会话保持存活、后台生成继续）。源码：`ChatContext.createSession()`。
+
+- 成功：`200 { ok: true, data: { session: SessionInfo & { live: true } } }`
+  - `session` 字段同 `GET /api/chat/sessions` 列表项（`id` / `name` / `created` / `modified` / `messageCount` / `firstMessage` / `live`），另附 `path`（会话文件路径）
+- 失败：`409 NO_ACTIVE_PROJECT`（未激活项目）/ `501 EMBEDDER_UNAVAILABLE`（未加 `--embed` 启动）
+
+### POST /api/chat/sessions/:id/activate
+
+切换到指定会话（`live` 标记转移，主会话后续写入落到该会话；不中断其他会话的后台生成）。源码：`ChatContext.activateSession(id)`。`id` 可为完整会话 ID 或唯一前缀（前缀命中多个时报错）。
+
+- 路径参数：`id` — 会话 ID 或唯一前缀（URL 编码）
+- 成功：`200 { ok: true, data: { session: SessionInfo & { live: true } } }`（字段同新建会话响应）
+- 失败：`409 NO_ACTIVE_PROJECT` / `404 SESSION_NOT_FOUND`（会话不存在）/ `400 SESSION_INVALID_PATH`（前缀不唯一）/ `501 EMBEDDER_UNAVAILABLE`
+
+### POST /api/chat/abort
+
+中断会话生成（body 可带 `sessionId` 指定后台会话，缺省中断当前活跃会话）。源码：`ChatContext.abortChat(sid?)`。
+
+- 请求体：`{ "sessionId": "可选" }`
+- 成功：`200 { ok: true, data: { aborted: boolean, sessionId: string } }`（目标会话未在流式生成时 `aborted: false`）
+- 失败：`409 NO_ACTIVE_PROJECT` / `404 SESSION_NOT_FOUND`（指定会话不存在或无活跃会话）
 
 ## 数据流
 

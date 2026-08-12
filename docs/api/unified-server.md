@@ -59,6 +59,12 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed] [--config-
 | DELETE | `/api/admin/llm/slot/:slot` | 清除 slot 配置（持久化 + store 同步） |
 | PUT | `/api/admin/llm/key` | 写 API Key 到 auth.json（body: `provider`/`apiKey`；响应只回 hasKey） |
 | DELETE | `/api/admin/llm/key/:provider` | 移除 provider 凭据 |
+| GET | `/api/admin/llm/providers` | 厂商合并视图：内置（只读）+ 自定义（附 `baseURL`/`fetchModels`/`hasKey`） |
+| PUT | `/api/admin/llm/providers` | 自定义厂商 upsert（body: `provider`/`apiKey?`，按 id 合并） |
+| PUT | `/api/admin/llm/providers/:id/models` | 设置厂商模型列表（body: `modelIds`） |
+| DELETE | `/api/admin/llm/providers/:id` | 删除自定义厂商并清理其密钥 |
+| POST | `/api/admin/llm/providers/:id/test` | 测试连通（强制打 `{baseURL}/models`；业务字段表达成败，HTTP 200） |
+| GET | `/api/admin/llm/providers/models?id=` | 枚举某厂商模型（内置只读；自定义走解析） |
 | GET/PUT | `/api/admin/rulesets[/:name]` | 规则集读写（v3：`style`=规则集/文风规则.md、`check`=检查规则.md、`custom`=自定义规则.md）；`POST /api/admin/rulesets/:name/reset` 重置（需活跃项目） |
 | GET | `/api/admin/doctor` | 环境自检（Node/原生绑定/templates/向量缓存/项目结构） |
 | GET | `/api/admin/version` | 本地/远程版本对比 |
@@ -87,7 +93,10 @@ app-config.json 结构（`<configDir>/app-config.json`）：
 | GET | `/api/chat/events` | SSE 事件流（AI 回复、工具调用全程） |
 | GET | `/api/chat/status` | 会话状态（只读，不触发启动）`{active, cwd, isStreaming, systemPrompt, sessionId, modelFallbackMessage}` |
 | GET | `/api/chat/sessions` | 历史会话列表 `{id, name, created, modified, messageCount, firstMessage, live}`（SDK SessionManager，`<项目>/.pi/sessions/`；`live` 标记主会话当前写入的会话） |
+| POST | `/api/chat/sessions` | 新建空会话（`live` 转移到新会话；旧会话后台生成继续） |
 | GET | `/api/chat/sessions/:id/messages` | 会话历史消息 `{id: string, messages: HistoricalChatMessage[]}`（非裸数组）；`HistoricalChatMessage` 字段：`role` / `text` / `ts` / `toolCalls?` / `provider?` / `model?` / `usage?`；纯工具调用消息 `text` 为空字符串；未知 id 404 `SESSION_NOT_FOUND` |
+| POST | `/api/chat/sessions/:id/activate` | 切换到指定会话（`live` 标记转移；id 支持唯一前缀；需活跃项目） |
+| POST | `/api/chat/abort` | 中断会话生成（body 可带 `sessionId` 指定后台会话，缺省活跃会话） |
 
 ## `/api/scheduler/*`（编排控制，需活跃项目）
 

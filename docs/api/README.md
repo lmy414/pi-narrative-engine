@@ -31,7 +31,7 @@
 
 | 文档 | 包 | 说明 |
 |------|------|------|
-| [world-graph.md](world-graph.md) | `underworld-graph`（npm 独立包 v0.1.x） | WorldGraph 类 + Zod schema 类型 |
+| [world-graph.md](world-graph.md) | `underworld-graph`（npm 独立包 v0.3.x） | WorldGraph 类 + Zod schema 类型 |
 | [novel-importer.md](novel-importer.md) | `@pi/novel-importer` | V3 导入管道（仅 `runImportPipeline` 为公共 API） |
 | [renderer.md](renderer.md) | `@pi/renderer` | 渲染器（规则集注入 + 锚点章节格式） |
 | [role-pool.md](role-pool.md) | `@pi/role-pool` | 角色池串行演绎 |

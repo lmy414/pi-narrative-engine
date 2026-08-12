@@ -62,7 +62,11 @@ node scripts/app-server.mjs [--project <dir>] [--port 7421] [--embed]
 
 ## 架构
 
-独立 HTTP 服务 + pi SDK 主会话，不依赖 pi 本体运行：
+独立 HTTP 服务 + pi SDK 主会话，不依赖 pi 本体运行。
+
+**单一运行时**（2026-08-12 统一代理抽象，`bd52c18`）：主会话与四个子代理共用同一
+`AgentSession`（pi-coding-agent）运行时，仅行为（prompt 与工具集）不同。子代理继承
+`BaseAgent`；**编排器是纯代码协调层，不继承 `BaseAgent`**。
 
 ```
 src/app/main.ts（入口：CLI 参数解析 + 配置水合）
@@ -70,19 +74,31 @@ src/app/main.ts（入口：CLI 参数解析 + 配置水合）
   ├─ startUnifiedServer（src/app/unified-server.ts）
   │    HTTP 服务（默认 127.0.0.1:7421），承载 7 类路由：
   │    · 编排控制  /api/scheduler/dispatch|commit|discard|status|mode|plans
-  │    · 历史会话  /api/chat/sessions(+/:id/messages) + message/events/status
-  │    · 世界图    /api/world/*（复用 src/visualizer/routes.ts）
+  │    · 历史会话  /api/chat/sessions(+/:id/messages|activate) + message/events/status/abort
+  │    · 世界图    /api/graph|status|entities/*（复用 src/visualizer/routes.ts）
   │    · 项目管理  /api/projects/*（@pi/novel-launcher + ProjectRegistry）
-  │    · 配置管理  /api/admin/llm*（@pi/admin）
+  │    · 配置管理  /api/admin/llm*|rulesets|config|app-config|novel-json|doctor|version|embedder（@pi/admin）
   │    · 调试总线  /api/debug/stream|events|clear
   │    · 静态伺服  frontend-demo/（无构建步骤）
   │
   ├─ MainSessionHost（src/chat/main-session.ts）
-  │    pi SDK 同构主会话：services → 工厂 → runtime
-  │    模型/API Key 由 LlmConfigStore 解析注入
+  │    pi SDK 主会话（持久多轮，流式，前端 HTTP 驱动）
+  │    实现 ModelResolver（模型/Key 解析），不继承 BaseAgent
+  │
+  ├─ AgentRuntime（src/agents/agent-runtime.ts）
+  │    ModelResolver + {createSession, driveToReply} 一次性会话运行时
+  │    LlmConfigStoreRuntime 实现（包装 LlmConfigStore，供子代理）
+  │
+  ├─ BaseAgent<TInput,TOutput>（src/agents/base-agent.ts，仅子代理继承）
+  │    PlannerAgent / RoleAgent / ReasoningAgent / RendererAgent
+  │    统一 run()：buildSessionRequest → createSession → driveToReply → extractOutput
+  │    产出 = 指令性 prompt 收尾 + fenced JSON 解析（非 terminate 工具）
+  │
+  ├─ WorldGraphDataAccess（src/data/world-graph-data-access.ts）
+  │    统一世界图数据管道：主会话 / 子代理工具共用一套读写收口
   │
   └─ Orchestrator（src/orchestrator.ts，纯代码编排器，非 LLM）
-       plan/yolo 双模式，编排四阶段子代理：
+       plan/yolo 双模式，编排四阶段子代理（new XxxAgent(runtime, deps).run(...)）：
          planner  → 检索计划推导（注入世界图只读工具）
          role     → 角色串行扮演（注入角色可见性受限工具）
          reasoner → 可见性推理，自主写世界图
@@ -113,26 +129,32 @@ narrative-engine/
 │   │   └── llm-resolver.ts    # LLM 配置解析
 │   ├── orchestrator/     # 编排器服务层
 │   │   ├── service.ts         # OrchestratorService（plan 缓存 + commit 状态机）
-│   │   ├── assembly.ts        # SchedulerCtx 装配
-│   │   ├── llm-config.ts      # LlmConfigStore（5 slot 模型配置）
+│   │   ├── assembly.ts        # OrchestratorPorts 装配
+│   │   ├── llm-config.ts      # LlmConfigStore（5 slot 模型配置，LlmSlot 类型）
 │   │   └── mcp-server.ts      # MCP 工具服务器
-│   ├── agents/           # 四阶段子代理工厂
-│   │   ├── planner-agent.ts   # planner 子代理
-│   │   ├── role-agent.ts      # role 子代理
-│   │   ├── reasoning-agent.ts # reasoner 子代理
-│   │   ├── renderer-agent.ts  # renderer 子代理
-│   │   ├── world-tools.ts     # 世界图只读/写入工具
+│   ├── agents/           # 统一代理抽象 + 四子代理（2026-08-12 重构）
+│   │   ├── agent-runtime.ts   # AgentRuntime/ModelResolver/AgentReply/SessionRequest
+│   │   │                      #   + SubagentResourceLoader + LlmConfigStoreRuntime + extractFencedJson
+│   │   ├── base-agent.ts      # BaseAgent 抽象类（统一 run() 流程 + 指令收尾纪律）
+│   │   ├── planner-agent.ts   # PlannerAgent extends BaseAgent
+│   │   ├── role-agent.ts      # RoleAgent extends BaseAgent
+│   │   ├── reasoning-agent.ts # ReasoningAgent extends BaseAgent
+│   │   ├── renderer-agent.ts  # RendererAgent extends BaseAgent
+│   │   ├── world-tools.ts     # 世界图工具（共用 DataAccess 收口）
 │   │   ├── chapter-tools.ts   # 章节读写工具
-│   │   ├── collect.ts         # 检索结果收集
-│   │   └── tools.ts           # 工具注册汇总
+│   │   ├── rules-tools.ts     # rules_read 工具（规则渐进披露 D11）
+│   │   └── tools.ts           # 产出 schema（terminate 工具已废弃，schema 供 extractOutput 校验）
 │   ├── chat/             # 主会话宿主与工具
-│   │   ├── main-session.ts    # MainSessionHost（pi SDK 同构主会话）
+│   │   ├── main-session.ts    # MainSessionHost（pi SDK 主会话，implements ModelResolver）
+│   │   ├── agent-tool-adapter.ts # AgentTool → ToolDefinition 适配
 │   │   ├── scheduler-tools.ts # scheduler_dispatch/commit/discard/queue_status 工具
-│   │   ├── world-tools.ts     # world_* 工具
 │   │   ├── render-tools.ts    # render_* 工具
 │   │   ├── role-tools.ts      # role_* 工具
 │   │   ├── import-tools.ts    # import_novel / import_character_card 工具
-│   │   └── import-card.ts     # 酒馆卡解析
+│   │   ├── import-card.ts     # 酒馆卡解析
+│   │   └── session-pool.ts    # 会话池
+│   ├── data/             # 统一数据管道
+│   │   └── world-graph-data-access.ts # WorldGraphDataAccess（主会话/子代理共用读写收口）
 │   ├── visualizer/       # 世界图可视化
 │   │   ├── routes.ts          # HTTP 路由（含 history events 关联查询）
 │   │   └── server.ts          # standalone 模式入口
@@ -143,7 +165,7 @@ narrative-engine/
 │   ├── ports/            # 数据层 Ports（解耦编排器与世界图实现）
 │   │   ├── types.ts           # Ports 接口
 │   │   └── adapters.ts        # 适配器
-│   ├── orchestrator.ts   # Orchestrator 类（编排四阶段）
+│   ├── orchestrator.ts   # Orchestrator 类（纯代码编排四阶段，不继承 BaseAgent）
 │   ├── event-queue.ts    # 通用任务队列（event 调度 + commit 异步执行）
 │   ├── embedder.ts       # 向量模型封装（@xenova/transformers）
 │   ├── search.ts         # 检索（fulltext / vector / hybrid）
@@ -160,7 +182,7 @@ narrative-engine/
 ├── frontend-demo/        # 可视化前端（原生 JS，无构建步骤）
 │   ├── views/            # 8 个视图（projects/graph/events/studio/debug/files/settings/entity-detail）
 │   ├── styles/           # 4 个 CSS（tokens/shell/components/views）
-│   ├── vendor/           # 4 个第三方库（tailwind/lucide/3d-force-graph/three）
+│   ├── vendor/           # 6 个第三方库（tailwind/lucide/3d-force-graph/three/marked/dompurify）
 │   ├── api-client.js     # API 客户端（含 mock 模式）
 │   ├── api-mock.js       # Mock 数据
 │   ├── mock-data.js      # Mock 种子
@@ -204,7 +226,7 @@ Node 20 已 EOL，且 pi-coding-agent 的 undici 依赖 Node≥22 内部 API。
 
 | 包 | 职责 |
 |---|------|
-| `underworld-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量）— **外部 npm 包**（独立仓库） |
+| `underworld-graph` | bi-temporal 世界图（SQLite + FTS5 + 向量）— **外部 npm 包**（独立仓库，v0.3.x） |
 | `@pi/scheduler` | 调度器：检索计划 → 角色编排 → 写扩散 + 渲染 |
 | `@pi/role-pool` | 角色池：串行扮演，酒馆卡静态层 + 动态事实注入 |
 | `@pi/renderer` | 渲染器：结构化输出 → 规则集约束正文，锚点写盘 |

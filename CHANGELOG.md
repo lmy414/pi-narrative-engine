@@ -19,7 +19,30 @@
 - **已知受阻**：世界图写接口补齐（声明闭合/实体删除/实体属性编辑）依赖 underworld-graph 包新增
   `closeDeclaration` / `deleteEntity` / `updateEntityProps`，该包未改，暂缓。
 
+### 统一代理抽象（2026-08-12，单一运行时，bd52c18）
+
+- **单一运行时统一**：主会话与四个子代理共用同一 `AgentSession`（pi-coding-agent）运行时；
+  子代理（Planner/Role/Reasoning/Renderer）继承 `BaseAgent`。底层相同，仅 prompt 与工具集不同。
+  依据 `docs/plans/2026-08-12-unified-agent-abstraction*.md`。
+- **`BaseAgent` + `AgentRuntime` 基础设施**：`src/agents/agent-runtime.ts`（`ModelResolver` /
+  `AgentRuntime` / `AgentReply` / `SessionRequest` / `SubagentResourceLoader` /
+  `LlmConfigStoreRuntime` / `extractFencedJson`）+ `src/agents/base-agent.ts`（统一 `run()`：
+  buildSessionRequest → createSession → driveToReply → extractOutput，finally dispose）。
+- **主会话实现 `ModelResolver`**：`MainSessionHost` 保留持久多轮/流式/switchSession，仅追加
+  `resolveModel`/`resolveApiKey`，不继承 `BaseAgent`（非一次性语义）。
+- **产出机制迁移**：子代理从 terminate 提交工具改为「指令性 prompt 收尾 + fenced JSON 解析」；
+  `collect.ts` 删除，`tools.ts` 的 terminate 工具废弃（schema 保留供 `extractOutput` 校验）。
+- **编排器改造**：`OrchestratorOptions.llmStore` → `agentRuntime: AgentRuntime` + `agentDir`；
+  `new XxxAgent(runtime, deps).run(...)` 调用；`promptAndCollectWithTimeout` 并入
+  `driveToReply`（超时兜底）。编排器仍为纯代码协调层，不继承 `BaseAgent`。
+- **工具适配**：`src/chat/agent-tool-adapter.ts` 提供 `AgentTool → ToolDefinition` 机械适配
+  （schema 复用，execute 忽略 ctx）。
+- **测试升级**：新增 `tests/agent-runtime.test.ts` / `tests/base-agent.test.ts`；废弃
+  `collectSubmission` 与 terminate 工具测试；端到端链路验证新产出机制。
+
 ### 文档
+
+- **统一代理抽象文档同步**（2026-08-12）：README 架构/目录结构更新（`BaseAgent`/`AgentRuntime`/`WorldGraphDataAccess`/`agent-tool-adapter`，删 `collect.ts`）；`docs/api/chat.md` + `unified-server.md` 补 `/api/chat/abort`、`/api/chat/sessions/:id/activate`、`POST /api/chat/sessions`（新建会话）、`/api/admin/llm/providers*` 端点，并按路由源码校正 activate/abort 响应契约（`session` 对象 / `aborted`+`sessionId`，补 `SESSION_NOT_FOUND`/`SESSION_INVALID_PATH`/`EMBEDDER_UNAVAILABLE` 错误码）；THIRD-PARTY 更新（underworld-graph 0.3.1、marked/dompurify、vendor 6 文件）；docs/README 索引归档已实施文档（统一代理抽象 / 数据管道 / 结构 v3）。
 
 - **结构 v3 记录 D12（git 管理规则与数据库方案）**：`docs/plans/2026-08-08-novel-project-structure-v3.md` §七（2026-08-09）——
   定案 git 管理规则（创作资产+世界图文本入库；world.db/sessions/logs/.mimosa 排除）；

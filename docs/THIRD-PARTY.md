@@ -2,7 +2,7 @@
 
 > 本项目以 GPL-3.0-only 发布。本文盘点全部第三方代码、依赖及其许可证。
 > **结论先行：所有外部依赖均为宽松许可证（MIT / Apache-2.0 / ISC），与 GPL-3.0 兼容。**
-> 最后更新：2026-08-05（全量核对 package.json / frontend-demo/vendor/ / packages/* 后重写）
+> 最后更新：2026-08-12（核对 package.json / frontend-demo/vendor/ 后更新：underworld-graph 0.3.1、新增 marked/dompurify、vendor 6 文件）
 
 ## 1. 概述
 
@@ -20,22 +20,24 @@
 |----|---------|--------|------|
 | `@xenova/transformers` | ^2.17.2 | Apache-2.0 | 本地文本嵌入（feature-extraction pipeline，ONNX 运行时，用于实体/事实向量检索） |
 | `epub2` | ^3.0.2 | ISC | EPUB 分章解析（novel-importer 阶段 1） |
-| `underworld-graph` | ^0.1.0 | GPL-3.0-only | 世界图底层 SDK（节点/边存储、FTS5 全文检索、向量检索、QueryBuilder）。**第一方外部包**：本项目作者同人维护的独立 npm 包（许可证与本仓库一致），2026-07-31 从 monorepo 解耦独立发布 |
+| `underworld-graph` | 0.3.1 | GPL-3.0-only | 世界图底层 SDK（节点/边存储、FTS5 全文检索、向量检索、QueryBuilder）。**第一方外部包**：本项目作者同人维护的独立 npm 包（许可证与本仓库一致），2026-07-31 从 monorepo 解耦独立发布，2026-08-08 升级至 0.3.x |
 
 > `@nicia-ai/typegraph` / `better-sqlite3` / `drizzle-orm` / `sqlite-vec` / `zod` 等自解耦起经 `underworld-graph` 传递依赖引入，根 `package.json` 不再直接声明（详见 §6）。
 
 ## 3. npm 开发依赖（不进运行时，root `package.json` → `devDependencies`）
 
-共 9 项：
+共 11 项：
 
 | 包 | 版本约束 | 许可证 | 用途 |
 |----|---------|--------|------|
 | `@earendil-works/pi-agent-core` | ^0.77.0 | MIT | pi SDK 核心（agent 运行时类型与工具） |
 | `@earendil-works/pi-ai` | ^0.77.0 | MIT | LLM 调用（complete/getModel/validateToolCall）+ TypeBox 重导出 |
-| `@earendil-works/pi-coding-agent` | ^0.77.0 | MIT | pi 编码 agent API 类型定义（ExtensionAPI 等） |
+| `@earendil-works/pi-coding-agent` | ^0.77.0 | MIT | pi 编码 agent API 类型定义（AgentSession / createAgentSession / ToolDefinition 等） |
 | `@modelcontextprotocol/sdk` | ^1.30.0 | MIT | MCP 协议 SDK（unified-server 对外暴露 MCP 工具） |
 | `@types/node` | ^20.14.0 | MIT | Node.js 类型定义 |
+| `dompurify` | ^3.4.13 | Apache-2.0 OR MPL-2.0 | 前端 markdown 渲染净化（vendor 同版本） |
 | `esbuild` | ^0.23.0 | MIT | TS→JS 逐文件转译（`scripts/build.mjs`）与 sidecar 打包 |
+| `marked` | ^18.0.9 | MIT | 前端 markdown 渲染（vendor 同版本） |
 | `typebox` | ^1.1.24 | MIT | pi 工具参数 schema（registerTool 参数定义） |
 | `typescript` | ^5.4.0 | Apache-2.0 | 类型检查（`tsc --noEmit`） |
 | `zod` | ^4.4.3 | MIT | 事件记录/导入 schema 校验（novel-importer 使用） |
@@ -59,16 +61,18 @@
 
 ## 5. Vendored 前端库（`frontend-demo/vendor/`，随仓库分发）
 
-可视化无构建纯静态服务，以下 4 个库文件直接入库分发（与 `frontend-demo/index.html` 引用一一对应，含 SRI integrity 属性）：
+可视化无构建纯静态服务，以下 6 个库文件直接入库分发（与 `frontend-demo/index.html` 引用一一对应，含 SRI integrity 属性）：
 
 | 文件 | 项目（版本） | 许可证 | 用途 |
 |------|------------|--------|------|
 | `tailwind-browser-4.3.1.js` | Tailwind CSS（4.3.1，browser CDN UMD） | MIT | 原子化 CSS 框架（浏览器即时编译，无构建步骤） |
 | `lucide-1.28.0.js` | Lucide Icons（1.28.0） | ISC | UI 图标库（`lucide.createIcons()` 注入 `<i data-lucide="...">`） |
+| `marked-18.0.9.js` | marked（18.0.9） | MIT | Markdown → HTML 渲染（与 root `marked` 同版本） |
+| `dompurify-3.4.13.js` | DOMPurify（3.4.13） | Apache-2.0 OR MPL-2.0 | 渲染后的 HTML 净化（XSS 防护，与 root `dompurify` 同版本） |
 | `3d-force-graph-1.80.0.js` | 3d-force-graph（1.80.0，vasturiano） | MIT | 三维力导图布局（世界图主视图，`ForceGraph3D()(container)` 实例化） |
 | `three-0.160.0.js` | three.js（0.160.0） | MIT | 3D 渲染引擎（自定义节点几何体 `graph3dNodeObject`，由 3d-force-graph 内部依赖；UMD 必须在 3d-force-graph 之后加载） |
 
-> **加载顺序**（见 `index.html` 注释）：tailwind → lucide → 3d-force-graph → three。three UMD 必须在 3d-force-graph 之后加载；先加载会导致 3d-force-graph UMD 初始化失败（全局不挂载）。
+> **加载顺序**（见 `index.html` 注释）：tailwind → marked → dompurify → lucide → 3d-force-graph → three。three UMD 必须在 3d-force-graph 之后加载；先加载会导致 3d-force-graph UMD 初始化失败（全局不挂载）。
 >
 > **文字标签**：3D 图节点文字标签走 DOM 投影层（`graph3dLabelLayer`），**不使用** three-spritetext（与 3d-force-graph 内置 three 版本不兼容）。
 >
@@ -112,17 +116,18 @@
 
 1. 保留本文件
 2. 保留各 vendor 文件头部的原始版权注释（均已保留）
-3. Apache-2.0 组件（npm：`@xenova/transformers` / `drizzle-orm` / `typescript`）如有修改需标注——本项目**未修改**这些组件的源码
-4. ISC 组件（`epub2` / `lucide`）与 MIT 组件（`tailwind` / `3d-force-graph` / `three` / 各 pi SDK 包 / `zod` / `typebox` / `esbuild` / `@modelcontextprotocol/sdk` / `@types/node`）保留版权声明即可
+3. Apache-2.0 组件（npm：`@xenova/transformers` / `drizzle-orm` / `typescript`；vendor：`dompurify`）如有修改需标注——本项目**未修改**这些组件的源码
+4. ISC 组件（`epub2` / `lucide`）与 MIT 组件（`tailwind` / `3d-force-graph` / `three` / `marked` / 各 pi SDK 包 / `zod` / `typebox` / `esbuild` / `@modelcontextprotocol/sdk` / `@types/node`）保留版权声明即可
 
 ## 11. 兼容性结论
 
 | 许可证 | 涉及依赖 | 与 GPL-3.0 |
 |--------|---------|-----------|
-| MIT | 绝大多数（pi SDK / zod / typebox / esbuild / @types/node / @modelcontextprotocol/sdk / tailwind / 3d-force-graph / three / @nicia-ai/typegraph / better-sqlite3） | ✅ 兼容（可合并，保留版权声明即可） |
+| MIT | 绝大多数（pi SDK / zod / typebox / esbuild / @types/node / @modelcontextprotocol/sdk / tailwind / 3d-force-graph / three / marked / @nicia-ai/typegraph / better-sqlite3） | ✅ 兼容（可合并，保留版权声明即可） |
 | Apache-2.0 | @xenova/transformers, drizzle-orm, typescript | ✅ 兼容（GPLv3 §7 明确兼容；注意其专利授权条款） |
 | ISC | epub2, lucide | ✅ 兼容（与 MIT 等价） |
 | MIT OR Apache-2.0（双许可） | sqlite-vec | ✅ 任选其一，均兼容 |
+| Apache-2.0 OR MPL-2.0（双许可） | dompurify | ✅ 选 Apache-2.0 即兼容（与 GPL-3.0 同向兼容） |
 | GPL-3.0-only | underworld-graph（第一方同人维护） | ✅ 与本仓库许可证完全一致 |
 
 无 copyleft 冲突项，无许可证不明项。
